@@ -258,7 +258,7 @@ class TestRecordAggregationLaw:
             step_delta_over_streams(stream, stream)
 
     def test_residual_max_is_per_field_max_abs_over_solves(self) -> None:
-        """Each solve contributes its last iterate; the max is over solves."""
+        """Each solve contributes the residuals driving its final updates."""
         records = [
             *_solve(clamp_bl=(0.1,), wire_bl=(2.0,)),
             *_solve(clamp_bl=(0.05,), wire_bl=(5.0,)),

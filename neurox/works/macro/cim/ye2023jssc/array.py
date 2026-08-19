@@ -13,15 +13,17 @@ See Also:
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 from torch import Tensor
 
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
-    XbarArray1t1rChunkMeasure,
     XbarArray1t1rConfig,
     XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rSolveProjection,
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rSnap
@@ -68,15 +70,6 @@ class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
 
     i_tbl__uA: Tensor
     """Summed T2 compute current per leading instance, already reduced over columns and rows.
-    Shape: `[...]`.
-    """
-
-
-class Ye2023Jssc2t1rChunkMeasure(XbarArray1t1rChunkMeasure):
-    """Kernel chunk measurement plus the chunk's lookup sum."""
-
-    i_tbl__uA: Tensor
-    """Place-value-weighted T2 lookup sum, already reduced over columns and rows.
     Shape: `[...]`.
     """
 
@@ -135,7 +128,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         if not isinstance(cell_config, Ye2023Jssc2t1rCellConfig):
             raise TypeError(
                 f"require: cell_config a Ye2023Jssc2t1rCellConfig; got {type(cell_config).__name__} "
-                "— the TBL measurement calls the cell's I_T2 surface"
+                "— the TBL projection calls the cell's I_T2 surface"
             )
 
         super().__init__(
@@ -169,9 +162,9 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
     ) -> Ye2023Jssc2t1rSteadyState:
         """Settle the WH-2T1R array to DC and compute the T2 lookup sum.
 
-        Identical to the kernel solve — same nodes, same snaps, same chunking —
-        with the T2 lookup folded into the same per-chunk measurement, so the
-        grid-shaped lookup dies with its chunk and only the row sum survives.
+        Identical to the kernel solve — same nodes, same snaps, same bounded
+        execution — with the T2 lookup projected before the grid-shaped DCOP
+        is released, so only the reduced lookup current survives.
 
         Args:
             v_wl__V: Analog WL drive, one value per cell gate.
@@ -186,52 +179,38 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         Returns:
             The kernel steady state plus the summed T2 current.
         """
-        steady = super().solve_array(
-            v_wl__V,
-            bl_driver=bl_driver,
-            bl_driver_snap=bl_driver_snap,
-            sl_driver=sl_driver,
-            sl_driver_snap=sl_driver_snap,
-        )
-        assert isinstance(steady, Ye2023Jssc2t1rSteadyState)
-        return steady
-
-    def _assemble_steady_state(self, measured: XbarArray1t1rChunkMeasure) -> Ye2023Jssc2t1rSteadyState:
-        """Carry the lookup sum out alongside the two boundaries."""
-        assert isinstance(measured, Ye2023Jssc2t1rChunkMeasure)
-        return Ye2023Jssc2t1rSteadyState(
-            i_bl_port__uA=measured.i_bl_port__uA,
-            v_bl_clamp__V=measured.v_bl_clamp__V,
-            i_sl_port__uA=measured.i_sl_port__uA,
-            v_sl_drive__V=measured.v_sl_drive__V,
-            i_tbl__uA=measured.i_tbl__uA,
+        return cast(
+            Ye2023Jssc2t1rSteadyState,
+            super().solve_array(
+                v_wl__V,
+                bl_driver=bl_driver,
+                bl_driver_snap=bl_driver_snap,
+                sl_driver=sl_driver,
+                sl_driver_snap=sl_driver_snap,
+            ),
         )
 
-    def _measure_chunk(
+    def _project_dcop(
         self,
         *,
         dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
         bl_driver_snap: ClampSnap,
         sl_driver_snap: ClampSnap,
-        **_other_operands: object,
-    ) -> Ye2023Jssc2t1rChunkMeasure:
-        """Fold the kernel measurement and add this chunk's I_T2 row sum.
+    ) -> XbarArray1t1rSolveProjection[Ye2023Jssc2t1rSteadyState]:
+        """Project the kernel result and the T2 lookup sum from one DCOP.
 
         Args:
-            dcop: This chunk's converged solver DCOP; its cell working point carries
+            dcop: Converged solver DCOP; its cell working point carries
                 the `V_X` the cell reads its operating point off.
-            cell_snap: This chunk's slice of the per-solve cell snap, carrying the
-                per-cell WL drive.
-            bl_driver_snap: This chunk's slice of the BL clamp snap.
-            sl_driver_snap: This chunk's slice of the SL clamp snap.
-            _other_operands: The remaining sliced snaps and tensors, which this
-                array's own measurement does not read.
+            cell_snap: Per-solve cell snap carrying the per-cell WL drive.
+            bl_driver_snap: BL clamp snap.
+            sl_driver_snap: SL clamp snap.
 
         Returns:
-            The kernel measurement and the chunk's lookup sum.
+            The extended steady state and the kernel array energy.
         """
-        base = super()._measure_chunk(
+        base = super()._project_dcop(
             dcop=dcop,
             cell_snap=cell_snap,
             bl_driver_snap=bl_driver_snap,
@@ -240,18 +219,20 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
 
         # Row selection and operating point are BOTH the cell's own call; the
         # array contributes the place values and the reduction. The grid-shaped
-        # intermediates die with the chunk; only the reduction leaves.
-        cell = self.cell
-        assert isinstance(cell, Ye2023Jssc2t1rCell)
-        assert isinstance(cell_snap, Ye2023Jssc2t1rCellSnap)
-        # Shape: [chunk, col_num, row_num] -> [chunk]
+        # intermediates die with this DCOP; only the reduction leaves.
+        cell = cast(Ye2023Jssc2t1rCell, self.cell)
+        cell_snap = cast(Ye2023Jssc2t1rCellSnap, cell_snap)
+        # Shape: [..., col_num, row_num] -> [...]
         i_tbl__uA = (cell.i_t2__uA(dcop.cell, cell_snap) * self._radix_per_col.view(-1, 1)).sum(dim=(-2, -1))
 
-        return Ye2023Jssc2t1rChunkMeasure(
-            i_bl_port__uA=base.i_bl_port__uA,
-            v_bl_clamp__V=base.v_bl_clamp__V,
-            i_sl_port__uA=base.i_sl_port__uA,
-            v_sl_drive__V=base.v_sl_drive__V,
+        state = base.steady_state
+        return XbarArray1t1rSolveProjection(
+            steady_state=Ye2023Jssc2t1rSteadyState(
+                i_bl_port__uA=state.i_bl_port__uA,
+                v_bl_clamp__V=state.v_bl_clamp__V,
+                i_sl_port__uA=state.i_sl_port__uA,
+                v_sl_drive__V=state.v_sl_drive__V,
+                i_tbl__uA=i_tbl__uA,
+            ),
             energy__fJ=base.energy__fJ,
-            i_tbl__uA=i_tbl__uA,
         )

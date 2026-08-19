@@ -15,7 +15,7 @@ Public surface: `build_solver_harness` returns a frozen
 the two ideal clamp drivers with their snaps, the two rail link
 resistances, the WL drive, and the oracle inputs (the cell config, the
 programmed state indices, and the resolved rail reference taps). Tests
-call `harness.solver.solve_dc(**harness.solver_kwargs(), ...)`; the
+call `solve_col_bl_col_sl_dc(**harness.solve_kwargs())`; the
 per-call cell snap is rebuilt by `SolverHarness.cell_snapshot`.
 """
 
@@ -42,7 +42,7 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
 )
-from neurox.primitive.xbar.solver import ColBlColSlSolver, ColBlColSlSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 
 # --- Hand-written harness constants (arbitrary small witnesses) ---
 
@@ -108,14 +108,14 @@ def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call `ColBlColSlSolver.solve_dc` directly.
+    """All inputs required to call `solve_col_bl_col_sl_dc` directly.
 
     Also carries the dense-oracle inputs: the hand-written linear cell
     config, the programmed state-index grid, and the resolved rail
     reference taps (exact clamp targets, since both drivers are ideal).
     """
 
-    solver: ColBlColSlSolver
+    solver_config: ColBlColSlSolverConfig
     cell: XbarCell1t1rLinear
     cell_config: XbarCell1t1rLinearConfig
     w_state_idx: Tensor
@@ -142,13 +142,14 @@ class SolverHarness:
             t_elapsed=0.0,
         )
 
-    def solver_kwargs(self) -> dict[str, Any]:
-        """Pack the per-call kwargs for `solver.solve_dc(...)`.
+    def solve_kwargs(self) -> dict[str, Any]:
+        """Pack the per-call arguments for `solve_col_bl_col_sl_dc`.
 
         Includes the cell and the two clamp drivers — the stateless solver
         takes them per call.
         """
         return {
+            "config": self.solver_config,
             "bl_segment_r__MOhm": self.bl_segment_r__MOhm,
             "sl_segment_r__MOhm": self.sl_segment_r__MOhm,
             "cell": self.cell,
@@ -254,12 +255,8 @@ def build_solver_harness(
     # Shape: [X_BATCH, col_num] -> []
     bl_v_ref, sl_v_ref = bl_ref_full[0, 0], sl_ref_full[0, 0]
 
-    # --- Solver (stateless: cell + drivers supplied per call) ---
-
-    solver = ColBlColSlSolver(config=solver_config)
-
     return SolverHarness(
-        solver=solver,
+        solver_config=solver_config,
         cell=cell,
         cell_config=cell_config,
         w_state_idx=w_state_idx,

@@ -20,13 +20,13 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rSnap,
 )
 from neurox.primitive.xbar.solver import (
-    ChunkedSolver,
     ClampDcop,
     ClampDriver,
     ClampSnap,
     ColBlColSlDcop,
-    ColBlColSlSolver,
     ColBlColSlSolverConfig,
+    execute_chunked,
+    solve_col_bl_col_sl_dc,
 )
 
 
@@ -94,7 +94,7 @@ class XbarArray1t1rPolicy(PolicyBase):
     cell_policy: XbarCell1t1rPolicy
     """Its concrete subclass matches the configured cell model."""
     solve_chunk_size: int
-    """Maximum number of broadcast-leading instances the solver settles per
+    """Maximum number of leading positions the solver settles per
     chunk, which is the per-chunk memory budget; `0` runs the whole leading in
     one block. A runtime knob, not a chip-preset constant."""
 
@@ -116,20 +116,25 @@ class XbarArray1t1rSteadyState(TensorDataClassBase):
     """SL drive voltage at the converged operating point. Shape: `[..., col_num]`."""
 
 
-class XbarArray1t1rChunkMeasure(TensorDataClassBase):
-    """What survives one solved chunk of this array."""
+class XbarArray1t1rSolveProjection[SteadyStateT: XbarArray1t1rSteadyState](TensorDataClassBase):
+    """Array-owned result projected from a solved DC operating point."""
 
-    i_bl_port__uA: Tensor
-    """BL port current at the converged operating point. Shape: `[..., col_num]`."""
-    v_bl_clamp__V: Tensor
-    """BL clamp voltage at the converged operating point. Shape: `[..., col_num]`."""
-    i_sl_port__uA: Tensor
-    """SL port current at the converged operating point. Shape: `[..., col_num]`."""
-    v_sl_drive__V: Tensor
-    """SL drive voltage at the converged operating point. Shape: `[..., col_num]`."""
+    steady_state: SteadyStateT
     energy__fJ: Tensor | None
     """Array capacitive energy, absent when no profiler asks for dynamic
     energy. Shape: `[...]`."""
+
+
+class _XbarArray1t1rSolveOperands[
+    CellSnapT: XbarCell1t1rSnap,
+    BLSnapT: ClampSnap,
+    SLSnapT: ClampSnap,
+](TensorDataClassBase):
+    """Tensor-carrying inputs sliced together for one array solve."""
+
+    cell_snap: CellSnapT
+    bl_driver_snap: BLSnapT
+    sl_driver_snap: SLSnapT
 
 
 class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
@@ -140,11 +145,9 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     concatenates them into the per-cell grid the cell sub-module is built at,
     so geometry is never recovered from lifecycle-produced state.
 
-    The measurement pair is the extension seam. A scheme whose measurement
-    carries more than the two boundaries subclasses both measurement records
-    and overrides `_measure_chunk` and `_assemble_steady_state`, narrowing the
-    `solve_array` return type covariantly; the snapshot, the chunk loop, and
-    the fold between them stay as they are.
+    `_project_dcop` is the extension seam. A scheme with additional observable
+    state overrides that projection and returns its own steady-state subtype;
+    the snapshot, solver call, chunk execution, and folding stay unchanged.
 
     Args:
         operation_mode: Scan organization the capacitive billing follows.
@@ -196,10 +199,6 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             dtype=dtype,
             T__K=T__K,
         )
-        self._solver: ChunkedSolver[XbarArray1t1rChunkMeasure] = ChunkedSolver(
-            ColBlColSlSolver(config=self.config.solver_config).solve_dc,
-            chunk_size=self.policy.solve_chunk_size,
-        )
 
     @property
     def w_state_num(self) -> int:
@@ -208,7 +207,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (per-cell state array): `(*inst_shape, col, row)`."""
+        """Shape of the weight grid: `(*inst_shape, col_num, row_num)`."""
         return (*self.inst_shape, self._col_num, self._row_num)
 
     def program(self, w_state_idx: Tensor) -> None:
@@ -240,11 +239,9 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     ) -> XbarArray1t1rSteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
-        The call's leading is the weight-grid prefix `(*inst_shape,)`
-        broadcast against the WL drive; arbitrary batch axes stay in front of
-        this array's instance axes. No boundary shape is normalized
-        here: the snaps arrive at the full per-call shape and the WL drive as
-        a full cell grid, a row-uniform drive being an expanded row vector.
+        The WL grid declares the call's complete leading shape. No boundary
+        shape is normalized here: every snap arrives at that same leading and
+        the WL drive already carries one value per cell gate.
 
         Args:
             v_wl__V: Analog WL drive, one value per cell gate.
@@ -261,86 +258,87 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             full leading, the column axis being each clamp's own instance
             axis.
         """
-        # --- 1: read the call's broadcast leading ---
+        # --- 1: read the canonical leading from the complete WL grid ---
 
         col_num, row_num = self._col_num, self._row_num
-        leading = tuple(torch.broadcast_shapes(self.weight_grid_shape[:-2], v_wl__V.shape[:-2]))
+        leading_shape = tuple(v_wl__V.shape[:-2])
 
-        # --- 2: snapshot the cell and fold the solve chunk by chunk ---
+        # --- 2: snapshot the cell and execute the solve over bounded batches ---
 
         # A cell's control is the voltage at its own gate, so the drive
         # travels to the cell exactly as it arrives, on the cell grid.
         cell_snap = self.cell.snapshot(
             control=v_wl__V,
-            shape=(*leading, col_num, row_num),
+            shape=(*leading_shape, col_num, row_num),
             t_elapsed=0.0,
         )
 
-        measured = self._solver.solve_dc(
-            leading=leading,
-            bl_segment_r__MOhm=self.config.bl_segment_r__MOhm,
-            sl_segment_r__MOhm=self.config.sl_segment_r__MOhm,
-            cell=self.cell,
+        operands: _XbarArray1t1rSolveOperands[XbarCell1t1rSnap, BLSnapT, SLSnapT] = _XbarArray1t1rSolveOperands(
             cell_snap=cell_snap,
-            bl_driver=bl_driver,
             bl_driver_snap=bl_driver_snap,
-            sl_driver=sl_driver,
             sl_driver_snap=sl_driver_snap,
-            measure=self._measure_chunk,
         )
 
-        # --- 3: record aggregate energy ---
+        def solve_and_project(
+            current: _XbarArray1t1rSolveOperands[XbarCell1t1rSnap, BLSnapT, SLSnapT],
+        ) -> XbarArray1t1rSolveProjection[XbarArray1t1rSteadyState]:
+            dcop = solve_col_bl_col_sl_dc(
+                config=self.config.solver_config,
+                bl_segment_r__MOhm=self.config.bl_segment_r__MOhm,
+                sl_segment_r__MOhm=self.config.sl_segment_r__MOhm,
+                cell=self.cell,
+                cell_snap=current.cell_snap,
+                bl_driver=bl_driver,
+                bl_driver_snap=current.bl_driver_snap,
+                sl_driver=sl_driver,
+                sl_driver_snap=current.sl_driver_snap,
+            )
+            return self._project_dcop(
+                dcop=dcop,
+                cell_snap=current.cell_snap,
+                bl_driver_snap=current.bl_driver_snap,
+                sl_driver_snap=current.sl_driver_snap,
+            )
 
-        if measured.energy__fJ is not None:
+        projection: XbarArray1t1rSolveProjection[XbarArray1t1rSteadyState] = execute_chunked(
+            chunk_size=self.policy.solve_chunk_size,
+            leading_shape=leading_shape,
+            operands=operands,
+            run=solve_and_project,
+        )
+
+        # --- 3: record aggregate energy and expose the steady state ---
+
+        if projection.energy__fJ is not None:
             # The cell's finer (column, row) axes are already folded by the
             # mode's energy function; the collector sums this array's own work
             # and instance axes past the call's leading dims.
-            # Shape: [*leading]
-            self._record_dynamic_energy(measured.energy__fJ)
-        return self._assemble_steady_state(measured)
+            # Shape: [...]
+            self._record_dynamic_energy(projection.energy__fJ)
+        return projection.steady_state
 
-    def _assemble_steady_state(self, measured: XbarArray1t1rChunkMeasure) -> XbarArray1t1rSteadyState:
-        """Reassemble the folded measurement into this array's steady state.
-
-        Args:
-            measured: Folded measurement at the call's full leading.
-
-        Returns:
-            Steady state exposing the assembled boundaries.
-        """
-        return XbarArray1t1rSteadyState(
-            i_bl_port__uA=measured.i_bl_port__uA,
-            v_bl_clamp__V=measured.v_bl_clamp__V,
-            i_sl_port__uA=measured.i_sl_port__uA,
-            v_sl_drive__V=measured.v_sl_drive__V,
-        )
-
-    def _measure_chunk(
+    def _project_dcop(
         self,
         *,
         dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
         bl_driver_snap: ClampSnap,
         sl_driver_snap: ClampSnap,
-        **_other_operands: object,
-    ) -> XbarArray1t1rChunkMeasure:
-        """Fold one solved chunk down to the state that outlives it.
+    ) -> XbarArray1t1rSolveProjection[XbarArray1t1rSteadyState]:
+        """Project a converged DC operating point before releasing its grids.
 
         Args:
-            dcop: This chunk's converged solver DCOP.
-            cell_snap: This chunk's slice of the per-solve cell snap.
-            bl_driver_snap: This chunk's slice of the BL clamp snap.
-            sl_driver_snap: This chunk's slice of the SL clamp snap.
-            _other_operands: The remaining sliced snaps and tensors, which
-                this array's own measurement does not read.
+            dcop: Converged solver DCOP for the current batch.
+            cell_snap: Current batch's per-solve cell snap.
+            bl_driver_snap: Current batch's BL clamp snap.
+            sl_driver_snap: Current batch's SL clamp snap.
 
         Returns:
-            Both port states and, while a profiler asks for it, the chunk's
-            array energy.
+            The steady state and, while a profiler asks for it, array energy.
         """
         energy__fJ = None
         if self._is_dynamic_energy_profile_active():
-            # Shape: [chunk, col_num, row_num] -> [chunk]
+            # Shape: [..., col_num, row_num] -> [...]
             if self._operation_mode is XbarArray1t1rOperationMode.WL_IN_BL_SCAN:
                 energy__fJ = self._energy_wl_in_bl_scan__fJ(solver_dcop=dcop, cell_snap=cell_snap)
             else:
@@ -350,11 +348,13 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                     bl_driver_snap=bl_driver_snap,
                     sl_driver_snap=sl_driver_snap,
                 )
-        return XbarArray1t1rChunkMeasure(
-            i_bl_port__uA=dcop.i_bl_driver__uA,
-            v_bl_clamp__V=dcop.v_bl_clamp__V,
-            i_sl_port__uA=dcop.i_sl_driver__uA,
-            v_sl_drive__V=dcop.v_sl_drive__V,
+        return XbarArray1t1rSolveProjection(
+            steady_state=XbarArray1t1rSteadyState(
+                i_bl_port__uA=dcop.i_bl_driver__uA,
+                v_bl_clamp__V=dcop.v_bl_clamp__V,
+                i_sl_port__uA=dcop.i_sl_driver__uA,
+                v_sl_drive__V=dcop.v_sl_drive__V,
+            ),
             energy__fJ=energy__fJ,
         )
 
@@ -370,8 +370,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         of the four node totals of every cell and no hold to establish.
 
         Args:
-            solver_dcop: Converged DCOP of this chunk.
-            cell_snap: This chunk's cell snap, carrying the WL drive.
+            solver_dcop: Converged DCOP of the current batch.
+            cell_snap: Current batch's cell snap, carrying the WL drive.
 
         Returns:
             Array energy [fJ].
@@ -407,10 +407,10 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         hold covers.
 
         Args:
-            solver_dcop: Converged DCOP of this chunk.
-            cell_snap: This chunk's cell snap, carrying the WL drive.
-            bl_driver_snap: This chunk's BL clamp snap.
-            sl_driver_snap: This chunk's SL clamp snap.
+            solver_dcop: Converged DCOP of the current batch.
+            cell_snap: Current batch's cell snap, carrying the WL drive.
+            bl_driver_snap: Current batch's BL clamp snap.
+            sl_driver_snap: Current batch's SL clamp snap.
 
         Returns:
             Array energy [fJ].

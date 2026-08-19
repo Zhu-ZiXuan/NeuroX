@@ -1,4 +1,4 @@
-"""Unit tests for `ColBlColSlSolver`.
+"""Unit tests for `solve_col_bl_col_sl_dc`.
 
 The subject is the resistor-network IR-drop solve: the harness
 (`tests.utils.standalone_solver_fixture.build_solver_harness`)
@@ -34,6 +34,7 @@ from neurox.primitive.xbar.solver import (
     ColBlColSlProber,
     ColBlColSlRecord,
     ColBlColSlSolverConfig,
+    solve_col_bl_col_sl_dc,
 )
 from tests.utils.standalone_solver_fixture import COL_NUM, ROW_NUM, SolverHarness, build_solver_harness
 
@@ -45,8 +46,8 @@ _N_INNER = 3
 def _eager_solver() -> Iterator[None]:
     """Run the solver eagerly for these tests.
 
-    `solve_dc` is `@torch.compile(dynamic=False)`; fully unrolling it
-    would spend minutes compiling for no benefit to what is asserted.
+    The numerical leaf is `@torch.compile(dynamic=False)`; fully unrolling
+    it would spend minutes compiling for no benefit to what is asserted.
     """
     with torch._dynamo.config.patch(disable=True):
         yield
@@ -123,7 +124,7 @@ def test_dcop_matches_dense_kcl_oracle(device: torch.device) -> None:
         solver_config=ColBlColSlSolverConfig(n_outer=_N_OUTER, n_inner=_N_INNER),
         device=device,
     )
-    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     v_bl_exp, v_sl_exp, i_bl_exp, i_sl_exp = _dense_kcl_solution(harness)
 
     tol = {"rtol": 0.0, "atol": 1e-9}
@@ -156,7 +157,7 @@ def test_a_degenerate_axis_is_well_defined(device: torch.device, col_num: int, r
         col_num=col_num,
         row_num=row_num,
     )
-    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     v_bl_exp, v_sl_exp, i_bl_exp, i_sl_exp = _dense_kcl_solution(harness)
 
     tol = {"rtol": 0.0, "atol": 1e-9}
@@ -200,7 +201,7 @@ def _probe(
 ) -> tuple[tuple[ColBlColSlRecord[XbarCellDcop], ...], ColBlColSlDcop[XbarCellDcop]]:
     """Run one probed solve, returning `(records, dcop)`."""
     with ColBlColSlProber(min_outer=min_outer) as prober:
-        dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+        dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     return prober.records, dcop
 
 
@@ -295,7 +296,7 @@ def test_residuals_belong_to_their_own_records_state(device: torch.device) -> No
     assert terminal.dcop is not None
     assert terminal.f_bl_kcl__uA is None
 
-    # The residual the recorded step produced, rebuilt from the terminal state.
+    # The post-step residual, rebuilt from the terminal state.
     settled__uA = _bl_kcl_at__uA(harness, terminal.dcop)
     assert settled__uA.abs().max().item() < last_inner.f_bl_kcl__uA.abs().max().item()
 
@@ -371,7 +372,7 @@ def test_solve_output_bit_identical_probed_vs_unprobed(device: torch.device) -> 
         solver_config=ColBlColSlSolverConfig(n_outer=_N_OUTER, n_inner=_N_INNER),
         device=device,
     )
-    unprobed = harness.solver.solve_dc(**harness.solver_kwargs())
+    unprobed = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     records, probed = _probe(harness)
     assert len(records) == _N_OUTER * (1 + _N_INNER) + 1
     for field in (
@@ -400,7 +401,7 @@ def test_the_far_node_is_the_ladder_open_end(device: torch.device) -> None:
         device=device,
         row_num=5,
     )
-    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     g_bl = 1.0 / harness.bl_segment_r__MOhm
     v_bl__V = dcop.v_bl_node__V
     # Shape: [..., col_num, row_num]
@@ -432,7 +433,7 @@ def test_a_single_row_tile_matches_the_one_link_closed_form(device: torch.device
         device=device,
         row_num=1,
     )
-    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
 
     dtype = harness.v_wl_drive__V.dtype
     cfg = harness.cell_config

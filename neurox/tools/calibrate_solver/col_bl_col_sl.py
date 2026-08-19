@@ -189,7 +189,7 @@ def plot_stage(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Calibrate ColBlColSlSolver (n_outer, n_inner) via step-ratio plateau."
+        description="Calibrate the parallel BL/SL solver (n_outer, n_inner) via step-ratio plateau."
     )
     add_standard_args(parser, plot_dir=True)
     args = parser.parse_args(argv)
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     distribution_path = None if distribution is None else resolve_relative_path(distribution, args.config)
 
     log.info("=" * 80)
-    log.info("ColBlColSlSolver — step-ratio plateau calibration (2-axis staged)")
+    log.info("Parallel BL/SL solver — step-ratio plateau calibration (2-axis staged)")
     log.info(
         "workload: inst=%s, %d weights x %d inputs (batch_w=%d), active_rows=%d of row_num=%d",
         inst_shape,

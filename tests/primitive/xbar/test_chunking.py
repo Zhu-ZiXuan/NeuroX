@@ -1,32 +1,26 @@
-"""Tests for chunk construction, snap slicing, folding, and the wrapper over them.
+"""Tests for chunk construction, tensor-tree slicing, folding, and execution.
 
 Covers the chunk coordinates and tail padding, the collapse-index-re-expand
-slicing rule (asserted on storage size, not only values), the leading-shape
-broadcast helper, and the preallocating fold that writes each chunk's
-measurement into its global positions.
+slicing rule (asserted on storage size, not only values), the declared-leading
+check, and the preallocating fold that writes each result into its contiguous
+interval.
 
-The wrapper section runs `ChunkedSolver` on a stub solve and a stub
-measurement that both record exactly what they were handed, and pins five
-laws:
+The executor section injects a stub unary function that records exactly what
+it was handed and pins four laws:
 
-  * SAME-SIGNATURE LAW: the wrapper's call is the wrapped solve's call —
-    every snap argument arrives chunk-sliced, every other argument arrives
-    identical (same object) to what the caller passed.
-  * MEASURE-ONLY LAW: a measure tensor reaches the measurement sliced by the
-    same rule as a snap's fields, and never reaches the wrapped solve, which
-    declares no such keyword. It travels as the bare tensor it is.
+  * OPERAND-TREE LAW: every tensor field of the injected operand dataclass,
+    including nested snaps and a bare tensor field, is sliced together.
   * DECLARED-LEADING LAW: the caller states the leading and every sliced
-    operand carries it; the wrapped solve sees one fixed chunk shape and the
-    tail chunk is padded to it.
-  * FOLD LAW: what comes back is the measurement type at the full leading,
-    equal to a single whole-leading solve element for element; no solver
-    DCOP escapes the chunk loop.
-  * PASS-THROUGH LAW: with no leading anywhere, the snaps and measure tensors
-    reach their consumers untouched and the single measurement is returned as
-    it stands.
+    operand carries it; the injected function sees one fixed chunk shape no
+    larger than the complete leading, and the tail chunk is padded to it.
+  * FOLD LAW: what comes back is the result type at the full leading, equal to
+    a single whole-leading run element for element.
+  * PASS-THROUGH LAW: with no leading, the operand tree reaches the function
+    untouched and the single result is returned as it stands.
 
-A sixth check guards the declaration itself: an operand that does not carry
-the stated leading is rejected before any chunk runs.
+Additional checks guard the declaration itself: whether nested in a snap or
+stored directly, an operand tensor that does not carry the stated leading is
+rejected before any chunk runs.
 
 The last section drives the whole layer through a real 1T1R array and pins
 the two laws the fold exists for:
@@ -63,16 +57,8 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
-from neurox.primitive.xbar.solver import (
-    ChunkedSolver,
-    ChunkSpec,
-    ColBlColSlDcop,
-    ColBlColSlSolverConfig,
-    MeasureFold,
-    iter_chunks,
-    slice_snap,
-    slice_tensor,
-)
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig, execute_chunked
+from neurox.primitive.xbar.solver.chunking import _Chunk, _iter_chunks, _ResultFold, _slice_tensor, _slice_tensor_tree
 
 _COL = 4
 _ROW = 5
@@ -120,16 +106,16 @@ class _Dcop:
 
 
 @dataclass(frozen=True)
-class _Measure:
-    """Per-chunk measurement carrying one optional field."""
+class _Result:
+    """Per-chunk result carrying one optional field."""
 
     i_port__uA: Tensor
     energy__fJ: Tensor | None
 
 
 @dataclass(frozen=True)
-class _PortMeasure:
-    """What survives one chunk: the port state and one folded row sum."""
+class _PortResult:
+    """What survives one run: the port state and one folded row sum."""
 
     i_port__uA: Tensor
     wl_sum__V: Tensor
@@ -138,6 +124,16 @@ class _PortMeasure:
 def _elements(t: Tensor) -> int:
     """Storage elements a tensor actually occupies."""
     return t.untyped_storage().size() // t.element_size()
+
+
+def _chunks(leading_shape: tuple[int, ...], chunk_size: int) -> list[_Chunk]:
+    return list(
+        _iter_chunks(
+            leading_shape=leading_shape,
+            chunk_size=chunk_size,
+            reference=torch.empty((), device=_CPU),
+        )
+    )
 
 
 def _grid_snap(leading: tuple[int, ...]) -> _GridSnap:
@@ -162,46 +158,27 @@ def _grid_snap(leading: tuple[int, ...]) -> _GridSnap:
 
 
 def test_positive_chunk_size_pads_only_solver_coordinates() -> None:
-    specs = list(iter_chunks(leading=(5,), chunk_size=3, device=_CPU))
+    chunks = _chunks((5,), 3)
 
-    assert [spec.solve_size for spec in specs] == [3, 3]
-    assert [spec.valid_size for spec in specs] == [3, 2]
-    torch.testing.assert_close(specs[0].multi_coords[0], torch.tensor([0, 1, 2]))
-    torch.testing.assert_close(specs[1].multi_coords[0], torch.tensor([3, 4, 4]))
-    torch.testing.assert_close(specs[1].flat_global_idx, torch.tensor([3, 4]))
+    assert [(chunk.start, chunk.stop) for chunk in chunks] == [(0, 3), (3, 5)]
+    torch.testing.assert_close(chunks[0].coords[0], torch.tensor([0, 1, 2]))
+    torch.testing.assert_close(chunks[1].coords[0], torch.tensor([3, 4, 4]))
 
 
-def test_non_positive_chunk_size_keeps_one_unpadded_chunk() -> None:
-    [spec] = list(iter_chunks(leading=(2, 3), chunk_size=0, device=_CPU))
+def test_chunk_size_is_capped_by_the_workload() -> None:
+    [chunk] = _chunks((2,), 5)
 
-    assert spec.solve_size == 6
-    assert spec.valid_size == 6
-    torch.testing.assert_close(spec.flat_global_idx, torch.arange(6))
-
-
-def test_chunk_larger_than_workload_still_uses_fixed_solver_size() -> None:
-    [spec] = list(iter_chunks(leading=(2,), chunk_size=5, device=_CPU))
-
-    assert spec.solve_size == 5
-    assert spec.valid_size == 2
-    torch.testing.assert_close(spec.multi_coords[0], torch.tensor([0, 1, 1, 1, 1]))
-
-
-def test_empty_leading_shape_remains_atomic_and_unpadded() -> None:
-    [spec] = list(iter_chunks(leading=(), chunk_size=5, device=_CPU))
-
-    assert spec.multi_coords == ()
-    assert spec.solve_size == 1
-    assert spec.valid_size == 1
+    assert (chunk.start, chunk.stop) == (0, 2)
+    torch.testing.assert_close(chunk.coords[0], torch.tensor([0, 1]))
 
 
 def test_slicer_storage_follows_the_broadcast_table() -> None:
     leading = (2, 3)
     chunk_size = 4
     snap = _grid_snap(leading)
-    [spec, _tail] = list(iter_chunks(leading=leading, chunk_size=chunk_size, device=_CPU))
+    [chunk, _tail] = _chunks(leading, chunk_size)
 
-    sliced = slice_snap(snap, coords=spec.multi_coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=chunk.coords, leading_shape=leading)
 
     # No real leading: one chunk position, broadcasting against the rest.
     assert sliced.buffer.shape == (1, _COL, _ROW)
@@ -225,24 +202,24 @@ def test_slicer_collapses_a_stride_zero_column_axis() -> None:
     chunk_size = 4
     wl_drive = torch.randn(6, 1, _ROW).expand(6, _COL, _ROW)
     snap = _DeviceSnap(g__uS=wl_drive)
-    [spec, _tail] = list(iter_chunks(leading=leading, chunk_size=chunk_size, device=_CPU))
+    [chunk, _tail] = _chunks(leading, chunk_size)
 
-    sliced = slice_snap(snap, coords=spec.multi_coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=chunk.coords, leading_shape=leading)
 
     assert sliced.g__uS.shape == (chunk_size, _COL, _ROW)
     assert _elements(sliced.g__uS) == chunk_size * _ROW
-    assert _elements(wl_drive[spec.multi_coords]) == chunk_size * _COL * _ROW
-    torch.testing.assert_close(sliced.g__uS, wl_drive[spec.multi_coords])
+    assert _elements(wl_drive[chunk.coords]) == chunk_size * _COL * _ROW
+    torch.testing.assert_close(sliced.g__uS, wl_drive[chunk.coords])
 
 
 def test_slicer_values_match_a_dense_gather() -> None:
     leading = (2, 3)
     snap = _grid_snap(leading)
-    [spec, tail] = list(iter_chunks(leading=leading, chunk_size=4, device=_CPU))
+    [first, tail] = _chunks(leading, 4)
 
-    for chunk_spec in (spec, tail):
-        coords = chunk_spec.multi_coords
-        sliced = slice_snap(snap, coords=coords, leading=leading)
+    for chunk in (first, tail):
+        coords = chunk.coords
+        sliced = _slice_tensor_tree(snap, coords=coords, leading_shape=leading)
 
         dense_buffer = snap.buffer[coords]
         dense_wl = snap.wl_drive[coords]
@@ -257,11 +234,11 @@ def test_slicer_values_match_a_dense_gather() -> None:
 def test_slicer_recurses_into_nested_snaps_and_keeps_plain_fields() -> None:
     leading = (2, 3)
     snap = _grid_snap(leading)
-    [spec, _tail] = list(iter_chunks(leading=leading, chunk_size=4, device=_CPU))
+    [chunk, _tail] = _chunks(leading, 4)
 
-    sliced = slice_snap(snap, coords=spec.multi_coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=chunk.coords, leading_shape=leading)
 
-    torch.testing.assert_close(sliced.device.g__uS, snap.device.g__uS[spec.multi_coords])
+    torch.testing.assert_close(sliced.device.g__uS, snap.device.g__uS[chunk.coords])
     assert sliced.t_elapsed == 0.0
     assert type(sliced) is _GridSnap
     # The input snap is left as it was.
@@ -276,9 +253,9 @@ def test_slicer_reads_the_trailing_block_off_the_leading_it_is_given() -> None:
         # A constant, stated at the call's shape as every snap field is.
         r_out__MOhm=torch.zeros(()).expand(6, _COL),
     )
-    [spec, _tail] = list(iter_chunks(leading=leading, chunk_size=chunk_size, device=_CPU))
+    [chunk, _tail] = _chunks(leading, chunk_size)
 
-    sliced = slice_snap(snap, coords=spec.multi_coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=chunk.coords, leading_shape=leading)
 
     # One trailing axis behind the leading, and it is the one that survives.
     assert sliced.v_ref__V.shape == (chunk_size, _COL)
@@ -291,26 +268,11 @@ def test_slicer_reads_the_trailing_block_off_the_leading_it_is_given() -> None:
 def test_slicer_keeps_the_chunk_axis_on_a_singleton_leading() -> None:
     leading = (1,)
     snap = _ColumnSnap(v_ref__V=torch.randn(1, _COL), r_out__MOhm=torch.zeros(()).expand(1, _COL))
-    [spec] = list(iter_chunks(leading=leading, chunk_size=3, device=_CPU))
+    [chunk] = _chunks(leading, 3)
 
-    sliced = slice_snap(snap, coords=spec.multi_coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=chunk.coords, leading_shape=leading)
 
-    assert sliced.v_ref__V.shape == (3, _COL)
-
-
-def test_slicer_passes_through_when_there_is_no_leading() -> None:
-    snap = _ColumnSnap(v_ref__V=torch.randn(_COL), r_out__MOhm=torch.zeros(()))
-    [spec] = list(iter_chunks(leading=(), chunk_size=3, device=_CPU))
-
-    assert slice_snap(snap, coords=spec.multi_coords, leading=()) is snap
-
-
-def test_slicer_rejects_a_field_of_lower_rank_than_the_leading() -> None:
-    snap = _ColumnSnap(v_ref__V=torch.zeros(2, _COL), r_out__MOhm=torch.zeros(()))
-    [spec] = list(iter_chunks(leading=(2,), chunk_size=2, device=_CPU))
-
-    with pytest.raises(ValueError, match="rank >= len"):
-        slice_snap(snap, coords=spec.multi_coords, leading=(2,))
+    assert sliced.v_ref__V.shape == (1, _COL)
 
 
 def test_a_bare_tensor_slices_by_the_same_rule_as_a_snap_field() -> None:
@@ -318,10 +280,10 @@ def test_a_bare_tensor_slices_by_the_same_rule_as_a_snap_field() -> None:
     leading = (2, 3)
     chunk_size = 4
     wl_drive = torch.randn(*leading, 1, _ROW).expand(*leading, _COL, _ROW)
-    [spec, _tail] = list(iter_chunks(leading=leading, chunk_size=chunk_size, device=_CPU))
+    [chunk, _tail] = _chunks(leading, chunk_size)
 
-    bare = slice_tensor(wl_drive, coords=spec.multi_coords, leading=leading)
-    wrapped = slice_snap(_DeviceSnap(g__uS=wl_drive), coords=spec.multi_coords, leading=leading)
+    bare = _slice_tensor(wl_drive, coords=chunk.coords, leading_shape=leading)
+    wrapped = _slice_tensor_tree(_DeviceSnap(g__uS=wl_drive), coords=chunk.coords, leading_shape=leading)
 
     # Same shape, same values, and the same collapsed storage.
     assert bare.shape == (chunk_size, _COL, _ROW)
@@ -330,16 +292,9 @@ def test_a_bare_tensor_slices_by_the_same_rule_as_a_snap_field() -> None:
     assert _elements(bare) == _elements(wrapped.g__uS)
 
 
-def test_a_bare_tensor_passes_through_when_there_is_no_leading() -> None:
-    v_wl = torch.randn(_ROW)
-    [spec] = list(iter_chunks(leading=(), chunk_size=3, device=_CPU))
-
-    assert slice_tensor(v_wl, coords=spec.multi_coords, leading=()) is v_wl
-
-
 def _solve(snap: _GridSnap, coords: tuple[Tensor, ...], leading: tuple[int, ...]) -> _Dcop:
     """Stand-in solver: one fixed-shape pass over the chunk."""
-    sliced = slice_snap(snap, coords=coords, leading=leading)
+    sliced = _slice_tensor_tree(snap, coords=coords, leading_shape=leading)
     v_bl_node__V = sliced.buffer + sliced.wl_drive + sliced.partial + sliced.full
     return _Dcop(
         i_bl_driver__uA=v_bl_node__V.sum(dim=-1),
@@ -349,21 +304,21 @@ def _solve(snap: _GridSnap, coords: tuple[Tensor, ...], leading: tuple[int, ...]
     )
 
 
-def _fold(chunks: list[_Dcop], specs: list[ChunkSpec], leading: tuple[int, ...]) -> _Dcop:
+def _fold(results: list[_Dcop], chunks: list[_Chunk], leading: tuple[int, ...]) -> _Dcop:
     """Drive the fold exactly as the chunk loop drives it."""
-    fold = MeasureFold(chunks[0], b_total=math.prod(leading))
-    for chunk, spec in zip(chunks, specs, strict=True):
-        fold.write(chunk, flat_idx=spec.flat_global_idx)
-    return fold.result(leading=leading)
+    fold = _ResultFold(results[0], total=math.prod(leading))
+    for result, chunk in zip(results, chunks, strict=True):
+        fold.write(result, start=chunk.start, stop=chunk.stop)
+    return fold.result(leading_shape=leading)
 
 
 def test_fold_round_trips_every_field() -> None:
     leading = (2, 3)
     snap = _grid_snap(leading)
-    specs = list(iter_chunks(leading=leading, chunk_size=4, device=_CPU))
+    chunks = _chunks(leading, 4)
 
-    chunks = [_solve(snap, spec.multi_coords, leading) for spec in specs]
-    actual = _fold(chunks, specs, leading)
+    results = [_solve(snap, chunk.coords, leading) for chunk in chunks]
+    actual = _fold(results, chunks, leading)
 
     whole_coords = tuple(torch.unravel_index(torch.arange(6), leading))
     expected = _solve(snap, whole_coords, leading)
@@ -379,29 +334,29 @@ def test_fold_round_trips_every_field() -> None:
 def test_fold_allocates_only_the_target() -> None:
     leading = (2, 3)
     snap = _grid_snap(leading)
-    specs = list(iter_chunks(leading=leading, chunk_size=4, device=_CPU))
-    chunks = [_solve(snap, spec.multi_coords, leading) for spec in specs]
+    chunks = _chunks(leading, 4)
+    results = [_solve(snap, chunk.coords, leading) for chunk in chunks]
 
     with patch("torch.cat", side_effect=AssertionError("the fold must not concatenate")):
-        actual = _fold(chunks, specs, leading)
+        actual = _fold(results, chunks, leading)
 
     # One allocation per field, at the full leading and nothing more.
     assert _elements(actual.v_bl_node__V) == 6 * _COL * _ROW
     assert _elements(actual.i_bl_driver__uA) == 6 * _COL
     assert _elements(actual.cell.i__uA) == 6 * _COL * _ROW
     # The chunks themselves are never copied into a staging buffer.
-    assert _elements(chunks[0].v_bl_node__V) == 4 * _COL * _ROW
+    assert _elements(results[0].v_bl_node__V) == 4 * _COL * _ROW
 
 
 def test_fold_carries_an_absent_optional_field_through() -> None:
     leading = (2,)
-    specs = list(iter_chunks(leading=leading, chunk_size=1, device=_CPU))
-    chunks = [_Measure(i_port__uA=torch.full((1, _COL), float(i)), energy__fJ=None) for i, _spec in enumerate(specs)]
+    chunks = _chunks(leading, 1)
+    results = [_Result(i_port__uA=torch.full((1, _COL), float(i)), energy__fJ=None) for i, _chunk in enumerate(chunks)]
 
-    fold = MeasureFold(chunks[0], b_total=2)
-    for chunk, spec in zip(chunks, specs, strict=True):
-        fold.write(chunk, flat_idx=spec.flat_global_idx)
-    actual = fold.result(leading=leading)
+    fold = _ResultFold(results[0], total=2)
+    for result, chunk in zip(results, chunks, strict=True):
+        fold.write(result, start=chunk.start, stop=chunk.stop)
+    actual = fold.result(leading_shape=leading)
 
     assert actual.energy__fJ is None
     torch.testing.assert_close(actual.i_port__uA[1], torch.ones(_COL))
@@ -409,18 +364,18 @@ def test_fold_carries_an_absent_optional_field_through() -> None:
 
 def test_fold_preserves_dataclass_replace_semantics() -> None:
     leading = (2,)
-    specs = list(iter_chunks(leading=leading, chunk_size=1, device=_CPU))
-    chunks = [
+    chunks = _chunks(leading, 1)
+    results = [
         _Dcop(
             i_bl_driver__uA=torch.full((1, _COL), float(i)),
             v_bl_node__V=torch.full((1, _COL, _ROW), float(i)),
             cell=_CellDcop(i__uA=torch.full((1, _COL, _ROW), float(i))),
             label="chunked",
         )
-        for i, _spec in enumerate(specs)
+        for i, _chunk in enumerate(chunks)
     ]
 
-    actual = _fold(chunks, specs, leading)
+    actual = _fold(results, chunks, leading)
 
     replaced = replace(actual, label="chunked")
     assert type(replaced) is _Dcop
@@ -431,52 +386,33 @@ def test_fold_preserves_dataclass_replace_semantics() -> None:
     torch.testing.assert_close(actual.i_bl_driver__uA[1], torch.ones(_COL))
 
 
-# --- The wrapper: ChunkedSolver over a stub solve and a stub measurement ---
+# --- The executor over one typed operand tree and one unary function ---
 
 
-class _SpySolver:
-    """Stub solve recording every call and returning a deterministic DCOP."""
+@dataclass(frozen=True)
+class _RunOperands:
+    cell_snap: _CellSnap
+    bl_driver_snap: _ColumnSnap
+    v_wl__V: Tensor
 
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
 
-    def solve_dc(self, **kwargs: Any) -> ColBlColSlDcop[_CellDcop]:
-        self.calls.append(kwargs)
-        cell_snap = kwargs["cell_snap"]
-        bl_snap = kwargs["bl_driver_snap"]
+class _SpyRun:
+    """Record each sliced operand tree and return a deterministic projection."""
+
+    def __init__(self, *, segment_r__MOhm: float) -> None:
+        self.segment_r__MOhm = segment_r__MOhm
+        self.calls: list[_RunOperands] = []
+        self.results: list[_PortResult] = []
+
+    def __call__(self, operands: _RunOperands) -> _PortResult:
+        self.calls.append(operands)
+        cell_snap = operands.cell_snap
+        bl_snap = operands.bl_driver_snap
         # Shape: [..., col, row]
         node = cell_snap.v_wl__V * cell_snap.g__uS + bl_snap.v_ref__V.unsqueeze(-1)
         # Shape: [..., col]
-        port = node.sum(dim=-1) + kwargs["bl_segment_r__MOhm"]
-        return ColBlColSlDcop(
-            i_bl_driver__uA=port,
-            i_sl_driver__uA=-port,
-            v_bl_node__V=node,
-            v_sl_node__V=node * 0.5,
-            cell=_CellDcop(i__uA=node * 2.0),
-            v_bl_clamp__V=bl_snap.v_ref__V + port,
-            v_sl_drive__V=bl_snap.v_ref__V - port,
-        )
-
-
-class _SpyMeasure:
-    """Stub measurement recording every per-chunk call it is handed."""
-
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-        self.results: list[_PortMeasure] = []
-
-    def __call__(
-        self,
-        *,
-        dcop: ColBlColSlDcop[_CellDcop],
-        cell_snap: _CellSnap,
-        bl_driver_snap: _ColumnSnap,
-        v_wl__V: Tensor,
-    ) -> _PortMeasure:
-        self.calls.append({"dcop": dcop, "cell_snap": cell_snap, "bl_driver_snap": bl_driver_snap, "v_wl__V": v_wl__V})
-        # Shape: [..., row] -> [...]
-        result = _PortMeasure(i_port__uA=dcop.i_bl_driver__uA, wl_sum__V=v_wl__V.sum(dim=-1))
+        port = node.sum(dim=-1) + self.segment_r__MOhm
+        result = _PortResult(i_port__uA=port, wl_sum__V=operands.v_wl__V.sum(dim=-1))
         self.results.append(result)
         return result
 
@@ -497,137 +433,171 @@ def _clamp_snap(leading: tuple[int, ...]) -> _ColumnSnap:
 
 
 def _call(
-    chunked: ChunkedSolver[_PortMeasure],
+    chunk_size: int,
     leading: tuple[int, ...],
     segment_r: float,
     *,
-    measure: _SpyMeasure | None = None,
-) -> _PortMeasure:
+    run: _SpyRun | None = None,
+) -> _PortResult:
     torch.manual_seed(5)
-    return chunked.solve_dc(
-        leading=leading,
-        bl_segment_r__MOhm=segment_r,
-        sl_segment_r__MOhm=2.0 * segment_r,
-        cell="cell-module",
+    operands = _RunOperands(
         cell_snap=_cell_snap(leading),
-        bl_driver="bl-module",
         bl_driver_snap=_clamp_snap(leading),
-        measure=measure if measure is not None else _SpyMeasure(),
-        measure_tensors={"v_wl__V": torch.randn(*leading, _ROW)},
+        v_wl__V=torch.randn(*leading, _ROW),
+    )
+    return execute_chunked(
+        chunk_size=chunk_size,
+        leading_shape=leading,
+        operands=operands,
+        run=run if run is not None else _SpyRun(segment_r__MOhm=segment_r),
     )
 
 
-def test_snaps_are_sliced_and_everything_else_passes_through() -> None:
-    inner = _SpySolver()
+def test_operand_tree_is_sliced_before_each_run() -> None:
     segment_r = 1e-4
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(inner.solve_dc, chunk_size=4)
+    run = _SpyRun(segment_r__MOhm=segment_r)
+    _call(4, (2, 3), segment_r, run=run)
 
-    _call(chunked, (2, 3), segment_r)
-
-    for call in inner.calls:
-        # Non-snap arguments arrive as the very objects the caller passed.
-        assert call["cell"] == "cell-module"
-        assert call["bl_driver"] == "bl-module"
-        # A plain float rail constant rides through untouched.
-        assert call["bl_segment_r__MOhm"] == segment_r
-        assert call["sl_segment_r__MOhm"] == 2.0 * segment_r
-        # Snap arguments arrive on one chunk axis, at the same snap types.
-        assert type(call["cell_snap"]) is _CellSnap
-        assert call["cell_snap"].v_wl__V.shape == (4, _COL, _ROW)
-        assert call["bl_driver_snap"].v_ref__V.shape == (4, _COL)
+    assert run.segment_r__MOhm == segment_r
+    for operands in run.calls:
+        assert type(operands) is _RunOperands
+        assert type(operands.cell_snap) is _CellSnap
+        assert operands.cell_snap.v_wl__V.shape == (4, _COL, _ROW)
+        assert operands.bl_driver_snap.v_ref__V.shape == (4, _COL)
+        assert operands.v_wl__V.shape == (4, _ROW)
         # A field that is stride-0 over the whole leading keeps a size-1 axis.
-        assert call["cell_snap"].g__uS.shape == (1, _COL, _ROW)
-
-
-def test_measure_tensors_reach_the_measurement_alone() -> None:
-    inner = _SpySolver()
-    measure = _SpyMeasure()
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(inner.solve_dc, chunk_size=4)
-
-    _call(chunked, (2, 3), 1e-4, measure=measure)
-
-    for call in inner.calls:
-        # The wrapped solve declares no such keyword and never sees one.
-        assert "v_wl__V" not in call
-        assert "measure" not in call
-        assert "measure_tensors" not in call
-    for call in measure.calls:
-        # A bare tensor is sliced by the same rule as a snap's fields, and
-        # arrives as a tensor rather than wrapped in a dataclass.
-        assert isinstance(call["v_wl__V"], Tensor)
-        assert call["v_wl__V"].shape == (4, _ROW)
-        assert call["cell_snap"].v_wl__V.shape == (4, _COL, _ROW)
-        assert call["bl_driver_snap"].v_ref__V.shape == (4, _COL)
+        assert operands.cell_snap.g__uS.shape == (1, _COL, _ROW)
 
 
 def test_the_caller_states_the_leading_and_the_tail_is_padded() -> None:
-    inner = _SpySolver()
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(inner.solve_dc, chunk_size=4)
-
-    _call(chunked, (2, 3), 1e-4)
+    run = _SpyRun(segment_r__MOhm=1e-4)
+    _call(4, (2, 3), 1e-4, run=run)
 
     # 6 leading positions in chunks of 4: two calls, both at the same shape.
-    assert len(inner.calls) == 2
-    assert {call["cell_snap"].v_wl__V.shape for call in inner.calls} == {(4, _COL, _ROW)}
+    assert len(run.calls) == 2
+    assert {operands.cell_snap.v_wl__V.shape for operands in run.calls} == {(4, _COL, _ROW)}
 
 
-def test_folded_measure_equals_one_whole_leading_solve() -> None:
+def test_run_size_does_not_exceed_the_complete_leading() -> None:
+    run = _SpyRun(segment_r__MOhm=1e-4)
+    _call(100, (2, 3), 1e-4, run=run)
+
+    [operands] = run.calls
+    assert operands.cell_snap.v_wl__V.shape == (6, _COL, _ROW)
+    assert operands.bl_driver_snap.v_ref__V.shape == (6, _COL)
+    assert operands.v_wl__V.shape == (6, _ROW)
+
+
+def test_chunk_coordinates_allocate_one_arange_per_execution() -> None:
+    with patch("neurox.primitive.xbar.solver.chunking.torch.arange", wraps=torch.arange) as arange:
+        _call(4, (2, 3), 1e-4)
+
+    arange.assert_called_once()
+
+
+def test_folded_result_equals_one_whole_leading_run() -> None:
     leading = (2, 3)
     segment_r = 1e-4
-    chunked = _call(ChunkedSolver(_SpySolver().solve_dc, chunk_size=4), leading, segment_r)
-    whole = _call(ChunkedSolver(_SpySolver().solve_dc, chunk_size=0), leading, segment_r)
+    chunked = _call(4, leading, segment_r)
+    whole = _call(0, leading, segment_r)
 
-    assert type(chunked) is _PortMeasure
+    assert type(chunked) is _PortResult
     assert chunked.i_port__uA.shape == (*leading, _COL)
     assert chunked.wl_sum__V.shape == leading
     torch.testing.assert_close(chunked.i_port__uA, whole.i_port__uA, rtol=0.0, atol=0.0)
     torch.testing.assert_close(chunked.wl_sum__V, whole.wl_sum__V, rtol=0.0, atol=0.0)
 
 
+@pytest.mark.parametrize(
+    ("leading_shape", "chunk_size"),
+    [
+        ((7,), 3),
+        ((2, 1, 3), 5),
+        ((1, 2, 1, 3), 8),
+    ],
+)
+def test_any_leading_rank_and_chunk_size_match_the_whole_call(
+    leading_shape: tuple[int, ...],
+    chunk_size: int,
+) -> None:
+    chunked = _call(chunk_size, leading_shape, 1e-4)
+    whole = _call(0, leading_shape, 1e-4)
+
+    torch.testing.assert_close(chunked.i_port__uA, whole.i_port__uA, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(chunked.wl_sum__V, whole.wl_sum__V, rtol=0.0, atol=0.0)
+
+
+def test_zero_chunk_size_passes_the_full_leading_through() -> None:
+    leading = (2, 3)
+    operands = _RunOperands(
+        cell_snap=_cell_snap(leading),
+        bl_driver_snap=_clamp_snap(leading),
+        v_wl__V=torch.randn(*leading, _ROW),
+    )
+    run = _SpyRun(segment_r__MOhm=1e-4)
+
+    result = execute_chunked(
+        chunk_size=0,
+        leading_shape=leading,
+        operands=operands,
+        run=run,
+    )
+
+    assert run.calls == [operands]
+    assert result is run.results[0]
+
+
 def test_an_operand_short_of_the_declared_leading_is_rejected() -> None:
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(_SpySolver().solve_dc, chunk_size=4)
+    operands = _RunOperands(
+        cell_snap=_cell_snap((2, 3)),
+        # One leading axis short: the slicer would gather its column axis.
+        bl_driver_snap=_clamp_snap((3,)),
+        v_wl__V=torch.randn(2, 3, _ROW),
+    )
 
-    with pytest.raises(ValueError, match="bl_driver_snap carries one of shape"):
-        chunked.solve_dc(
-            leading=(2, 3),
-            bl_segment_r__MOhm=1e-4,
-            cell_snap=_cell_snap((2, 3)),
-            # One leading axis short: the slicer would gather its column axis.
-            bl_driver_snap=_clamp_snap((3,)),
-            measure=_SpyMeasure(),
-            measure_tensors={"v_wl__V": torch.randn(2, 3, _ROW)},
+    with pytest.raises(ValueError, match="every operand tensor"):
+        execute_chunked(
+            chunk_size=4,
+            leading_shape=(2, 3),
+            operands=operands,
+            run=_SpyRun(segment_r__MOhm=1e-4),
         )
 
 
-def test_a_measure_tensor_short_of_the_declared_leading_is_rejected() -> None:
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(_SpySolver().solve_dc, chunk_size=4)
+def test_a_bare_tensor_field_short_of_the_declared_leading_is_rejected() -> None:
+    operands = _RunOperands(
+        cell_snap=_cell_snap((2, 3)),
+        bl_driver_snap=_clamp_snap((2, 3)),
+        v_wl__V=torch.randn(3, _ROW),
+    )
 
-    with pytest.raises(ValueError, match="v_wl__V carries one of shape"):
-        chunked.solve_dc(
-            leading=(2, 3),
-            bl_segment_r__MOhm=1e-4,
-            cell_snap=_cell_snap((2, 3)),
-            bl_driver_snap=_clamp_snap((2, 3)),
-            measure=_SpyMeasure(),
-            # A bare tensor is held to the same declaration as a snap field.
-            measure_tensors={"v_wl__V": torch.randn(3, _ROW)},
+    with pytest.raises(ValueError, match="every operand tensor"):
+        execute_chunked(
+            chunk_size=4,
+            leading_shape=(2, 3),
+            operands=operands,
+            run=_SpyRun(segment_r__MOhm=1e-4),
         )
 
 
-def test_a_call_without_any_leading_reaches_the_solve_untouched() -> None:
-    inner = _SpySolver()
-    measure = _SpyMeasure()
-    chunked: ChunkedSolver[_PortMeasure] = ChunkedSolver(inner.solve_dc, chunk_size=4)
+def test_a_call_without_any_leading_reaches_the_run_untouched() -> None:
+    run = _SpyRun(segment_r__MOhm=1e-4)
+    operands = _RunOperands(
+        cell_snap=_cell_snap(()),
+        bl_driver_snap=_clamp_snap(()),
+        v_wl__V=torch.randn(_ROW),
+    )
 
-    measured = _call(chunked, (), 1e-4, measure=measure)
+    result = execute_chunked(chunk_size=4, leading_shape=(), operands=operands, run=run)
 
-    [call] = inner.calls
-    assert call["cell_snap"].v_wl__V.shape == (_COL, _ROW)
-    assert call["bl_driver_snap"].v_ref__V.shape == (_COL,)
-    assert measure.calls[0]["v_wl__V"].shape == (_ROW,)
-    assert measured.i_port__uA.shape == (_COL,)
+    [current] = run.calls
+    assert current is operands
+    assert current.cell_snap.v_wl__V.shape == (_COL, _ROW)
+    assert current.bl_driver_snap.v_ref__V.shape == (_COL,)
+    assert current.v_wl__V.shape == (_ROW,)
+    assert result.i_port__uA.shape == (_COL,)
     # Returned as it stands: one chunk, nothing allocated and nothing copied.
-    assert measured is measure.results[0]
+    assert result is run.results[0]
 
 
 # --- The layer at work: the fold through a real 1T1R array ---
@@ -774,14 +744,14 @@ def _chunk_boundary_bytes() -> Iterator[list[int]]:
     per-chunk state that failed to die with its chunk.
     """
     samples: list[int] = []
-    unpatched = iter_chunks
+    unpatched = _iter_chunks
 
-    def probing(**kwargs: Any) -> Iterator[ChunkSpec]:
-        for spec in unpatched(**kwargs):
+    def probing(**kwargs: Any) -> Iterator[_Chunk]:
+        for chunk in unpatched(**kwargs):
             samples.append(_live_tensor_bytes())
-            yield spec
+            yield chunk
 
-    with patch("neurox.primitive.xbar.solver.chunking.iter_chunks", probing):
+    with patch("neurox.primitive.xbar.solver.chunking._iter_chunks", probing):
         yield samples
 
 
@@ -789,7 +759,7 @@ def _retained_bytes(*, row_num: int) -> int:
     """Bytes the chunk loop carries across a boundary, over its own entry state.
 
     The solve runs eagerly. The law is about the chunk loop, which is eager
-    by construction (`ChunkedSolver.solve_dc` is `torch.compiler.disable`d),
+    by construction (`execute_chunked` is `torch.compiler.disable`d),
     while the tall geometry the law needs would take the `dynamic=False`
     solver body minutes to unroll; a traced body also hands the probe
     storage-less tensors, which carry no bytes to count.
@@ -821,7 +791,7 @@ def test_chunk_size_moves_neither_the_port_state_nor_the_energy(monkeypatch: pyt
 
     # The energy is billed once, at the full leading, after the fold.
     assert folded[0][2].shape == (_VALUE_LEADING,)
-    # `0` is the un-chunked solve: one measurement over the whole leading.
+    # `0` is the un-chunked solve: one projection over the whole leading.
     whole = folded[0]
     for chunk_size, (i_bl_port__uA, v_bl_clamp__V, energy__fJ) in folded.items():
         assert torch.equal(i_bl_port__uA, whole[0]), chunk_size

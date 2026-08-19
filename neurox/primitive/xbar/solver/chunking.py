@@ -1,8 +1,8 @@
-"""Memory-bounded chunking of a broadcast leading.
+"""Memory-bounded execution over a declared leading shape.
 
-The leading-axis machinery partitions a broadcast leading into fixed-size
-chunks, selects one chunk's positions out of a tensor or a snap, and folds the
-per-chunk measurements back into one full-leading result.
+The executor partitions a tensor-carrying operand tree into fixed-size
+chunks, calls one injected function on each, and folds its result tree back
+into the original leading shape.
 
 See Also:
     docs/system_design/xbar_solve.md
@@ -10,10 +10,9 @@ See Also:
 
 from __future__ import annotations
 
-import dataclasses
 import math
-from collections.abc import Callable, Iterator, Mapping
-from typing import Any, NamedTuple
+from collections.abc import Callable, Iterator
+from typing import NamedTuple
 
 import torch
 from torch import Tensor
@@ -21,363 +20,189 @@ from torch import Tensor
 from neurox.common import walk_tensor_fields
 
 
-class ChunkSpec(NamedTuple):
-    """Chunk coordinates and global indices."""
+class _Chunk(NamedTuple):
+    """Coordinates and result interval for one fixed-size call."""
 
-    multi_coords: tuple[Tensor, ...]
-    """Chunk coordinates along each leading dimension, one tensor per
-    dimension, each possibly carrying repeated tail-padding coordinates.
-    Shape: `[solve_size]`."""
-    solve_size: int
-    """Number of positions passed to the solver."""
-    valid_size: int
-    """Number of real positions before tail padding."""
-    flat_global_idx: Tensor
-    """Flat indices of the valid positions in the complete leading shape.
-    Shape: `[valid_size]`."""
+    coords: tuple[Tensor, ...]
+    start: int
+    stop: int
 
 
-def iter_chunks(
+def _iter_chunks(
     *,
-    leading: tuple[int, ...],
+    leading_shape: tuple[int, ...],
     chunk_size: int,
-    device: torch.device,
-) -> Iterator[ChunkSpec]:
-    """Partition a broadcast-leading shape into contiguous chunks.
+    reference: Tensor,
+) -> Iterator[_Chunk]:
+    """Yield fixed-size coordinates while keeping only one chunk resident."""
+    total = math.prod(leading_shape)
+    actual_chunk_size = min(chunk_size, total)
+    offsets = torch.arange(actual_chunk_size, device=reference.device)
 
-    Args:
-        leading: Broadcast-leading shape.
-        chunk_size: Solver leading size. A positive value pads every
-            chunk to this exact size; a non-positive value yields one
-            unpadded chunk.
-        device: Device for coordinate and index tensors.
-
-    Yields:
-        Chunk coordinates and global indices.
-    """
-    total = math.prod(leading) if leading else 1
-    solve_size = chunk_size if chunk_size > 0 and leading else total
-    step = min(max(solve_size, 1), total)
-
-    for start in range(0, total, step):
-        end = min(start + step, total)
-        flat_valid = torch.arange(start, end, device=device, dtype=torch.long)
-        valid_size = end - start
-        if valid_size < solve_size:
-            padding = flat_valid[-1].expand(solve_size - valid_size)
-            flat_solve = torch.cat((flat_valid, padding))
-        else:
-            flat_solve = flat_valid
-        multi_coords = torch.unravel_index(flat_solve, leading) if leading else ()
-        yield ChunkSpec(
-            multi_coords=tuple(multi_coords),
-            solve_size=solve_size,
-            valid_size=valid_size,
-            flat_global_idx=flat_valid,
+    for start in range(0, total, actual_chunk_size):
+        stop = min(start + actual_chunk_size, total)
+        flat = offsets + start
+        if stop - start < actual_chunk_size:
+            flat = flat.clamp_max(total - 1)
+        coords = tuple(torch.unravel_index(flat, leading_shape))
+        del flat
+        yield _Chunk(
+            coords=coords,
+            start=start,
+            stop=stop,
         )
 
 
-def slice_snap[SnapT](
-    snap: SnapT,
+def _slice_tensor_tree[NodeT](
+    node: NodeT,
     *,
     coords: tuple[Tensor, ...],
-    leading: tuple[int, ...],
-) -> SnapT:
-    """Select one chunk's positions from every tensor field of a snap.
-
-    The dataclass-walking form of `slice_tensor`: dataclass-valued fields
-    recurse and every other field carries through untouched.
-
-    Args:
-        snap: Frozen snap dataclass of tensor fields, each carrying `leading`
-            in front of its own trailing block.
-        coords: Chunk coordinates, one tensor per leading axis.
-            Shape: `[solve_size]`.
-        leading: Broadcast-leading shape the coordinates index.
-
-    Returns:
-        New snap of the same type, its tensor fields at
-        `[solve_size, *trailing]`.
-    """
-    if not coords:
-        return snap
-    return walk_tensor_fields(snap, lambda t: slice_tensor(t, coords=coords, leading=leading))
+    leading_shape: tuple[int, ...],
+) -> NodeT:
+    """Select the same leading positions from every tensor in a dataclass tree."""
+    return walk_tensor_fields(node, lambda t: _slice_tensor(t, coords=coords, leading_shape=leading_shape))
 
 
-def slice_tensor(
-    t: Tensor,
+def _slice_tensor(
+    tensor: Tensor,
     *,
     coords: tuple[Tensor, ...],
-    leading: tuple[int, ...],
+    leading_shape: tuple[int, ...],
 ) -> Tensor:
-    """Select the chunk's positions from one tensor without materialising broadcasts.
-
-    The first `len(leading)` axes give way to the single chunk axis the
-    coordinates carry, and whatever stands behind them is this tensor's own
-    trailing block. The result stores one value per (chunk position, real
-    trailing position).
-
-    Args:
-        t: Tensor at `[*leading, *trailing]`.
-        coords: Chunk coordinates, one tensor per leading axis. An empty tuple
-            is the whole-leading call, which returns `t` itself.
-            Shape: `[solve_size]`.
-        leading: Broadcast-leading shape the coordinates index.
-
-    Returns:
-        Sliced tensor at `[solve_size, *trailing]`, or at `[1, *trailing]`
-        when every leading axis is stride 0 and the tensor broadcasts against
-        the chunk.
-
-    Raises:
-        ValueError: The tensor is of lower rank than the leading, so it has
-            no trailing block to keep.
-    """
-    if not coords:
-        return t
-
-    lead_rank = len(leading)
-    if t.ndim < lead_rank:
-        raise ValueError(f"require: a tensor of rank >= len(leading) ({lead_rank}); got shape {tuple(t.shape)}")
+    """Select one chunk without materialising stride-0 broadcasts in full."""
+    leading_rank = len(leading_shape)
 
     # --- 1: collapse trailing axes the tensor only broadcasts over ---
 
-    view = t
-    trailing_shape = tuple(t.shape[lead_rank:])
+    view = tensor
+    trailing_shape = tuple(tensor.shape[leading_rank:])
     collapsed = False
-    for axis in range(lead_rank, t.ndim):
+    for axis in range(leading_rank, tensor.ndim):
         if view.size(axis) > 1 and view.stride(axis) == 0:
             view = view.narrow(axis, 0, 1)
             collapsed = True
 
-    # --- 2 + 3: index the leading axes, dropping broadcast ones ---
+    # --- 2: replace all leading axes with one chunk axis ---
 
-    index: list[int | Tensor] = [0 if view.stride(axis) == 0 else coords[axis] for axis in range(lead_rank)]
+    index: list[int | Tensor] = [0 if view.stride(axis) == 0 else coords[axis] for axis in range(leading_rank)]
     sliced = view[tuple(index)]
     if not any(isinstance(entry, Tensor) for entry in index):
-        # Every leading axis held one value for the whole call, so no
-        # coordinate survived. Keep a size-1 chunk axis: every sliced operand
-        # then presents the same leading rank, whatever it broadcasts over.
+        # Every leading axis shares one value, so indexing leaves no chunk
+        # axis. Restore a size-1 axis that broadcasts against varying inputs.
         sliced = sliced.unsqueeze(0)
 
-    # --- 4: re-expand the collapsed trailing axes ---
+    # --- 3: restore collapsed trailing axes as stride-0 views ---
 
     if collapsed:
         sliced = sliced.expand(*sliced.shape[: sliced.ndim - len(trailing_shape)], *trailing_shape)
     return sliced
 
 
-class MeasureFold[MeasureT]:
-    """Full-leading buffer the per-chunk measurements are written into.
+class _ResultFold[ResultT]:
+    """Full-leading buffers filled by consecutive per-chunk results."""
 
-    Allocating, writing and reading back are valid in that order alone. Every
-    tensor field of a per-chunk measurement carries exactly one leading axis —
-    the chunk axis — so the trailing shape of the first chunk fixes each
-    output; dataclass-valued fields recurse and a non-tensor field is carried
-    through, which is how an absent optional field stays absent.
+    def __init__(self, first: ResultT, *, total: int) -> None:
+        self._targets: list[Tensor] = []
 
-    Args:
-        first: First chunk's measurement, its tensor fields at
-            `[solve_size, *trailing]`. It fixes the buffers only; it is
-            written like every other chunk.
-        b_total: Number of leading positions the whole call covers.
-    """
-
-    def __init__(self, first: MeasureT, *, b_total: int) -> None:
         def allocate(value: Tensor) -> Tensor:
-            # Shape: [solve_size, *trailing] -> [b_total, *trailing]
-            return torch.empty(b_total, *value.shape[1:], dtype=value.dtype, device=value.device)
+            target = torch.empty(total, *value.shape[1:], dtype=value.dtype, device=value.device)
+            self._targets.append(target)
+            return target
 
         self._folded = walk_tensor_fields(first, allocate)
 
-    def write(self, chunk: MeasureT, *, flat_idx: Tensor) -> None:
-        """Write one chunk's tensor fields into their global positions in place.
+    def write(self, chunk: ResultT, *, start: int, stop: int) -> None:
+        """Write the valid prefix of one padded result into its interval."""
+        positions = iter(self._targets)
+        valid_size = stop - start
 
-        Buffers and chunk are walked in lockstep in field order, so every
-        chunk of a call must share field PRESENCE — the same fields hold a
-        tensor and the same fields hold `None`. A shared type alone is not
-        enough: one chunk filling an optional field another left absent shifts
-        the two walks apart and scatters into the wrong buffer.
-
-        Args:
-            chunk: This chunk's measurement, its tensor fields at
-                `[solve_size, *trailing]`; the tail-padding positions past
-                `flat_idx` are dropped.
-            flat_idx: Flat indices of the chunk's valid positions in the
-                unraveled leading.
-                Shape: `[valid_size]`.
-        """
-        targets: list[Tensor] = []
-
-        def _record(t: Tensor) -> Tensor:
-            targets.append(t)
-            return t
-
-        walk_tensor_fields(self._folded, _record)
-
-        valid = flat_idx.numel()
-        positions = iter(targets)
-
-        def _scatter(value: Tensor) -> Tensor:
-            next(positions)[flat_idx] = value[:valid]
+        def write(value: Tensor) -> Tensor:
+            next(positions)[start:stop] = value[:valid_size]
             return value
 
-        walk_tensor_fields(chunk, _scatter)
+        walk_tensor_fields(chunk, write)
 
-    def result(self, *, leading: tuple[int, ...]) -> MeasureT:
-        """Read the filled buffers back with the leading the chunk axis ravelled.
-
-        Args:
-            leading: Full broadcast leading.
-
-        Returns:
-            Measurement of the same type, its tensor fields at
-            `[*leading, *trailing]`.
-        """
+    def result(self, *, leading_shape: tuple[int, ...]) -> ResultT:
+        """Restore the original leading shape on every folded tensor."""
 
         def unflatten(value: Tensor) -> Tensor:
-            # Shape: [b_total, *trailing] -> [*leading, *trailing]
-            return value.reshape(*leading, *value.shape[1:])
+            return value.reshape(*leading_shape, *value.shape[1:])
 
         return walk_tensor_fields(self._folded, unflatten)
 
 
-class ChunkedSolver[MeasureT]:
-    """Same-signature wrapper folding one leading chunk by chunk.
-
-    Argument handling is signature-agnostic: a snap argument is chunk-sliced,
-    every other argument passes through untouched, and the leading is supplied
-    explicitly rather than inferred from an axis rank. Each callable result is
-    reduced immediately to the small measurement tensors that survive the
-    chunk, and those alone are reassembled.
-
-    Args:
-        solve: Wrapped callable, faithfully evaluating one fixed shape.
-        chunk_size: Leading instances per chunk. A positive value pads each
-            chunk to exactly this size so the compiled solve body sees a
-            single input shape; `0` solves the whole leading in one block.
-    """
-
-    def __init__(self, solve: Callable[..., Any], *, chunk_size: int) -> None:
-        self._solve = solve
-        self._chunk_size = chunk_size
-
-    @torch.compiler.disable(
-        recursive=False,
-        reason="eager chunk loop; the fixed-shape per-chunk solver body is compiled separately",
-    )
-    def solve_dc(
-        self,
-        *,
-        leading: tuple[int, ...],
-        measure: Callable[..., MeasureT],
-        measure_tensors: Mapping[str, Tensor] | None = None,
-        **kwargs: Any,
-    ) -> MeasureT:
-        """Solve the whole call by chunk and fold each chunk down to `measure`.
-
-        Args:
-            leading: Broadcast-leading shape of the call, which every snap
-                tensor field and every measure tensor carries in front of its
-                own trailing block.
-            measure: Per-chunk measurement, called with `dcop` (the chunk's
-                solve return) plus every sliced snap and measure tensor under
-                its own keyword, and returning a frozen dataclass of tensors
-                that each carry the chunk axis first.
-            measure_tensors: Boundary quantities the measurement reads but the
-                wrapped solve does not declare. They are sliced by the same
-                rule as a snap's fields and reach `measure` alone.
-            kwargs: The wrapped solve's own keyword arguments.
-
-        Returns:
-            The measurement type, its tensor fields at `[*leading, *trailing]`.
-
-        Raises:
-            ValueError: The leading has an empty extent, so no chunk exists
-                to allocate the result from.
-        """
-        snaps = {name: value for name, value in kwargs.items() if _is_snap(value)}
-        extra = dict(measure_tensors or {})
-        device = _check_leading(leading, {**snaps, **extra})
-
-        fold: MeasureFold[MeasureT] | None = None
-        for spec in iter_chunks(leading=leading, chunk_size=self._chunk_size, device=device):
-            sliced = {name: slice_snap(snap, coords=spec.multi_coords, leading=leading) for name, snap in snaps.items()}
-            sliced_extra = {
-                name: slice_tensor(value, coords=spec.multi_coords, leading=leading) for name, value in extra.items()
-            }
-            dcop = self._solve(**{**kwargs, **sliced})
-            measured = measure(dcop=dcop, **sliced, **sliced_extra)
-            if not leading:
-                return measured
-            if fold is None:
-                fold = MeasureFold(measured, b_total=math.prod(leading))
-            fold.write(measured, flat_idx=spec.flat_global_idx)
-            # This chunk's state dies here, before the next chunk allocates its own.
-            del dcop, measured, sliced, sliced_extra
-        if fold is None:
-            raise ValueError(f"require: a leading with no empty extent; got {leading}")
-        return fold.result(leading=leading)
-
-
-def _is_snap(value: object) -> bool:
-    """Tell a snap argument from a pass-through one.
-
-    A snap is a frozen dataclass of tensor fields; every other argument is a
-    module, a protocol object, or a constant that carries no leading.
-    """
-    return dataclasses.is_dataclass(value) and not isinstance(value, type)
-
-
-def _operand_tensors(node: object) -> Iterator[Tensor]:
-    """Yield a bare tensor, or every tensor field of one snap.
-
-    Dataclass-valued fields recurse; every other field is skipped, which is
-    how an absent optional field stays absent.
-    """
-    if isinstance(node, Tensor):
-        yield node
-        return
-    collected: list[Tensor] = []
-
-    def _record(t: Tensor) -> Tensor:
-        collected.append(t)
-        return t
-
-    walk_tensor_fields(node, _record)
-    yield from collected
-
-
-def _check_leading(leading: tuple[int, ...], operands: Mapping[str, object]) -> torch.device:
-    """Verify every sliced operand carries the call's leading, and read the device.
-
-    The slicer takes the first `len(leading)` axes of a tensor to be the
-    leading, so one arriving at anything narrower would have its own trailing
-    block gathered instead.
+@torch.compiler.disable(
+    recursive=False,
+    reason="eager chunk loop; the fixed-shape per-chunk run body compiles separately",
+)
+def execute_chunked[OperandsT, ResultT](
+    *,
+    chunk_size: int,
+    leading_shape: tuple[int, ...],
+    operands: OperandsT,
+    run: Callable[[OperandsT], ResultT],
+) -> ResultT:
+    """Run an operand tree by fixed-size chunk and restore its leading shape.
 
     Args:
-        leading: Explicit broadcast-leading shape.
-        operands: Snaps and bare tensors the chunk loop slices, keyed by the
-            keyword each arrived under.
+        chunk_size: Maximum leading positions per chunk. A positive value uses
+            the smaller of this bound and the complete leading extent, then
+            pads every tail chunk to that effective size; `0` passes the
+            complete operand tree through.
+        leading_shape: Exact prefix carried by every operand tensor.
+        operands: Full-leading dataclass tensor tree.
+        run: Function from one sliced operand tree to a result tree that
+            preserves the sliced leading axis.
 
     Returns:
-        Device the operands' tensors live on, which the chunk coordinates
-        are built on.
-
-    Raises:
-        ValueError: A tensor does not carry `leading`, or no operand carries a
-            tensor at all.
+        The result tree with every tensor restored to `leading_shape`.
     """
-    device: torch.device | None = None
-    for name, operand in operands.items():
-        for tensor in _operand_tensors(operand):
-            if tuple(tensor.shape[: len(leading)]) != leading:
-                raise ValueError(
-                    f"require: every sliced tensor at the call's leading {leading}; "
-                    f"{name} carries one of shape {tuple(tensor.shape)}"
-                )
-            if device is None:
-                device = tensor.device
-    if device is None:
-        raise ValueError("require: at least one snap field or measure tensor to read the device from")
-    return device
+    reference = _check_leading(leading_shape, operands)
+    if chunk_size == 0 or not leading_shape:
+        return run(operands)
+
+    total = math.prod(leading_shape)
+    chunks = _iter_chunks(
+        leading_shape=leading_shape,
+        chunk_size=chunk_size,
+        reference=reference,
+    )
+
+    first = next(chunks)
+    sliced = _slice_tensor_tree(operands, coords=first.coords, leading_shape=leading_shape)
+    first_result = run(sliced)
+    fold = _ResultFold(first_result, total=total)
+    fold.write(first_result, start=first.start, stop=first.stop)
+    del first_result, sliced
+
+    for chunk in chunks:
+        sliced = _slice_tensor_tree(operands, coords=chunk.coords, leading_shape=leading_shape)
+        result = run(sliced)
+        fold.write(result, start=chunk.start, stop=chunk.stop)
+        del result, sliced
+
+    return fold.result(leading_shape=leading_shape)
+
+
+def _operand_tensors(node: object) -> list[Tensor]:
+    """Collect every tensor field of a dataclass operand tree."""
+    tensors: list[Tensor] = []
+
+    def collect(tensor: Tensor) -> Tensor:
+        tensors.append(tensor)
+        return tensor
+
+    walk_tensor_fields(node, collect)
+    return tensors
+
+
+def _check_leading(leading_shape: tuple[int, ...], operands: object) -> Tensor:
+    """Verify the declared prefix once and return a reference tensor."""
+    tensors = _operand_tensors(operands)
+    for tensor in tensors:
+        if tuple(tensor.shape[: len(leading_shape)]) != leading_shape:
+            raise ValueError(
+                f"require: every operand tensor at the call's leading {leading_shape}; "
+                f"got one of shape {tuple(tensor.shape)}"
+            )
+    return tensors[0]

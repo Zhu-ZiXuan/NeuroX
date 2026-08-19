@@ -456,7 +456,7 @@ def test_chunk_size_moves_neither_the_lookup_sum_nor_the_energy(monkeypatch: pyt
     # Both foldings are billed once, at the full leading, after the fold.
     assert folded[0][2].shape == (_CHUNK_LEADING,)
     assert folded[0][3].shape == (_CHUNK_LEADING,)
-    # `0` is the un-chunked solve: one measurement over the whole leading.
+    # `0` is the un-chunked solve: one projection over the whole leading.
     whole = folded[0]
     for chunk_size, measured in folded.items():
         for field, (got, want) in enumerate(zip(measured, whole, strict=True)):

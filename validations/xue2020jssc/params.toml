@@ -197,7 +197,7 @@ v_wl_on_threshold__V = 0.45
 
 
 # ---------------------------------------------------------------------------
-# Array DC solver (ColBlColSlSolver) -- outer V_clamp / inner wire Newton
+# Parallel BL/SL array DC solver -- outer V_clamp / inner wire Newton
 # ---------------------------------------------------------------------------
 # The Linear cell + wire R is a linear system, so the solve is fast + near-exact;
 # the nested iteration counts are genuinely used all the same (the wire IR drop

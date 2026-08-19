@@ -4,7 +4,7 @@ Calibration run-configs for the Ye2023 JSSC WH-2T1R CIM macro. The only run that
 
 ## Solver (`calibrate_solver.toml`)
 
-Pins the ColBlColSlSolver `(n_outer, n_inner)` for step1 (the BL/SL divider solve). This is a MAIN-SESSION GPU run — the solver cold-compiles per shape (~minutes); do not run it from a subagent. Check CUDA memory and utilization first, then pick a free device `cuda:N`:
+Pins the parallel BL/SL solver's `(n_outer, n_inner)` for step1 (the BL/SL divider solve). This is a MAIN-SESSION GPU run — the solver cold-compiles per shape (~minutes); do not run it from a subagent. Check CUDA memory and utilization first, then pick a free device `cuda:N`:
 
 ```
 TORCH_COMPILE_DISABLE=1 uv run python -m neurox.tools.calibrate_solver.col_bl_col_sl \

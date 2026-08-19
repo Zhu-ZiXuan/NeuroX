@@ -360,14 +360,14 @@ def step_delta_over_streams(
 
 
 def solver_residual_max(records: list[ColBlColSlRecord[Any]]) -> dict[str, float]:
-    """Per-class `max |residual|` over the LAST iterate of every solve.
+    """Per-class `max |residual|` from every solve's final recorded updates.
 
-    Convergence is a statement about where a solve stopped, so each solve
-    contributes the wire residuals of its final inner Newton step and the
-    clamp residuals of its final outer clamp event; the descent behind them is
-    the trajectory, not the verdict, and never enters the max. A solve's
-    trajectory closes at its terminal record, which is where the pending pair
-    is folded in.
+    Each residual belongs to the pre-step iterate that drove an update, so the
+    final inner and outer records precede their respective terminal updates by
+    one step. They form the conservative residual guard; plateau selection
+    compares the returned terminal states themselves. Earlier trajectory
+    residuals never enter the max. A solve's terminal record closes its
+    trajectory and triggers folding of the pending pair.
     """
     residual: dict[str, float] = dict.fromkeys(_SOLVER_RESIDUAL_FIELDS, 0.0)
     last_inner: ColBlColSlRecord[Any] | None = None
@@ -392,7 +392,7 @@ def solver_residual_max(records: list[ColBlColSlRecord[Any]]) -> dict[str, float
             last_outer = record
         else:
             last_inner = record
-    # A stream cut short of its terminal record still carries a last iterate.
+    # A stream cut short of its terminal record still carries final updates.
     fold(last_inner, _WIRE_RESIDUAL_FIELDS)
     fold(last_outer, _CLAMP_RESIDUAL_FIELDS)
     return residual
@@ -439,11 +439,11 @@ def _drive_candidate(
     for w, x in workload:
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
-        # min_outer=0: the guard reads each solve's LAST iterate, and only the
-        # whole trajectory tells the aggregator which iterate that was. The
-        # records stay where they were solved: every reduction below and in the
-        # plateau / residual passes is device-agnostic, so a hot loop pays no
-        # per-drive host transfer and pools nothing in host memory.
+        # min_outer=0: the guard reads the residuals that drove each solve's
+        # final recorded updates, and only the whole trajectory identifies
+        # them. The records stay where they were solved: every reduction below
+        # and in the plateau / residual passes is device-agnostic, so a hot
+        # loop pays no per-drive host transfer and pools nothing in host memory.
         with (
             ColBlColSlProber(min_outer=0) as sp,
             XbarCell1t1rDetailProber() as cp,
