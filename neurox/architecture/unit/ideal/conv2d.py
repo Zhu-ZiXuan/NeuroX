@@ -102,11 +102,11 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         del quantization_mode, adc_bits
         return 1.0
 
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
-        """Zero — an exact integer matmul, with no circuit under it to take time.
+    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Zero — an exact integer convolution occupies no execution interval.
 
         The unit holds neither a macro nor an engine schedule, so there is no
-        time axis anywhere below it: the output positions the input resolution
+        schedule anywhere below it: the output positions the input resolution
         implies are all evaluated at once.
         """
         del input_shape, adc_bits

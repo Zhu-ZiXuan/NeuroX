@@ -72,6 +72,20 @@ class UnitBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Scheduled interval occupied by one operator call.
+
+        The unit derives runtime-dependent schedule extents from
+        `input_shape`; construction fixes the remaining extents. An
+        implementation whose schedule is fully fixed may ignore the shape.
+
+        Args:
+            input_shape: Layout of the operand the unit's operator receives.
+            adc_bits: Conversion resolution, or `None` for the lossless oracle.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def _matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Multiply integer input planes by the programmed weight.
 

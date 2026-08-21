@@ -52,6 +52,10 @@ class Adder(DigitalBase[AdderConfig]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    def latency__ns(self) -> float:
+        """Combinational latency of one add."""
+        return self.config.latency_per_op__ns
+
     def add(self, a: Tensor, b: Tensor) -> Tensor:
         """Add two integer tensors element-wise.
 

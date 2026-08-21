@@ -145,7 +145,7 @@ The standard atoms establish the runtime scales, not one mandatory algebraic spe
 The energy atom is one rail-to-GND branch, $E = V \cdot I \cdot t$. The runtime-unit closure $1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$ makes every branch product land in fJ with no rescaling. A branch's energy splits by time base:
 
 - **Dynamic energy** integrates the branch current over its conduction windows only — the intervals a current actually flows.
-- **Static (leakage) energy** integrates over the full operating period — the measurement or clock cycle a module occupies, not the conduction span. A scheme that declares that period declares it as its own config field, separately from the access time its `latency__ns` reports.
+- **Static (leakage) energy** integrates over the full operating period — the measurement or clock cycle a module occupies, not the conduction span. Circuit families that own a propagation or conversion delay may expose it as `latency__ns`; scheduling boundaries expose the separately composed `initiation_interval__ns`.
 
 A module that conducts only briefly within a long cycle is therefore charged leakage over the full period, while it bills its dynamic branches over their short conduction windows alone.
 

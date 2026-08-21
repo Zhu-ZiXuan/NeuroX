@@ -92,14 +92,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             ideal_macro=ideal_macro,
         )
 
-    def latency__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
-        """Time one logical matrix multiplication — the schedule it unrolls.
+    def initiation_interval__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
+        """Schedule one logical matrix multiplication.
 
         Serial work spans the output planes `M` supplied per call, the input
         slices `Sx`, the CIM block slots `D`, and the input phases `P`. One
         macro access serves each `(M, Sx, D, P)` point, so these extents
-        multiply the macro latency. Weight slices, contraction partitions, and
-        block groups are parallel silicon and do not.
+        multiply the macro initiation interval. Weight slices, contraction
+        partitions, and block groups are parallel silicon and do not.
 
         The digital blocks hold no output-port axis of their own, so each runs
         once per output element the operation it closes delivers: the macro's
@@ -120,7 +120,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
                 `None` for the lossless oracle.
 
         Returns:
-            Duration of one logical matrix multiplication.
+            Scheduled interval occupied by one logical matrix multiplication.
         """
         slice_num = self.x_slice.slice_num
         block_step_num = self.placement.block_step_num
@@ -128,21 +128,17 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         port_num = self.config.output_num
         aggregated_port_num = self.weight_slice.aggregated_output_num
 
-        phase_accumulate__ns = self.input_activation.phase_accumulator.config.latency_per_op__ns
-        contraction_accumulate__ns = self.placement.contraction_accumulator.config.latency_per_op__ns
+        phase_accumulate__ns = self.input_activation.phase_accumulator.latency__ns()
+        contraction_accumulate__ns = self.placement.contraction_accumulator.latency__ns()
         w_slice_recombine__ns = (
-            self.weight_slice.shift_adder.config.latency_per_op__ns
-            if self.weight_slice.shift_adder is not None
-            else 0.0
+            self.weight_slice.shift_adder.latency__ns() if self.weight_slice.shift_adder is not None else 0.0
         )
-        x_slice_recombine__ns = (
-            self.x_slice.shift_adder.config.latency_per_op__ns if self.x_slice.shift_adder is not None else 0.0
-        )
+        x_slice_recombine__ns = self.x_slice.shift_adder.latency__ns() if self.x_slice.shift_adder is not None else 0.0
 
         # One block step retires when its phases have been accumulated.
         step_num = output_plane_num * slice_num * block_step_num
         access_num = step_num * phase_num
-        total__ns = access_num * self.cim_macro.latency__ns(adc_bits=adc_bits)
+        total__ns = access_num * self.cim_macro.initiation_interval__ns(adc_bits=adc_bits)
         total__ns += access_num * port_num * phase_accumulate__ns
         total__ns += step_num * port_num * contraction_accumulate__ns
         total__ns += step_num * aggregated_port_num * w_slice_recombine__ns

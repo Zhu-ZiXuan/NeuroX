@@ -52,6 +52,10 @@ class Subtractor(DigitalBase[SubtractorConfig]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    def latency__ns(self) -> float:
+        """Combinational latency of one subtract."""
+        return self.config.latency_per_op__ns
+
     def subtract(self, a: Tensor, b: Tensor) -> Tensor:
         """Subtract one integer tensor from another element-wise.
 

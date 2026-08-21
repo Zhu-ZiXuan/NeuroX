@@ -53,6 +53,10 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    def latency__ns(self) -> float:
+        """Latency of one accumulator evaluation."""
+        return self.config.latency_per_op__ns
+
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
         """Sum `x` along `dim` and wrap into the signed `bit_width` range.
 

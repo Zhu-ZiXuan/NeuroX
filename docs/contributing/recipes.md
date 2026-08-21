@@ -46,7 +46,8 @@ Use the common checklist, then:
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.
-- Report a duration only where the family base declares `latency__ns`, deriving it from the arguments that base takes plus this leaf's own config. A leaf that introduces no time axis of its own declares no such method: it keeps its per-op window as a config field, and the caller that inserted the axes multiplies it.
+- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract. `ModuleBase` declares neither latency nor interval.
+- Compose scheduling explicitly at the owner of each serial axis. Macro and architecture boundaries expose `initiation_interval__ns`; they do not obtain it by traversing the module tree or by treating every child's latency as additive.
 - Test shape contract, dtype behavior, PPA emissions, and edge cases for the primary method.
 
 ## Add a registry family

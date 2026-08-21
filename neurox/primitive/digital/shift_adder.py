@@ -73,6 +73,10 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    def latency__ns(self) -> float:
+        """Latency of one positional-sum evaluation."""
+        return self.config.latency_per_op__ns
+
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to `bit_width` bits.
 

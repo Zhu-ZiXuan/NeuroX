@@ -191,7 +191,7 @@ class _StubMacro(CimMacro[_StubMacroConfig, _StubMacroPolicy]):
     def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         raise NotImplementedError
 
-    def latency__ns(self, *, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
         del adc_bits
         return 0.0
 

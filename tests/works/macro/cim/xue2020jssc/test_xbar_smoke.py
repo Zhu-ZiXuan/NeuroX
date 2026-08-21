@@ -113,7 +113,7 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     assert reporter.total_dynamic_energy__fJ(prof) > 0.0
     assert reporter.static.leakage__uW > 0.0
 
-    # --- 4. Latency law: the access time of every column-MUX slot ---
+    # --- 4. Circuit latency and scheduled interval ---
     # The macro owns the WL sub-phases and the live-bit settle; the sensing tail
     # belongs to the converter that owns the search-step axis. mux_factor is the
     # macro's only time axis.
@@ -122,6 +122,8 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     for bits in range(1, TINY_ADC_BITS + 1):
         expected__ns = (chain__ns + macro.adc.latency__ns(bits=bits)) * cfg.mux_factor
         assert macro.latency__ns(adc_bits=bits) == pytest.approx(expected__ns)
+        assert macro.initiation_interval__ns(adc_bits=bits) == pytest.approx(cfg.t_cycle__ns * cfg.mux_factor)
+        assert macro.initiation_interval__ns(adc_bits=bits) >= macro.latency__ns(adc_bits=bits)
     # A lowered resolution shortens the access by exactly the steps it drops.
     assert macro.latency__ns(adc_bits=TINY_ADC_BITS - 1) < macro.latency__ns(adc_bits=TINY_ADC_BITS)
     # At full resolution the access is the whole conduction span.

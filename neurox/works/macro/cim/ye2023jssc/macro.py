@@ -238,6 +238,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             raise ValueError("require: adc_bits is an int — the physical readout has no lossless oracle")
         return self.col_num * self.rscsa.latency__ns(bits=adc_bits)
 
+    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
+        """Scheduled duration of one VMM under back-to-back conversions."""
+        return self.latency__ns(adc_bits=adc_bits)
+
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         config = self.config
         policy = self.policy

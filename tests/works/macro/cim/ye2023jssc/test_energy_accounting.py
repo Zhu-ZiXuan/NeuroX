@@ -378,6 +378,7 @@ def test_conduction_and_latency_follow_the_executed_window(device: torch.device)
         for channel in (".bl_cond", ".dl_cond"):
             assert by_name[channel] == pytest.approx(ratio * full__fJ[channel]), f"{channel} at bits={bits}"
         assert macro_b.latency__ns(adc_bits=bits) == pytest.approx(ratio * full_latency__ns)
+        assert macro_b.initiation_interval__ns(adc_bits=bits) == pytest.approx(macro_b.latency__ns(adc_bits=bits))
         # Window-invariant rows: the caps and the drive events ride no window,
         # the control lumps are per-op constants.
         for row in (_ARRAY_CAPS, _WL_DAC, _BL_DAC, ".mux_driver", ".timing_ctrl"):
@@ -601,6 +602,7 @@ def test_latency_is_t_ac_over_the_output_axis(device: torch.device) -> None:
     macro, _prof, _rep = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
     t_ac = float(macro.t_ac__ns)
     assert macro.latency__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
+    assert macro.initiation_interval__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
 
 
 # ---------------------------------------------------------------------------

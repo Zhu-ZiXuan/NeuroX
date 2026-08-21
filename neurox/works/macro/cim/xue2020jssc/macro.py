@@ -481,6 +481,17 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         chain__ns = sum(config.t_sample__ns) + config.t_settle__ns + self.adc.latency__ns(bits=adc_bits)
         return chain__ns * config.mux_factor
 
+    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
+        """Scheduled duration of one VMM at the declared access period.
+
+        Every column-MUX slot occupies one `t_cycle__ns` period, independent
+        of the circuit latency at the requested ADC resolution.
+        """
+        if adc_bits is None:
+            raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
+        self.adc.latency__ns(bits=adc_bits)
+        return self.config.t_cycle__ns * self.config.mux_factor
+
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         config = self.config
         policy = self.policy

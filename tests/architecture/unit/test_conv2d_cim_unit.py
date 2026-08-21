@@ -406,7 +406,9 @@ def test_unbatched_input_matches_batch_of_one() -> None:
     for candidate in units:
         candidate.program(weight, bias)
         _assert_unbatched_matches_batch_of_one(candidate, x)
-    assert unit.latency__ns((2, 7, 9), adc_bits=_ADC_BITS) == unit.latency__ns((1, 2, 7, 9), adc_bits=_ADC_BITS)
+    assert unit.initiation_interval__ns((2, 7, 9), adc_bits=_ADC_BITS) == unit.initiation_interval__ns(
+        (1, 2, 7, 9), adc_bits=_ADC_BITS
+    )
 
 
 # --- Rejections ---

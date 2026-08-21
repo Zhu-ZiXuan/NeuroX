@@ -7,7 +7,7 @@ See Also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 
 import torch
 from torch import Tensor
@@ -86,21 +86,6 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-
-    @abstractmethod
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
-        """Duration of one operator call.
-
-        The unit is the boundary where a runtime shape enters the timing line:
-        implementations derive any runtime-dependent output-plane extent from
-        `input_shape`, while construction fixes every other scheduled extent.
-        An implementation whose schedule is fully fixed may ignore the shape.
-
-        Args:
-            input_shape: Layout of the operand the unit's operator receives.
-            adc_bits: Conversion resolution, or `None` for the lossless oracle.
-        """
-        raise NotImplementedError
 
 
 class EngineBackedCimUnitConfig(CimUnitConfig, ABC):

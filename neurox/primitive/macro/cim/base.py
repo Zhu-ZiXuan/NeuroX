@@ -277,20 +277,12 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         raise NotImplementedError
 
     @abstractmethod
-    def latency__ns(self, *, adc_bits: int | None) -> float:
-        """Duration of one `vec_mat_mul` call [ns].
-
-        A macro's access time is fixed by its own schedule except for the
-        readout, whose window follows the requested resolution; every other
-        child settles inside a window the macro already owns and is never
-        summed in.
+    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
+        """Scheduled interval occupied by one `vec_mat_mul` call [ns].
 
         Args:
             adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
                 or `None` for the lossless oracle.
-
-        Returns:
-            Duration of one conversion per word-line plane.
         """
         raise NotImplementedError
 

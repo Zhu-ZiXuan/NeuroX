@@ -86,12 +86,12 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         del quantization_mode, adc_bits
         return 1.0
 
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
-        """Zero — an exact integer matmul, with no circuit under it to take time.
+    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Zero — an exact integer matmul occupies no execution interval.
 
         The unit holds neither a macro nor an engine schedule, so there is no
-        time axis anywhere below it and the operand layout says nothing about
-        a duration.
+        schedule anywhere below it and the operand layout says nothing about
+        an interval.
         """
         del input_shape, adc_bits
         return 0.0

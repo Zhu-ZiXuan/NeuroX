@@ -61,9 +61,9 @@ make eval-bert  MAX_SAMPLES=100
 
 ## Step 4 — read the report
 
-The run names the config and policy it used, then prints accuracy beside the PPA figures: total area, total leakage power, total dynamic energy, and the modeled latency per sample, followed by the per-module dynamic-energy breakdown that shows where the energy went.
+The run names the config and policy it used, then prints accuracy beside the PPA figures: total area, total leakage power, total dynamic energy, and the modeled initiation interval per sample, followed by the per-module dynamic-energy breakdown that shows where the energy went.
 
-Leakage power and latency stay separate figures rather than being multiplied into a static energy: static energy is leakage times the duty-cycle period a deployment holds the macro for, which is a property of that deployment and not of the access time. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
+Leakage power and initiation interval stay separate figures rather than being multiplied into a static energy: static energy is leakage times the duty-cycle period a deployment holds the macro for. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
 
 The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Common API](../../api/common.md)).
 
