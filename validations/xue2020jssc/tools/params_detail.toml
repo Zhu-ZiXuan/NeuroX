@@ -15,7 +15,7 @@
 # ladder, so the array-solver calibration is GENUINE: this Detail array
 # mirrors ../params.toml's wire geometry (BL/SL segment 5 Ohm) so the
 # calibrate_solver-picked (n_outer, n_inner) transfer to the runtime array. It is
-# also a config-complete xbar the shipped run-config resolves against (reactivating
+# also a config-complete macro tree the shipped run-config resolves against (reactivating
 # tests/tools/test_calibrate_solver.py::TestShippedRunConfig). The section
 # deliberately carries NO macro-level _neurox_class: it is a calibration fragment
 # source, not a dispatchable CimMacro.

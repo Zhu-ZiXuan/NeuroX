@@ -346,7 +346,6 @@ def test_selected_word_line_clears_the_step2_threshold() -> None:
     assert bl_dac_config.code_to_signal[0] == 0.0
     assert config.v_sl__V == 0.0
     assert bl_dac_config.code_to_signal[1] > 0.0
-    assert bl_dac_config.code_to_signal[1] == config.array_config.v_bl_in1__V
 
 
 # ---------------------------------------------------------------------------

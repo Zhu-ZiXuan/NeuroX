@@ -20,6 +20,7 @@ from torch import Tensor
 
 from .tensor_dataclass import TensorDataClassBase
 from .tensor_fields import walk_tensor_fields
+from .torch_compat import torch_compiler_disable
 
 
 class RecordBase(TensorDataClassBase):
@@ -140,7 +141,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         return root
 
     @classmethod
-    @torch.compiler.disable
+    @torch_compiler_disable
     def current(cls) -> Self | None:
         """Return the family's active recorder, or `None` outside a context.
 
@@ -152,7 +153,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         return cast(Self, cls._root()._active_recorder)  # noqa: SLF001
 
     @classmethod
-    @torch.compiler.disable
+    @torch_compiler_disable
     def active(cls) -> bool:
         """Return whether the family has an active recorder.
 
@@ -164,7 +165,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
 
     @classmethod
     @final
-    @torch.compiler.disable
+    @torch_compiler_disable
     def submit(cls, record: RecordT) -> None:
         """Hand one record across the graph boundary to its family hook.
 
@@ -186,7 +187,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
 
     @classmethod
     @final
-    @torch.compiler.disable
+    @torch_compiler_disable
     def _submit_record(cls, record: RecordT) -> None:
         """Append one record to the family's active recorder, detached.
 

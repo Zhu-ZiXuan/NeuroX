@@ -24,7 +24,7 @@ from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # Logical problem, sized so every stage does real work: the contraction spans
-# two tiles (D), one tile holds two weight slices (Sw), the input is serialized
+# two block slots (D), two weight slices (Sw), the input is serialized
 # into two slices (Sx) and into two row phases (P).
 _INPUT_NUM = 8  # macro input ports
 _OUTPUT_NUM = 8  # macro output ports

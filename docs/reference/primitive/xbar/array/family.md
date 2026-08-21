@@ -1,4 +1,4 @@
-# Xbar array family
+# Crossbar array family
 
 A crossbar pure array is a grid of [cell](../cell/family.md) sites bridged by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. An array solve takes the analog word-line drive and two boundary clamp transfer functions, settles the grid to a DC operating point under the interconnect parasitics, and yields the per-column boundary port current and clamp voltage. The model is agnostic to the cell's internal device topology.
 
@@ -49,14 +49,14 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl__V` |
 | $V_{\mathrm{BL,CL}}$ | bit-line clamp voltage | V | `v_bl_clamp__V` |
 | $V_{\mathrm{SL,CL}}$ | source-line clamp voltage | V | `v_sl_drive__V` |
-| $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
+| $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `ResistiveDcop.i__uA` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary port currents | uA | derived from node voltages |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL rail ladder | — | `row_num` |
 | $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 
 ## Assumptions, scope & validity
 
-- The array is topology-agnostic in the cell: it sees each site only as one condensed two-terminal branch and holds no internal cell node.
+- Each array uses one topology-compatible cell family; within the BL/SL equations, every site contributes one condensed two-terminal branch and no internal cell node.
 - Each column's BL/SL rails are lumped per-link resistive ladders along the row axis, not distributed lines, and every line capacitance is folded into the node it hangs on.
 - The word line is the driven boundary, carries no DC conduction path, and enters as the input drive at each seat's word-line node.
 - Boundary transfer functions are supplied to each solve rather than modeled as part of the array.

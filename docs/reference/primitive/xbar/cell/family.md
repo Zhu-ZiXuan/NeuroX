@@ -1,10 +1,10 @@
-# Xbar cell family
+# Crossbar cell family
 
-Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. Interconnect, boundary behavior, and grid-level energy are outside the cell model.
+A crossbar cell is defined by its own device topology. When an array settles a resistive path between one bit-line node and one source-line node, its selected cell supplies one condensed branch current with two signed terminal conductances. Additional paths or observables remain topology-specific. Interconnect, boundary behavior, and grid-level energy are outside the cell model.
 
 ## Physical model
 
-A cell is the analog device branch between a bit-line node $V_{\mathrm{BL}}$ and a source-line node $V_{\mathrm{SL}}$. Internally it may hold one or more devices and internal nodes (for example a series access node); externally it presents a **single two-terminal branch**. The cell condenses every internal node away, so from outside it is one element between $V_{\mathrm{BL}}$ and $V_{\mathrm{SL}}$ whose current and terminal conductances summarize the entire internal stack. Each cell connects exactly one bit-line node and one source-line node, and asserts nothing about which carries the input or the output. The per-read exogenous control of the cell's devices (for example a word-line / select drive) is an input to the cell, not an unknown of the condensation: it is fixed in the per-call snap together with the sampled device read state, so the condensation is deterministic given that snap.
+Within the resistive role, a cell is the analog device branch between a bit-line node $V_{\mathrm{BL}}$ and a source-line node $V_{\mathrm{SL}}$. Internally it may hold one or more devices and internal nodes (for example a series access node); externally this path presents a **single two-terminal branch**. The cell condenses the path's internal nodes away, so the solver sees one element between $V_{\mathrm{BL}}$ and $V_{\mathrm{SL}}$ whose current and terminal conductances summarize that stack. The role asserts nothing about which terminal carries the input or output, nor does it exclude topology-specific paths beside this branch. Per-read exogenous control is fixed in the per-call snap together with sampled device state, so the condensation is deterministic given that snap.
 
 ## Governing equations
 
@@ -18,7 +18,7 @@ The cell also returns the two **signed terminal conductances** of the branch, th
 
 $$\frac{\partial I}{\partial V_{\mathrm{BL}}} \ge 0, \qquad \frac{\partial I}{\partial V_{\mathrm{SL}}} \le 0.$$
 
-These definite signs are a family-wide invariant of the branch: raising the bit-line potential at fixed source line cannot decrease the branch current into the source line, and raising the source-line potential cannot increase it. Any physical cell branch built from passive / source-symmetric devices satisfies this convention. The concrete per-device origin of the signs is topology-specific.
+These definite signs are an invariant of the resistive branch: raising the bit-line potential at fixed source line cannot decrease the branch current into the source line, and raising the source-line potential cannot increase it. Any physical branch built from passive / source-symmetric devices satisfies this convention. The concrete per-device origin of the signs is topology-specific.
 
 ## Symbols
 
@@ -26,11 +26,11 @@ These definite signs are a family-wide invariant of the branch: raising the bit-
 |---|---|---|---|
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl__V` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl__V` |
-| $\mathbf{V}_{\mathrm{int}}$ | internal-node voltage vector (condensed in the cell) | V | concrete `XbarCellDcop` subclass |
+| $\mathbf{V}_{\mathrm{int}}$ | internal-node voltage vector (condensed in the cell) | V | result of `ResistiveCell.solve_dc` |
 | $\mathbf{F}_{\mathrm{int}}$ | internal-node KCL residual vector, where the topology has one | uA | concrete cell's own probe-channel record |
-| $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDcop.i__uA` |
-| $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `XbarCellDcop.di_dvbl__uS` |
-| $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `XbarCellDcop.di_dvsl__uS` |
+| $I$ | condensed branch current (BL $\to$ SL) | uA | `ResistiveDcop.i__uA` |
+| $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `ResistiveDcop.di_dvbl__uS` |
+| $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `ResistiveDcop.di_dvsl__uS` |
 
 ## Noise & non-idealities
 
@@ -42,12 +42,12 @@ The cell exposes the converged levels of its two terminals and every internal no
 
 ## Assumptions, scope & validity
 
-- A cell is two-terminal: it connects exactly one bit-line node and one source-line node, with every internal node condensed inside the cell.
+- The resistive role is two-terminal: it connects one bit-line node and one source-line node, with that path's internal nodes condensed inside the cell.
 - The branch presents definite-sign terminal conductances, $\partial I/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I/\partial V_{\mathrm{SL}} \le 0$, at every operating point.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a read pulse.
 - Exogenous per-read control and the sampled device read state are fixed in the per-call snap, not unknowns of the condensation.
 
-TODO (domain author): the conditions under which a candidate cell topology can be condensed to a definite-sign two-terminal branch (e.g. monotonicity / passivity requirements on its device set), and any topology that would violate them.
+TODO (domain author): the conditions under which a cell topology can supply a definite-sign two-terminal resistive branch (e.g. monotonicity / passivity requirements on its device set), and any topology that would violate them.
 
 ## Validation
 

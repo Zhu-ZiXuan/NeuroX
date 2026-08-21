@@ -32,7 +32,7 @@ def _make_macro(
         quantization_input_ranges=quantization_input_ranges,
         adc_max_bits=adc_max_bits,
     )
-    xbar = IdealCimMacro(
+    macro = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
         input_num=input_num,
@@ -41,8 +41,8 @@ def _make_macro(
         dtype=torch.float32,
         T__K=300.0,
     )
-    xbar.eval()
-    return xbar
+    macro.eval()
+    return macro
 
 
 def _program_outputs(macro: IdealCimMacro, outputs: list[list[int]]) -> None:

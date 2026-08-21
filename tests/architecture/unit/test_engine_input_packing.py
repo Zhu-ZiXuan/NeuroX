@@ -370,7 +370,7 @@ def test_degenerate_input_phase_axis_size_one() -> None:
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEngine]) -> None:
-    """K < input_num omits phases holding only tile padding.
+    """K < input_num omits phases holding only macro-input padding.
 
     input_num=8, max_active_num=2, K=3 gives two, not ceil(8/2)=4.
     """

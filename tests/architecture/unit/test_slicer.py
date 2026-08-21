@@ -1,4 +1,4 @@
-"""Tests for xbar value-domain slicers."""
+"""Tests for macro value-domain slicers."""
 
 from __future__ import annotations
 

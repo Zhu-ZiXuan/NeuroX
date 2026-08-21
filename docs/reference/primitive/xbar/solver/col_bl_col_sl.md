@@ -92,9 +92,9 @@ Shared electrical symbols are pinned in [notation_conventions](../../../../conve
 | $V_{\mathrm{SL}}$ | SL wire node voltage | V | `v_sl_node__V` |
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp__V` |
 | $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive__V` |
-| $I_{\mathrm{cell}}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
-| $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `cell.solve_branch` |
-| $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `cell.solve_branch` |
+| $I_{\mathrm{cell}}$ | condensed cell branch current (BL $\to$ SL) | uA | `ResistiveDcop.i__uA` |
+| $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `ResistiveDcop.di_dvbl__uS` |
+| $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `ResistiveDcop.di_dvsl__uS` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | `i_bl_port__uA` |
 | $I_{\mathrm{SL,port}}$ | SL boundary port current | uA | `i_sl_port__uA` |
 | $G^{\mathrm{BL}}_{\mathrm{seg}}, G^{\mathrm{SL}}_{\mathrm{seg}}$ | BL / SL rail link conductance | uS | reciprocal of `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |

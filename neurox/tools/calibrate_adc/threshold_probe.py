@@ -9,8 +9,8 @@ Controlled-stimulus grid sweep: a deterministic count-grid battery realizing
 every per-(column, phase)-block magnitude by single-cell-LSB patterns under
 full WL drive, count-capped random single-sign block patterns, dense
 saturating columns, and random WL drive densities. Each battery element runs
-through the physical tile and its lossless twin; the analog inputs captured
-from the physical tile's `current_adc.convert` pair with the ideal twin's
+through the physical macro and its lossless twin; the analog inputs captured
+from the physical macro's `current_adc.convert` pair with the ideal twin's
 `vec_mat_mul` integer dots mapped onto the ADC input code axis, giving the
 observed analog band per ADC input code. The modes come from the mode-set TOML
 named by the run config; the macro publishes each mode's inclusive ADC input
@@ -82,7 +82,7 @@ class _StimulusCfg(ValidateMixin):
     their block counts stay exact."""
     full_drive_caps: tuple[int, ...]
     """Subset of `lsb_caps` whose random patterns also run one full-drive
-    element with exact block counts. On a wide tile a high-cap all-column
+    element with exact block counts. On a wide array a high-cap all-column
     pattern under full drive can exceed the solver-convergent loading
     envelope — list only the caps that stay inside it, exact high-count
     coverage then coming from the diluted grid."""
@@ -92,12 +92,12 @@ class _StimulusCfg(ValidateMixin):
     """Column stride of the deterministic count grid: every
     `grid_col_stride`-th column is programmed and the others stay zero. A
     loading-dilution knob — the exact-coverage grid runs under full WL drive,
-    so on a wide tile a stride > 1 keeps the total array conduction inside the
+    so on a wide array a stride > 1 keeps the total array conduction inside the
     workload envelope the DC solve converges on, the per-column count staying
     exact."""
     include_saturating: bool
     """Add the dense +1 / -1 / phase-antisymmetric saturating-column pattern to
-    the battery. Meaningful only when the tile's DC solve converges on that
+    the battery. Meaningful only when the macro's DC solve converges on that
     full-drive fully-dense extreme; outside that envelope the samples are
     invalid and the pattern must stay off."""
 
@@ -150,7 +150,7 @@ def _build_battery(
     """Materialize the deterministic battery element list `(name, w, x)`.
 
     The list is a pure function of the config, the largest input code any mode
-    resolves, and the tile geometry — the random elements draw from a seeded
+    resolves, and the macro geometry — the random elements draw from a seeded
     generator in enumeration order — so every `--element-range` slice of the
     same inputs sees the same elements.
     """
@@ -163,7 +163,7 @@ def _build_battery(
     full_drive = torch.ones((1, row_num), dtype=torch.long)
 
     # 1. Deterministic count grid (exact |M| coverage 0 .. grid_top, full
-    # drive, columns diluted by grid_col_stride); a narrow tile walks the
+    # drive, columns diluted by grid_col_stride); a narrow array walks the
     # grid over several offset patterns.
     grid_cols = max(col_num // stim.grid_col_stride, 1)
     grid_pattern_num = -(-(grid_top + 1) // grid_cols)

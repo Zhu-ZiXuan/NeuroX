@@ -138,7 +138,6 @@ def array_config() -> Ye2023Jssc2t1rArrayConfig:
         solver_config=ColBlColSlSolverConfig(n_outer=3, n_inner=3),
         weight_radix=TINY_WEIGHT_RADIX,
         redundant_radix=TINY_REDUNDANT_RADIX,
-        v_bl_in1__V=V_BL_IN1__V,
     )
 
 

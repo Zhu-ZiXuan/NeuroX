@@ -130,7 +130,6 @@ def _array_config() -> Ye2023Jssc2t1rArrayConfig:
         solver_config=ColBlColSlSolverConfig(n_outer=2, n_inner=1),
         weight_radix=_WEIGHT_RADIX,
         redundant_radix=_REDUNDANT_RADIX,
-        v_bl_in1__V=_V_BL_IN1__V,
     )
 
 
@@ -191,18 +190,16 @@ def _solve(array: Ye2023Jssc2t1rArray, v_wl: torch.Tensor, bl_v_ref: torch.Tenso
     """Snapshot both boundary clamps at the call's event shape and solve.
 
     The caller owns the event structure, so the snaps are taken here and the
-    word-line drive is handed over as the full cell grid (one value per gate,
-    a stride-0 expand of the per-row drive across the columns).
+    line-level word-line drive is handed to the array unchanged.
     """
     clamp = _ideal_clamp()
     leading = tuple(torch.broadcast_shapes(v_wl.shape[:-1], bl_v_ref.shape[:-1]))
     event_shape = (*leading, _COL_NUM)
-    # Shape: [..., row] -> [..., col, row]
-    v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, _COL_NUM, _ROW_NUM)
+    v_wl = v_wl.expand(*leading, _ROW_NUM)
     bl_snap = clamp.snapshot(v_ref__V=bl_v_ref.expand(event_shape), shape=event_shape)
     sl_snap = clamp.snapshot(v_ref__V=torch.zeros((), dtype=_DTYPE).expand(event_shape), shape=event_shape)
     steady = array.solve_array(
-        v_wl_grid,
+        v_wl,
         bl_driver=clamp,
         bl_driver_snap=bl_snap,
         sl_driver=clamp,

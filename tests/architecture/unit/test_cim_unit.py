@@ -42,6 +42,7 @@ from neurox.architecture.unit.cim.engine import (
     WeightSliceStageConfig,
     WeightSliceStagePolicy,
     XSliceStage,
+    XSliceStageConfig,
     XSliceStagePolicy,
 )
 from neurox.architecture.unit.cim.engine.placement import _chunk_pad_along
@@ -63,6 +64,9 @@ _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 _TEST_ADC_BITS: int | None = None
 _TEST_QUANTIZATION_MODE = 0
 _TEST_ADC_MAX_BITS = 8
+type _CimUnitType = type[CimUnit[CimUnitConfig, CimUnitPolicy]]
+type _WeightSliceStageType = type[WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]]
+type _XSliceStageType = type[XSliceStage[XSliceStageConfig, XSliceStagePolicy]]
 # Wide enough for every dot these fixtures reach (max_active_num <= 16,
 # |w| <= 3, |x| <= 3), so a window never clips a lossless comparison.
 _TEST_QUANTIZATION_INPUT_RANGES: tuple[tuple[int, int], ...] = ((-256, 255),)
@@ -739,7 +743,7 @@ def test_intra_array_slice_engine_unit_public_properties() -> None:
 )
 def test_unit_from_config_dispatches_to_registered_subclass(
     config: IdealLinearUnitConfig | LinearCimUnitConfig,
-    expected_type: type[CimUnit],
+    expected_type: _CimUnitType,
 ) -> None:
     policy = _IDEAL_UNIT_POLICY if isinstance(config, IdealLinearUnitConfig) else _linear_unit_policy(config)
     unit = CimUnit.from_config(
@@ -819,8 +823,8 @@ def test_engine_rejects_non_2d_w_logical_shape() -> None:
 )
 def test_engine_from_config_dispatches_composed_stages(
     engine_config: CimEngineConfig,
-    expected_weight_stage: type[WeightSliceStage],
-    expected_x_stage: type[XSliceStage],
+    expected_weight_stage: _WeightSliceStageType,
+    expected_x_stage: _XSliceStageType,
 ) -> None:
     engine = CimEngine.from_config(
         config=engine_config,

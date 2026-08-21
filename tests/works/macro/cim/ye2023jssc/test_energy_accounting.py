@@ -142,10 +142,10 @@ def _dac_levels(config: Ye2023JsscCimMacroConfig) -> tuple[tuple[float, ...], tu
 def _drive(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
     """Rebuild the exact drive `vec_mat_mul` constructs, from the config alone.
 
-    Returns the full-grid word-line drive (one value per cell gate, one-hot over
-    the array rows and flat across the columns), the per-column BL reference
-    voltages broadcast over the output leading, and the plane-major input
-    indicator (weight planes tiled, redundant planes forced input-0).
+    Returns the line-level word-line drive (one value per array row), the
+    per-column BL reference voltages broadcast over the output leading, and
+    the plane-major input indicator (weight planes tiled, redundant planes
+    forced input-0).
     """
     cfg = macro.config
     device = x.device
@@ -173,8 +173,8 @@ def _drive(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[Tensor, Tensor, Tensor
         torch.tensor(wl_levels__V[1], dtype=DTYPE, device=device),
         torch.tensor(wl_levels__V[0], dtype=DTYPE, device=device),
     )
-    # Shape: [..., out, phys_col, array_row]
-    v_wl = wl_onehot.unsqueeze(-2).expand(*leading, output_num, phys_col_num, output_num)
+    # Shape: [..., out, array_row]
+    v_wl = wl_onehot.expand(*leading, output_num, output_num)
     bl_v_ref = v_bl.unsqueeze(-2).expand(*leading, output_num, phys_col_num)
     return v_wl, bl_v_ref, x_tiled
 

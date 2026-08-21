@@ -6,13 +6,12 @@ See Also:
 
 import math
 from abc import ABC, abstractmethod
-from typing import ClassVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common import ConfigBase, DcopBase, DeviceBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 
@@ -83,15 +82,13 @@ class MosfetSnap(SnapBase):
     """Per-cell signed threshold voltage. Shape: `[...]`."""
 
 
-class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
+class Mosfet(DeviceBase[MosfetConfig, MosfetPolicy], ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
         W__um: Channel width.
         L__um: Channel length.
     """
-
-    is_profile_target: ClassVar[bool] = False
 
     # === Nominal buffers ===
 

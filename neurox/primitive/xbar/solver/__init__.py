@@ -1,5 +1,5 @@
 from .chunking import execute_chunked
-from .clamp import ClampDcop, ClampDriver, ClampSnap
+from .clamp_driver import ClampDcop, ClampDriver, ClampSnap
 from .col_bl_col_sl import (
     ColBlColSlDcop,
     ColBlColSlProber,
@@ -7,6 +7,7 @@ from .col_bl_col_sl import (
     ColBlColSlSolverConfig,
     solve_col_bl_col_sl_dc,
 )
+from .resistive_cell import ResistiveCell, ResistiveDcop
 
 __all__ = [
     "ClampDcop",
@@ -16,6 +17,8 @@ __all__ = [
     "ColBlColSlProber",
     "ColBlColSlRecord",
     "ColBlColSlSolverConfig",
+    "ResistiveCell",
+    "ResistiveDcop",
     "execute_chunked",
     "solve_col_bl_col_sl_dc",
 ]

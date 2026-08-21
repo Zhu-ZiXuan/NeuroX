@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from abc import ABC
 from dataclasses import dataclass
-from typing import dataclass_transform, final
+from typing import ClassVar, dataclass_transform, final
 
 import torch.nn as nn
 
@@ -145,6 +145,10 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     @final
     def inst_count(self) -> int:
         return self.__inst_count
+
+
+class DeviceBase[ConfigT: ConfigBase, PolicyT: PolicyBase](ModuleBase[ConfigT, PolicyT]):
+    is_profile_target: ClassVar[bool] = False
 
 
 def fabricate(root: nn.Module) -> None:

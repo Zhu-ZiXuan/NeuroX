@@ -69,15 +69,15 @@ The measurement objects are public, so the same readout works in your own evalua
 
 ## Comparing against a lossless reference
 
-`--cim_macro ideal` swaps the configured tile for its `to_ideal()` twin — the faithful lossless reference of that same chip, sharing its geometry and value domains — while `--cim_macro physical` runs the tile as configured. Running the same command both ways isolates the analog loss from the QAT loss.
+`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin — the faithful lossless reference of that same chip, sharing its geometry and value domains — while `--cim_macro physical` runs the macro as configured. Running the same command both ways isolates the analog loss from the QAT loss.
 
-A standalone ideal config is the other route: `macro_with_ideal_xbar.toml` for LeNet and `macro_ideal.toml` for BERT, each with its own policy file. These instantiate an ideal tile directly from hand-authored parameters tied to no fabricated chip, so they serve flow bring-up and carry no hardware provenance.
+A standalone ideal config is the other route: `macro_with_ideal_xbar.toml` for LeNet and `macro_ideal.toml` for BERT, each with its own policy file. These instantiate an ideal macro directly from hand-authored parameters tied to no fabricated chip, so they serve flow bring-up and carry no hardware provenance.
 
 ## The two config files
 
 A run is described by two files, whose schema, `_neurox_*` directives, and preset mechanism are specified in [Configuration](../../api/configuration.md):
 
-- **`--config`** — the immutable circuit design. In the bundled files the top section is `[cim_unit]`, and the tile it drives sits at `[cim_unit.engine.cim_macro_config]`, either tagged with `_neurox_class` or pulled from a scheme's chip params by `_neurox_use`. To target a different chip, point that section at that chip's params.
+- **`--config`** — the immutable circuit design. In the bundled files the top section is `[cim_unit]`, and the macro it drives sits at `[cim_unit.engine.cim_macro_config]`, either tagged with `_neurox_class` or pulled from a scheme's chip params by `_neurox_use`. To target a different chip, point that section at that chip's params.
 - **`--policy`** — the mutable nonideality switches, mirroring the config's section tree. The example policies pull in a scheme's all-off preset, so every nonideality starts off; enable one by overriding its `bool` inline after the `_neurox_use` line that pulls the preset in.
 
 Each quantization mode the chip declares carries its own calibrated rescale factor, derived by the [calibration guides](../calibration/README.md). That factor states an output code in ideal-macro codes; turning codes into MAC units is the model's own job and multiplies in the mode's window step, which is what `quant.py` folds into its per-channel scales. Train and evaluate against the same config pair, or the folded scales no longer match the codes the chip returns.

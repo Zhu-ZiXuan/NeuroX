@@ -40,7 +40,7 @@ def _config_kwargs(*, max_active_num: int) -> _IdealCimMacroKwargs:
 
 def _make_macro(*, input_num: int, max_active_num: int, inst_shape: tuple[int, ...] = ()) -> IdealCimMacro:
     config = IdealCimMacroConfig(**_config_kwargs(max_active_num=max_active_num))
-    xbar = IdealCimMacro(
+    macro = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
         input_num=input_num,
@@ -49,8 +49,8 @@ def _make_macro(*, input_num: int, max_active_num: int, inst_shape: tuple[int, .
         dtype=torch.float32,
         T__K=300.0,
     )
-    xbar.eval()
-    return xbar
+    macro.eval()
+    return macro
 
 
 # ---------------------------------------------------------------------------

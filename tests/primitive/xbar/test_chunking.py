@@ -52,8 +52,8 @@ from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageD
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
@@ -614,9 +614,10 @@ _SL_V_REF__V = 0.1
 _V_DD_WL__V = 1.1
 _V_DD_BL__V = 0.9
 _DTYPE = torch.float64
+type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
 
 
-def _array(*, row_num: int, chunk_size: int) -> XbarArray1t1r:
+def _array(*, row_num: int, chunk_size: int) -> _Array:
     """Hand-written tiny 1T1R array with a fully linear cell, every policy off."""
     cell_config = XbarCell1t1rLinearConfig(
         g_cell_off_table__uS=(4.0, 5.0),
@@ -642,7 +643,7 @@ def _array(*, row_num: int, chunk_size: int) -> XbarArray1t1r:
         inst_shape=(),
         row_num=row_num,
         col_num=_ARRAY_COL,
-        operation_mode=XbarArray1t1rOperationMode.WL_IN_BL_SCAN,
+        scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
         v_dd_wl__V=_V_DD_WL__V,
         v_dd_bl__V=_V_DD_BL__V,
         dtype=_DTYPE,
@@ -678,25 +679,21 @@ def _ideal_driver() -> VoltageDriver:
     return driver
 
 
-def _solve_array(array: XbarArray1t1r, v_wl: Tensor) -> XbarArray1t1rSteadyState:
+def _solve_array(array: _Array, v_wl: Tensor) -> XbarArray1t1rSteadyState:
     """Settle one array against two fresh ideal clamps at fixed references.
 
     Whoever drives the array bills it: the caller owns the event structure,
-    so this helper takes both clamp snaps at the full per-call shape, lifts
-    the per-row word-line drive onto the cell grid, and delivers each
-    boundary at the converged port state, exactly as a macro does.
+    so this helper takes both clamp snaps at the full per-call shape, passes
+    the per-row word-line drive through unchanged, and delivers each boundary
+    at the converged port state, exactly as a macro does.
     """
     leading = tuple(v_wl.shape[:-1])
-    row_num = v_wl.shape[-1]
     bl_driver = _ideal_driver()
     sl_driver = _ideal_driver()
     bl_ref = torch.full((*leading, _ARRAY_COL), _BL_V_REF__V, dtype=_DTYPE)
     sl_ref = torch.full((*leading, _ARRAY_COL), _SL_V_REF__V, dtype=_DTYPE)
-    # One word line per row, held across every column.
-    # Shape: [*leading, row_num] -> [*leading, col_num, row_num]
-    v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, _ARRAY_COL, row_num)
     state = array.solve_array(
-        v_wl_grid,
+        v_wl,
         bl_driver=bl_driver,
         bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref, shape=bl_ref.shape),
         sl_driver=sl_driver,
@@ -758,9 +755,8 @@ def _chunk_boundary_bytes() -> Iterator[list[int]]:
 def _retained_bytes(*, row_num: int) -> int:
     """Bytes the chunk loop carries across a boundary, over its own entry state.
 
-    The solve runs eagerly. The law is about the chunk loop, which is eager
-    by construction (`execute_chunked` is `torch.compiler.disable`d),
-    while the tall geometry the law needs would take the `dynamic=False`
+    The solve runs eagerly. The law is about the chunk loop, which is a
+    declared eager island, while the tall geometry the law needs would take the `dynamic=False`
     solver body minutes to unroll; a traced body also hands the probe
     storage-less tensors, which carry no bytes to count.
     """

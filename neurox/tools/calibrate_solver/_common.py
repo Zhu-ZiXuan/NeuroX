@@ -4,16 +4,16 @@ Registry-driven and scheme-agnostic: the tool TOML names a macro config /
 policy file pair — concrete classes selected by `_neurox_class`, scheme
 fragments pulled in via `_neurox_use` — built through `CimMacro.from_config`.
 The tool binds only to its calibration target, the nested parallel-rail solver
-family and the 1T1R cell-family record it consumes, plus the abstract
-`CimMacro` surface; it never reaches through a concrete host topology.
+family and its cell-residual channel, plus the abstract `CimMacro` surface; it
+never reaches through a concrete host topology.
 
 Candidate iteration counts are swept in config space: per candidate the macro
 config file is loaded as a plain dict, the nested solver table located by a
 dotted `solver_section` path is patched, and a fresh macro is built from the
 patched dict. The workload rides the macro's public `vec_mat_mul` over row
 planes serialized on the sub-phase axis; the calibration data is captured by
-the solver / cell probers upstream of the ADC, so the discarded ADC codes never
-matter.
+the solver and cell probers upstream of the ADC, so the discarded ADC codes
+never matter.
 """
 
 from __future__ import annotations
@@ -30,7 +30,11 @@ from neurox.common import ValidateMixin
 from neurox.common.serialize import load_config_dict
 from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
+from neurox.primitive.xbar.cell import (
+    XbarCell1t1rDcop,
+    XbarCell1t1rDetailProber,
+    XbarCell1t1rDetailRecord,
+)
 from neurox.primitive.xbar.solver import (
     ColBlColSlProber,
     ColBlColSlRecord,
@@ -128,7 +132,7 @@ def build_calibration_macro(
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
 ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
-    """Build the reference tile (geometry query + workload sampling host)."""
+    """Build the reference macro for geometry queries and workload sampling."""
     return _fabricated_macro(
         config,
         policy,
@@ -205,7 +209,7 @@ def build_candidate_macro(
     `base_macro_dict` is deep-copied, leaving the caller's shared dict
     untouched; the swept iteration counts are patched onto the dotted-located
     nested-solver table, and the macro config is built from the patched dict
-    through `CimMacroConfig.from_dict` before the tile is fabricated.
+    through `CimMacroConfig.from_dict` before the macro is fabricated.
     """
     patched = copy.deepcopy(base_macro_dict)
     table = resolve_solver_table(patched, solver_section)
@@ -279,9 +283,7 @@ _CELL_STEP_KEY = "v_x__V"
 """Step-delta key for the cell's condensed access-node voltage `cell.v_x__V`."""
 
 # The wire residuals ride the inner Newton steps of `ColBlColSlProber`'s
-# trajectory and the clamp residuals its outer clamp events; `cell__uA` (the
-# per-cell internal-KCL residual) rides `XbarCell1t1rDetailProber` and is
-# tracked only when the built cell emits it.
+# trajectory and the clamp residuals its outer clamp events.
 _WIRE_RESIDUAL_FIELDS: tuple[str, ...] = ("f_bl_kcl__uA", "f_sl_kcl__uA")
 """Inner-step ColBlColSlRecord fields tracked for the residual safety guard."""
 
@@ -290,19 +292,6 @@ _CLAMP_RESIDUAL_FIELDS: tuple[str, ...] = ("f_bl_clamp__V", "f_sl_clamp__V")
 
 _SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (*_WIRE_RESIDUAL_FIELDS, *_CLAMP_RESIDUAL_FIELDS)
 """Every solver residual class the guard reports, wire first."""
-
-_CELL_RESIDUAL_KEY = "cell__uA"
-"""Residual key for the per-cell internal-KCL mismatch."""
-
-
-def terminal_records(records: list[ColBlColSlRecord[Any]]) -> list[ColBlColSlRecord[Any]]:
-    """Keep the one record each solve closes with, in solve order.
-
-    A solve emits its whole iteration trajectory and then exactly one terminal
-    record carrying the converged DCOP, so selecting on that DCOP counts solves
-    rather than iterations.
-    """
-    return [record for record in records if record.dcop is not None]
 
 
 def solver_step_fields(record: ColBlColSlRecord[Any]) -> dict[str, Tensor]:
@@ -399,18 +388,167 @@ def solver_residual_max(records: list[ColBlColSlRecord[Any]]) -> dict[str, float
 
 
 @dataclass(frozen=True)
+class SolveResidualTrajectory:
+    """Complete residual streams from one array solve."""
+
+    solver_records: tuple[ColBlColSlRecord[Any], ...]
+    """Outer, inner, and terminal solver records in emission order."""
+    cell_records: tuple[XbarCell1t1rDetailRecord, ...]
+    """Cell residuals from the seed, every iterative evaluation, and the terminal evaluation."""
+
+
+def build_residual_trajectories(
+    solver_records: tuple[ColBlColSlRecord[Any], ...],
+    cell_records: tuple[XbarCell1t1rDetailRecord, ...],
+    *,
+    n_outer: int,
+    n_inner: int,
+) -> tuple[SolveResidualTrajectory, ...]:
+    """Split the two recorder streams into aligned per-solve trajectories."""
+    solver_trajectories: list[tuple[ColBlColSlRecord[Any], ...]] = []
+    pending: list[ColBlColSlRecord[Any]] = []
+    for record in solver_records:
+        pending.append(record)
+        if record.dcop is not None:
+            solver_trajectories.append(tuple(pending))
+            pending = []
+    if pending:
+        raise ValueError("solver record stream ended without a terminal record")
+
+    if not cell_records:
+        return tuple(SolveResidualTrajectory(records, ()) for records in solver_trajectories)
+
+    cell_records_per_solve = 2 + n_outer * n_inner
+    expected = len(solver_trajectories) * cell_records_per_solve
+    if len(cell_records) != expected:
+        raise ValueError(
+            f"cell record stream has {len(cell_records)} records for {len(solver_trajectories)} solves; "
+            f"expected {cell_records_per_solve} per solve ({expected} total)"
+        )
+    return tuple(
+        SolveResidualTrajectory(
+            solver_records=records,
+            cell_records=cell_records[index : index + cell_records_per_solve],
+        )
+        for records, index in zip(
+            solver_trajectories,
+            range(0, len(cell_records), cell_records_per_solve),
+            strict=True,
+        )
+    )
+
+
+def current_residual_max(trajectories: tuple[SolveResidualTrajectory, ...]) -> dict[str, float]:
+    """Maximum residual at the stopping point of every solve."""
+    solver_records = [record for trajectory in trajectories for record in trajectory.solver_records]
+    residual = solver_residual_max(solver_records)
+    terminal_cell_records = [trajectory.cell_records[-1] for trajectory in trajectories if trajectory.cell_records]
+    if terminal_cell_records:
+        residual["cell__uA"] = max(float(record.cell__uA.abs().max().item()) for record in terminal_cell_records)
+    return residual
+
+
+@dataclass(frozen=True)
+class SolverResidualPoint:
+    outer: int
+    inner: int
+    f_bl_clamp__V: float | None
+    f_sl_clamp__V: float | None
+    f_bl_kcl__uA: float | None
+    f_sl_kcl__uA: float | None
+
+
+@dataclass(frozen=True)
+class CellResidualPoint:
+    stage: str
+    outer: int | None
+    inner: int | None
+    cell__uA: float
+
+
+def aggregate_residual_trajectory(
+    trajectories: tuple[SolveResidualTrajectory, ...],
+    *,
+    n_outer: int,
+    n_inner: int,
+) -> tuple[tuple[SolverResidualPoint, ...], tuple[CellResidualPoint, ...]]:
+    """Reduce aligned workload trajectories to per-iteration max-abs series."""
+    solver_coordinates = [(outer, inner) for outer in range(n_outer) for inner in range(n_inner + 1)]
+    clamp_bl = [0.0] * n_outer
+    clamp_sl = [0.0] * n_outer
+    wire_bl = [0.0] * (n_outer * n_inner)
+    wire_sl = [0.0] * (n_outer * n_inner)
+
+    for trajectory in trajectories:
+        iteration_records = trajectory.solver_records[:-1]
+        if [(record.outer, record.inner) for record in iteration_records] != solver_coordinates:
+            raise ValueError("solver trajectory coordinates do not match n_outer / n_inner")
+        for record in iteration_records:
+            if record.inner == 0:
+                f_bl_clamp__V = record.f_bl_clamp__V
+                f_sl_clamp__V = record.f_sl_clamp__V
+                if f_bl_clamp__V is None or f_sl_clamp__V is None:
+                    raise ValueError("outer solver record carries no clamp residual")
+                clamp_bl[record.outer] = max(
+                    clamp_bl[record.outer],
+                    float(f_bl_clamp__V.abs().max().item()),
+                )
+                clamp_sl[record.outer] = max(
+                    clamp_sl[record.outer],
+                    float(f_sl_clamp__V.abs().max().item()),
+                )
+            else:
+                f_bl_kcl__uA = record.f_bl_kcl__uA
+                f_sl_kcl__uA = record.f_sl_kcl__uA
+                if f_bl_kcl__uA is None or f_sl_kcl__uA is None:
+                    raise ValueError("inner solver record carries no wire residual")
+                index = record.outer * n_inner + record.inner - 1
+                wire_bl[index] = max(wire_bl[index], float(f_bl_kcl__uA.abs().max().item()))
+                wire_sl[index] = max(wire_sl[index], float(f_sl_kcl__uA.abs().max().item()))
+
+    solver_points = tuple(
+        SolverResidualPoint(
+            outer=outer,
+            inner=inner,
+            f_bl_clamp__V=clamp_bl[outer] if inner == 0 else None,
+            f_sl_clamp__V=clamp_sl[outer] if inner == 0 else None,
+            f_bl_kcl__uA=wire_bl[outer * n_inner + inner - 1] if inner > 0 else None,
+            f_sl_kcl__uA=wire_sl[outer * n_inner + inner - 1] if inner > 0 else None,
+        )
+        for outer, inner in solver_coordinates
+    )
+
+    if not trajectories or not trajectories[0].cell_records:
+        return solver_points, ()
+    cell_coordinates = [
+        ("seed", None, None),
+        *(("iteration", outer, inner) for outer in range(n_outer) for inner in range(1, n_inner + 1)),
+        ("terminal", None, None),
+    ]
+    cell_residual = [0.0] * len(cell_coordinates)
+    for trajectory in trajectories:
+        if len(trajectory.cell_records) != len(cell_coordinates):
+            raise ValueError("cell trajectory length does not match n_outer / n_inner")
+        for index, cell_record in enumerate(trajectory.cell_records):
+            cell_residual[index] = max(cell_residual[index], float(cell_record.cell__uA.abs().max().item()))
+    cell_points = tuple(
+        CellResidualPoint(
+            stage=stage,
+            outer=outer,
+            inner=inner,
+            cell__uA=cell_residual[index],
+        )
+        for index, (stage, outer, inner) in enumerate(cell_coordinates)
+    )
+    return solver_points, cell_points
+
+
+@dataclass(frozen=True)
 class _DriveResult:
     """Pooled records of one candidate's drive over the whole workload."""
 
-    solver_records: list[ColBlColSlRecord[Any]]
-    """Ordered solver stream: every solve's whole iteration trajectory followed
-    by its terminal record, over every plane and chunk."""
-    cell_count: int
-    """Cell records emitted; `0` for a closed-form cell family that never
-    emits."""
-    cell_residual__uA: float
-    """`max |cell__uA|` over the cell stream, `0.0` when no cell record was
-    emitted."""
+    trajectories: tuple[SolveResidualTrajectory, ...]
+    """Every solve trajectory over every plane and chunk, in drive order."""
 
 
 def _drive_candidate(
@@ -420,22 +558,22 @@ def _drive_candidate(
     input_num: int,
     active_rows: int,
     device: torch.device,
+    n_outer: int,
+    n_inner: int,
 ) -> _DriveResult:
-    """Program + drive the whole workload; pool the solver / cell records.
+    """Program + drive the whole workload; retain every residual record.
 
     Each `(w, x)` is programmed once, serialized into row planes, and driven
-    through the macro's public `vec_mat_mul` under probers capturing the solver
-    / cell record links. The returned ADC codes are discarded — the calibration
-    data rides the solver prober upstream of ADC conversion, so code clipping
-    at a conservative operating point is irrelevant. One drive yields
+    through the macro's public `vec_mat_mul` under the solver and cell probers.
+    The returned ADC codes are discarded — the calibration data rides those
+    probers upstream of ADC conversion, so code clipping at a conservative
+    operating point is irrelevant. One drive yields
     `n_planes x n_chunks` solves, each contributing its whole iteration
     trajectory plus one terminal record, array chunking running inside the real
     forward path.
     """
     inst_rank = len(macro.inst_shape)
-    solver_records: list[ColBlColSlRecord[Any]] = []
-    cell_count = 0
-    cell_residual__uA = 0.0
+    trajectories: list[SolveResidualTrajectory] = []
     for w, x in workload:
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
@@ -445,26 +583,20 @@ def _drive_candidate(
         # and in the plateau / residual passes is device-agnostic, so a hot
         # loop pays no per-drive host transfer and pools nothing in host memory.
         with (
-            ColBlColSlProber(min_outer=0) as sp,
-            XbarCell1t1rDetailProber() as cp,
+            ColBlColSlProber(min_outer=0) as solver_prober,
+            XbarCell1t1rDetailProber() as cell_prober,
             torch.no_grad(),
         ):
             macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=macro.adc_max_bits)
-        batch_solver = sp.records
-        batch_cell = cp.records
-        batch_solve_count = len(terminal_records(list(batch_solver)))
-        if batch_cell and len(batch_cell) != batch_solve_count:
-            raise ValueError(
-                f"cell / solver record counts differ ({len(batch_cell)} vs {batch_solve_count}) — "
-                "the cell must emit exactly one internal-KCL residual per solver solve"
+        trajectories.extend(
+            build_residual_trajectories(
+                solver_prober.records,
+                cell_prober.records,
+                n_outer=n_outer,
+                n_inner=n_inner,
             )
-        solver_records.extend(batch_solver)
-        cell_count += len(batch_cell)
-        for cell_record in batch_cell:
-            val = float(cell_record.cell__uA.abs().max().item())
-            if val > cell_residual__uA:
-                cell_residual__uA = val
-    return _DriveResult(solver_records=solver_records, cell_count=cell_count, cell_residual__uA=cell_residual__uA)
+        )
+    return _DriveResult(trajectories=tuple(trajectories))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -483,7 +615,7 @@ class SolverSweepContext:
     """Dotted path locating the nested-solver table inside that config."""
     policy: CimMacroPolicy
     sampling_host: CimMacro[CimMacroConfig, CimMacroPolicy]
-    """Tile the workload is sampled from; it never enters a candidate pass."""
+    """Macro the workload is sampled from; it never enters a candidate pass."""
     input_num: int
     output_num: int
     inst_shape: tuple[int, ...]
@@ -502,13 +634,31 @@ class SolverSweepContext:
     seed: int
 
 
+@dataclass(frozen=True)
+class CandidateResidualTrajectory:
+    """Per-iteration worst-case residual trajectory for one candidate."""
+
+    iter_count: int
+    n_outer: int
+    n_inner: int
+    solver: tuple[SolverResidualPoint, ...]
+    cell: tuple[CellResidualPoint, ...]
+
+
+@dataclass(frozen=True)
+class SolverSweepResult:
+    rows: list[CandidateRow]
+    scale: WorkloadScale
+    trajectories: tuple[CandidateResidualTrajectory, ...]
+
+
 def aggregate_solver_sweep(
     *,
     swept_key: str,
     candidates: list[int],
     fixed_overrides: dict[str, int],
     context: SolverSweepContext,
-) -> tuple[list[CandidateRow], WorkloadScale]:
+) -> SolverSweepResult:
     """Sweep one iteration-count axis, rebuilding a fresh macro per candidate.
 
     The `(w, x)` workload is sampled once, seeded, from the context's sampling
@@ -516,12 +666,15 @@ def aggregate_solver_sweep(
     solver knob differs between passes; calibration presumes an all-off policy,
     which makes the per-candidate macro rebuilds comparable. Per candidate the
     pass patches `{**fixed_overrides, swept_key: value}` onto the macro's
-    nested-solver table, builds a fresh tile, drives the workload, and
-    accumulates both `max |residual|` over the pooled stream and the step delta
-    `max |u_n - u_{n-1}|` against the predecessor candidate on the 1:1-aligned
-    record streams. The leading candidate has no predecessor, so it carries no
-    step. The workload signal scales are read off the most-converged, last,
-    candidate.
+    nested-solver table, builds a fresh macro, drives the workload, groups every
+    solver and cell residual record by solve, and reduces aligned solves to a
+    per-iteration worst-case trajectory. Candidate acceptance uses the current
+    residual where each solve stopped, while the full descent remains available
+    for later inspection. The step delta
+    `max |u_n - u_{n-1}|` compares terminal states against the predecessor
+    candidate on 1:1-aligned streams. The leading candidate has no predecessor,
+    so it carries no step. The workload signal scales are read off the
+    most-converged, last, candidate.
 
     Raises:
         ValueError: `candidates` is empty, aligned record counts disagree, or
@@ -530,7 +683,8 @@ def aggregate_solver_sweep(
             actually uses, so the patched knob had no effect.
 
     Returns:
-        `(rows, scale)` ready for the plateau picker.
+        Candidate rows and workload scale together with every collected
+        residual trajectory.
     """
     n_candidates = len(candidates)
     if n_candidates == 0:
@@ -567,13 +721,17 @@ def aggregate_solver_sweep(
     residual_max: list[dict[str, float]] = [{} for _ in range(n_candidates)]
     i_cell_typ__uA = 0.0
     v_node_typ__V = 0.0
+    candidate_trajectories: list[CandidateResidualTrajectory] = []
 
     prev_terminals: list[ColBlColSlRecord[Any]] | None = None
     for ci, value in enumerate(candidates):
+        overrides = {**fixed_overrides, swept_key: value}
+        n_outer = overrides["n_outer"]
+        n_inner = overrides["n_inner"]
         macro = build_candidate_macro(
             context.base_macro_dict,
             solver_section=context.solver_section,
-            overrides={**fixed_overrides, swept_key: value},
+            overrides=overrides,
             policy=context.policy,
             input_num=context.input_num,
             output_num=context.output_num,
@@ -587,15 +745,27 @@ def aggregate_solver_sweep(
             input_num=context.input_num,
             active_rows=context.active_rows,
             device=device,
+            n_outer=n_outer,
+            n_inner=n_inner,
         )
-        records = drive.solver_records
-        terminals = terminal_records(records)
+        trajectories = drive.trajectories
+        solver_trajectory, cell_trajectory = aggregate_residual_trajectory(
+            trajectories,
+            n_outer=n_outer,
+            n_inner=n_inner,
+        )
+        candidate_trajectories.append(
+            CandidateResidualTrajectory(
+                iter_count=value,
+                n_outer=n_outer,
+                n_inner=n_inner,
+                solver=solver_trajectory,
+                cell=cell_trajectory,
+            )
+        )
+        terminals = [trajectory.solver_records[-1] for trajectory in trajectories]
 
-        residual = solver_residual_max(records)
-        if drive.cell_count:
-            if drive.cell_count != len(terminals):
-                raise ValueError(f"cell record count ({drive.cell_count}) != solve count ({len(terminals)})")
-            residual[_CELL_RESIDUAL_KEY] = drive.cell_residual__uA
+        residual = current_residual_max(trajectories)
         residual_max[ci] = residual
 
         if prev_terminals is not None:
@@ -634,4 +804,4 @@ def aggregate_solver_sweep(
             )
         )
     scale = WorkloadScale(i_cell_typ__uA=i_cell_typ__uA, v_node_typ__V=v_node_typ__V)
-    return rows, scale
+    return SolverSweepResult(rows=rows, scale=scale, trajectories=tuple(candidate_trajectories))

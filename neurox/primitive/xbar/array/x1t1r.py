@@ -1,11 +1,11 @@
-"""Shape-independent pure-array core for a 1T1R crossbar tile.
+"""Shape-independent 1T1R array with wire parasitics and a DC solver.
 
 See Also:
     docs/reference/primitive/xbar/array/1t1r.md
     docs/system_design/xbar_solve.md
 """
 
-from enum import StrEnum
+from enum import Enum
 
 import torch
 from torch import Tensor
@@ -30,11 +30,11 @@ from neurox.primitive.xbar.solver import (
 )
 
 
-class XbarArray1t1rOperationMode(StrEnum):
-    """Scan organization the array's per-solve capacitive billing follows.
+class XbarArray1t1rScanMode(Enum):
+    """Scan mode the array's per-solve capacitive billing follows.
 
     The mode selects energy evaluation only; solving and programming are
-    organization-blind.
+    mode-blind.
     """
 
     WL_IN_BL_SCAN = "wl_in_bl_scan"
@@ -137,7 +137,7 @@ class _XbarArray1t1rSolveOperands[
     sl_driver_snap: SLSnapT
 
 
-class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
+class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](ModuleBase[ConfigT, PolicyT]):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
     Geometry arrives whole at construction: the standard `inst_shape`
@@ -145,12 +145,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     concatenates them into the per-cell grid the cell sub-module is built at,
     so geometry is never recovered from lifecycle-produced state.
 
-    `_project_dcop` is the extension seam. A scheme with additional observable
-    state overrides that projection and returns its own steady-state subtype;
-    the snapshot, solver call, chunk execution, and folding stay unchanged.
-
     Args:
-        operation_mode: Scan organization the capacitive billing follows.
+        scan_mode: Scan mode the capacitive billing follows.
         v_dd_wl__V: Word-line driver rail — the supply behind the WL node
             capacitance.
         v_dd_bl__V: Bit-line driver rail — the supply behind the BL, access
@@ -160,12 +156,12 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     def __init__(
         self,
         *,
-        config: XbarArray1t1rConfig,
-        policy: XbarArray1t1rPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         row_num: int,
         col_num: int,
-        operation_mode: XbarArray1t1rOperationMode,
+        scan_mode: XbarArray1t1rScanMode,
         v_dd_wl__V: float,
         v_dd_bl__V: float,
         dtype: torch.dtype,
@@ -174,7 +170,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._row_num = row_num
         self._col_num = col_num
-        self._operation_mode = operation_mode
+        self._scan_mode = scan_mode
         self._v_dd_wl__V = v_dd_wl__V
         self._v_dd_bl__V = v_dd_bl__V
 
@@ -187,7 +183,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def _leakage_per_inst__uW(self) -> float:
-        # Both organizations rest at zero cell bias, so the tile holds no
+        # Both modes rest at zero cell bias, so the array holds no
         # static conduction path.
         return 0.0
 
@@ -239,13 +235,13 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     ) -> XbarArray1t1rSteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
-        The WL grid declares the call's complete leading shape. No boundary
-        shape is normalized here: every snap arrives at that same leading and
-        the WL drive already carries one value per cell gate.
+        The WL lines declare the call's complete leading shape. The array
+        distributes each row drive across its columns before snapshotting the
+        cells; both boundary snaps already carry that same leading.
 
         Args:
-            v_wl__V: Analog WL drive, one value per cell gate.
-                Shape: `[..., col_num, row_num]`.
+            v_wl__V: Analog drive, one value per word line.
+                Shape: `[..., row_num]`.
             bl_driver: BL boundary clamp.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call
                 shape; its `v_ref__V` is also the ideal BL rest level.
@@ -258,22 +254,21 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             full leading, the column axis being each clamp's own instance
             axis.
         """
-        # --- 1: read the canonical leading from the complete WL grid ---
+        # --- 1: read the canonical leading from the word-line drive ---
 
         col_num, row_num = self._col_num, self._row_num
-        leading_shape = tuple(v_wl__V.shape[:-2])
+        leading_shape = tuple(v_wl__V.shape[:-1])
 
-        # --- 2: snapshot the cell and execute the solve over bounded batches ---
+        # --- 2: distribute the word lines and solve over bounded batches ---
 
-        # A cell's control is the voltage at its own gate, so the drive
-        # travels to the cell exactly as it arrives, on the cell grid.
+        cell_shape = (*leading_shape, col_num, row_num)
+        v_wl_grid__V = v_wl__V.unsqueeze(-2).expand(cell_shape)
         cell_snap = self.cell.snapshot(
-            control=v_wl__V,
-            shape=(*leading_shape, col_num, row_num),
+            control=v_wl_grid__V,
+            shape=cell_shape,
             t_elapsed=0.0,
         )
-
-        operands: _XbarArray1t1rSolveOperands[XbarCell1t1rSnap, BLSnapT, SLSnapT] = _XbarArray1t1rSolveOperands(
+        operands = _XbarArray1t1rSolveOperands(
             cell_snap=cell_snap,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -300,7 +295,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 sl_driver_snap=current.sl_driver_snap,
             )
 
-        projection: XbarArray1t1rSolveProjection[XbarArray1t1rSteadyState] = execute_chunked(
+        projection = execute_chunked(
             chunk_size=self.policy.solve_chunk_size,
             leading_shape=leading_shape,
             operands=operands,
@@ -339,7 +334,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         energy__fJ = None
         if self._is_dynamic_energy_profile_active():
             # Shape: [..., col_num, row_num] -> [...]
-            if self._operation_mode is XbarArray1t1rOperationMode.WL_IN_BL_SCAN:
+            if self._scan_mode is XbarArray1t1rScanMode.WL_IN_BL_SCAN:
                 energy__fJ = self._energy_wl_in_bl_scan__fJ(solver_dcop=dcop, cell_snap=cell_snap)
             else:
                 energy__fJ = self._energy_bl_in_wl_scan__fJ(

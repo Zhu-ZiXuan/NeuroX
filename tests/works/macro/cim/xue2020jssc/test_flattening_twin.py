@@ -54,7 +54,7 @@ import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler, Reporter
-from neurox.primitive.xbar.cell import XbarCell1t1rLinear, XbarCellDcop
+from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rLinear
 from neurox.primitive.xbar.solver import ColBlColSlDcop, ColBlColSlProber
 
 from ._utils import (
@@ -126,7 +126,7 @@ def _twin_pair(
     return big, twins, w
 
 
-def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> ColBlColSlDcop[XbarCellDcop]:
+def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> ColBlColSlDcop[XbarCell1t1rDcop]:
     """Run one VMM and return the converged solver DCOP it produced."""
     # The DCOP stays where it was solved, which is where the macro's own slot
     # map that indexes it lives.

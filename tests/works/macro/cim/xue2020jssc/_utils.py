@@ -15,7 +15,7 @@ percent and the per-cell current is `I = g_chord * V_BLC`. The WL
 driver rail `v_dd_wl__V` is deliberately distinct from the read rail
 `v_dd__V` so a swapped rail shows up in the array's capacitive billing. Under
 this chain the ADC input current `I_SUB` is monotone in the signed integer MAC,
-so a mid-point ladder probed from the tile's own transfer decodes any MAC
+so a mid-point ladder probed from the macro's own transfer decodes any MAC
 bit-exactly.
 
 The geometry mirrors the paper design in miniature: `output_num = 4`
@@ -28,7 +28,7 @@ files reuse it.
 
 The analog `I_SUB(M)` grid depends on the whole electrical config, so the
 witness ships a placeholder ladder and decode-bearing tests calibrate in-code
-through `build_calibrated_macro`: probe the tile's own `I_SUB(M)` grid
+through `build_calibrated_macro`: probe the macro's own `I_SUB(M)` grid
 (`probe_i_sub_grid`, captured through the ADC's own record prober) on
 an all-`+1` column, install the mid-point thresholds (`midpoint_refs` +
 `with_ref_levels`), and rebuild — a law-level calibration derived from the

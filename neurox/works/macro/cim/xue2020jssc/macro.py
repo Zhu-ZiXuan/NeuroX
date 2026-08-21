@@ -63,8 +63,8 @@ from neurox.primitive.macro.cim import (
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
 )
 
 from .dswct import Dswct, DswctConfig, DswctPolicy
@@ -506,7 +506,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             inst_shape=self.inst_shape,
             row_num=self.row_num,
             col_num=phys_col_num,
-            operation_mode=XbarArray1t1rOperationMode.WL_IN_BL_SCAN,
+            scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
             v_dd_wl__V=config.v_dd_wl__V,
             v_dd_bl__V=config.v_dd__V,
             dtype=dtype,
@@ -898,8 +898,12 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         lane_shape = (gn, _POLARITY_NUM, config.w_digit_num)
         leading = (*batch, x_bits, *inst)
         seat_shape = (*leading, config.mux_factor, *lane_shape)
-        phys_col_num = self._slot_map.numel()
-
+        # A size-1 input instance axis shares the line drive across the
+        # fabricated ensemble. The macro completes that semantic broadcast;
+        # the array adds only its physical column axis.
+        # Shape: [..., x_bits, *input_inst_shape, row]
+        #     -> [*leading, row]
+        v_wl__V = v_wl__V.expand(*leading, self.row_num)
         # The single-tap bank broadcasts (by view) at the clamp shape plus its
         # own tap axis, which the clamp then consumes away. The source is
         # fabricate-only (no per-call noise of its own); the CABLC driver
@@ -930,13 +934,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # One DC solve for all K WL planes over the whole physical array: the
         # x-bit axis rides the solve leading, and the steady currents are
         # window-independent (each plane's conduction window applies post-solve).
-        # One word line spans every column, which the stride-0 expand states —
-        # it is also this macro's declaration that a plane carries no per-column
-        # structure of its own.
-        # Shape: [*leading, row] -> [*leading, phys_col, row]
-        v_wl_grid__V = v_wl__V.unsqueeze(-2).expand(*leading, phys_col_num, self.row_num)
+        # The array distributes the line-level drive over its own columns.
+        # Shape: [*leading, row]
         steady = self.array.solve_array(
-            v_wl_grid__V,
+            v_wl__V,
             bl_driver=self.cablc,
             bl_driver_snap=bl_snap,
             sl_driver=self.sl_driver,

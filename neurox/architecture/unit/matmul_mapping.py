@@ -19,7 +19,7 @@ class MatmulPlacementPlan:
     logical_output_num: int
     logical_contraction_num: int
     tile_input_capacity: int
-    """Input positions one compute tile offers."""
+    """Input positions one placement target offers."""
     output_block_size: int
     """Logical outputs carried by one weight block."""
     contraction_block_size: int
@@ -49,10 +49,10 @@ class BlockSlotRouting:
     """Input routing for geometric block slots."""
 
     gather_index: Tensor
-    """Local input index each tile input position reads.
+    """Local input index each placement position reads.
     Shape: `[block_slot, tile_input]`."""
     slot_mask: Tensor
-    """Tile input positions belonging to each block slot.
+    """Placement positions belonging to each block slot.
     Shape: `[block_slot, tile_input]`."""
 
 

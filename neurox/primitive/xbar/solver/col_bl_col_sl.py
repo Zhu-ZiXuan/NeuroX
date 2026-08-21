@@ -22,24 +22,24 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any, Final, final
+from typing import Final, final
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, RecordBase, RecorderBase
-from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
+from neurox.common import ConfigBase, DcopBase, RecordBase, RecorderBase, SnapBase
 
 from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
 from ._wire_kcl import f_kcl__uA, g_self__uS, i_drive__uA
-from .clamp import ClampDcop, ClampDriver, ClampSnap
+from .clamp_driver import ClampDcop, ClampDriver, ClampSnap
+from .resistive_cell import ResistiveCell, ResistiveDcop
 
 # The axis the wire ladders run along in `[..., col_num, row_num]`.
 _WIRE_DIM: Final = -1
 
 
-class ColBlColSlDcop[CellDcopT: XbarCellDcop](DcopBase):
+class ColBlColSlDcop[CellDcopT: ResistiveDcop](DcopBase):
     i_bl_driver__uA: Tensor
     """BL driver current. Shape: `[..., num_col]`."""
     i_sl_driver__uA: Tensor
@@ -57,7 +57,7 @@ class ColBlColSlDcop[CellDcopT: XbarCellDcop](DcopBase):
     """SL drive voltages. Shape: `[..., num_col]`."""
 
 
-class ColBlColSlRecord[CellDcopT: XbarCellDcop](RecordBase):
+class ColBlColSlRecord[CellDcopT: ResistiveDcop](RecordBase):
     """One event in the nested DC-solve trajectory.
 
     `inner == 0` identifies an outer clamp event; `inner >= 1` identifies an
@@ -94,7 +94,7 @@ class ColBlColSlRecord[CellDcopT: XbarCellDcop](RecordBase):
     nested cell working point."""
 
 
-class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
+class ColBlColSlProber(RecorderBase[ColBlColSlRecord[ResistiveDcop]]):
     """Collect the iteration trajectory of every solve run inside its context.
 
     Probing is not free and not silent: it forces the solve to emit at every
@@ -123,7 +123,7 @@ class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
         return self.__min_outer
 
     @classmethod
-    def _submit_impl(cls, record: ColBlColSlRecord[XbarCellDcop]) -> None:
+    def _submit_impl(cls, record: ColBlColSlRecord[ResistiveDcop]) -> None:
         """Collect one trajectory record unless its outer step is below `min_outer`.
 
         The gate sits here rather than at the emit site: the solve emits its
@@ -161,8 +161,8 @@ _MAX_INNER_STEP__V: float = 0.05
 
 
 def solve_col_bl_col_sl_dc[
-    CellSnapT: XbarCellSnap,
-    CellDcopT: XbarCellDcop,
+    CellSnapT: SnapBase,
+    CellDcopT: ResistiveDcop,
     BLSnapT: ClampSnap,
     BLDcopT: ClampDcop,
     SLSnapT: ClampSnap,
@@ -172,14 +172,14 @@ def solve_col_bl_col_sl_dc[
     config: ColBlColSlSolverConfig,
     bl_segment_r__MOhm: float,
     sl_segment_r__MOhm: float,
-    cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
+    cell: ResistiveCell[CellSnapT, CellDcopT],
     cell_snap: CellSnapT,
     bl_driver: ClampDriver[BLSnapT, BLDcopT],
     bl_driver_snap: BLSnapT,
     sl_driver: ClampDriver[SLSnapT, SLDcopT],
     sl_driver_snap: SLSnapT,
 ) -> ColBlColSlDcop[CellDcopT]:
-    """Settle one parallel BL/SL tile by block Gauss-Seidel and Newton steps.
+    """Settle one parallel BL/SL array by block Gauss-Seidel and Newton steps.
 
     Args:
         config: Fixed outer and inner iteration counts.
@@ -230,8 +230,8 @@ def solve_col_bl_col_sl_dc[
 # recompile budget and drops the leaf back to eager without raising.
 @torch.compile(dynamic=False)
 def _solve_col_bl_col_sl_dc_impl[
-    CellSnapT: XbarCellSnap,
-    CellDcopT: XbarCellDcop,
+    CellSnapT: SnapBase,
+    CellDcopT: ResistiveDcop,
     BLSnapT: ClampSnap,
     BLDcopT: ClampDcop,
     SLSnapT: ClampSnap,
@@ -242,7 +242,7 @@ def _solve_col_bl_col_sl_dc_impl[
     n_inner: int,
     bl_segment_r__MOhm: float,
     sl_segment_r__MOhm: float,
-    cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
+    cell: ResistiveCell[CellSnapT, CellDcopT],
     cell_snap: CellSnapT,
     bl_driver: ClampDriver[BLSnapT, BLDcopT],
     bl_driver_snap: BLSnapT,
@@ -262,9 +262,8 @@ def _solve_col_bl_col_sl_dc_impl[
     v_bl_seed__V = bl_driver_snap.v_ref__V
     v_sl_seed__V = sl_driver_snap.v_ref__V
     # Shape: [..., num_col, num_row]
-    i_cell__uA, _g_bl_init__uS, _g_sl_init__uS = cell.solve_branch(
-        v_bl_seed__V.unsqueeze(-1), v_sl_seed__V.unsqueeze(-1), cell_snap
-    )
+    cell_dcop = cell.solve_dc(v_bl_seed__V.unsqueeze(-1), v_sl_seed__V.unsqueeze(-1), cell_snap)
+    i_cell__uA = cell_dcop.i__uA
 
     # --- 3: initialize the clamp voltages ---
 
@@ -302,7 +301,10 @@ def _solve_col_bl_col_sl_dc_impl[
         # The preceding inner solve ends by updating its nodes, after its last
         # branch evaluation. Refresh at those current nodes so the implicit
         # clamp Jacobian never carries conductances from the pre-update state.
-        i_cell__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl_node__V, v_sl_node__V, cell_snap)
+        cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
+        i_cell__uA = cell_dcop.i__uA
+        di_dvbl__uS = cell_dcop.di_dvbl__uS
+        di_dvsl__uS = cell_dcop.di_dvsl__uS
 
         # Coupled 2×2 Newton step on `(V_BL_clamp, V_SL_drive)`.
         # K = ∂V_node[0]/∂V_clamp captures cross-rail cell coupling.
@@ -393,11 +395,10 @@ def _solve_col_bl_col_sl_dc_impl[
             # The first step shares the outer evaluation because updating the
             # clamps does not change the cell's node-voltage inputs.
             if inner_step > 0:
-                i_cell__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(
-                    v_bl_node__V,
-                    v_sl_node__V,
-                    cell_snap,
-                )
+                cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
+                i_cell__uA = cell_dcop.i__uA
+                di_dvbl__uS = cell_dcop.di_dvbl__uS
+                di_dvsl__uS = cell_dcop.di_dvsl__uS
             # Shape: [..., num_col, num_row]
             g_cell_bl_eff__uS = di_dvbl__uS
             g_cell_sl_eff__uS = -di_dvsl__uS

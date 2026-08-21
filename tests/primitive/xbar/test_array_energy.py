@@ -1,8 +1,8 @@
-"""Capacitive-billing laws of the 1T1R kernel array, one per scan organization.
+"""Capacitive-billing laws of the 1T1R array, one per scan mode.
 
-The main witness is a hand-written tile whose cells conduct nothing at all:
+The main witness is a hand-written array whose cells conduct nothing at all:
 the two rail ladders then sit exactly at their clamp references, so every
-node voltage in the tile is known in closed form and the whole billed total
+node voltage in the array is known in closed form and the whole billed total
 can be written out by hand — all four node coefficients and both rails carry
 a distinct value, so a swapped term or a swapped rail moves the total.
 
@@ -14,7 +14,7 @@ Laws pinned here:
     boundary, plus the hold's own establishment spread over one row scan,
   * the internal access node rests at its own bit-line level, not at the
     off-state divider level its branch would settle to,
-  * a tile already at its declared rest bills no displacement at all, and a
+  * an array already at its declared rest bills no displacement at all, and a
     rest state at ground costs nothing to establish — so at a grounded
     boundary the two organizations bill one and the same ledger,
   * the amortization is exact: `row_num` idle scanned solves bill exactly
@@ -43,8 +43,8 @@ from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageD
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
 from neurox.primitive.xbar.solver import ColBlColSlProber, ColBlColSlSolverConfig
@@ -63,6 +63,7 @@ _V_DD_BL__V = 0.7
 # Rail references, both nonzero and unequal.
 _BL_V_REF__V = 0.30
 _SL_V_REF__V = 0.05
+type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
 
 # Per-node totals of the lattice, all four distinct.
 _BL_NODE_C__fF = 0.31
@@ -137,23 +138,19 @@ def _states() -> Tensor:
     return torch.tensor([[0, 1], [1, 0], [0, 0]], dtype=torch.long)
 
 
-def _v_wl_grid() -> Tensor:
-    """Per-gate WL drive: column-varying, row 0 above threshold and row 1 below.
-
-    Deliberately NOT uniform across the columns, so the WL wire ladder is
-    billed per column rather than through one folded row coefficient.
-    """
-    return torch.tensor([[0.90, 0.00], [0.80, 0.10], [0.70, 0.20]], dtype=_DTYPE)
+def _v_wl_lines() -> Tensor:
+    """Per-line WL drive, with row 0 above threshold and row 1 below."""
+    return torch.tensor([0.90, 0.10], dtype=_DTYPE)
 
 
 def _build_array(
-    mode: XbarArray1t1rOperationMode,
+    scan_mode: XbarArray1t1rScanMode,
     *,
     g_cell_on__uS: float = 0.0,
     bl_node_c__fF: float = _BL_NODE_C__fF,
     sl_node_c__fF: float = _SL_NODE_C__fF,
     vx_ratio_off_table: tuple[float, ...] = _VX_RATIO_OFF_TABLE,
-) -> XbarArray1t1r:
+) -> _Array:
     array = XbarArray1t1r(
         config=_array_config(
             g_cell_on__uS=g_cell_on__uS,
@@ -165,7 +162,7 @@ def _build_array(
         inst_shape=(),
         row_num=_ROW_NUM,
         col_num=_COL_NUM,
-        operation_mode=mode,
+        scan_mode=scan_mode,
         v_dd_wl__V=_V_DD_WL__V,
         v_dd_bl__V=_V_DD_BL__V,
         dtype=_DTYPE,
@@ -199,7 +196,7 @@ def _ideal_driver() -> VoltageDriver:
 
 
 def _solve(
-    array: XbarArray1t1r,
+    array: _Array,
     v_wl: Tensor,
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -233,7 +230,7 @@ def _solve(
 def _vx_ratio(col: int, row: int, v_wl: Tensor) -> float:
     """Divider ratio the cell's own gate voltage selects."""
     state = int(_states()[col, row])
-    on = float(v_wl[col, row]) > _V_WL_ON_THRESHOLD__V
+    on = float(v_wl[row]) > _V_WL_ON_THRESHOLD__V
     return _VX_RATIO_ON_TABLE[state] if on else _VX_RATIO_OFF_TABLE[state]
 
 
@@ -265,7 +262,7 @@ def _expected_wl_in_bl_scan__fJ(v_wl: Tensor) -> float:
     total = 0.0
     for col in range(_COL_NUM):
         for row in range(_ROW_NUM):
-            drive = abs(float(v_wl[col, row]))
+            drive = abs(float(v_wl[row]))
             total += _V_DD_BL__V * _BL_NODE_C__fF * _BL_V_REF__V
             total += _V_DD_BL__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl))
             total += _V_DD_BL__V * _SL_NODE_C__fF * _SL_V_REF__V
@@ -276,9 +273,9 @@ def _expected_wl_in_bl_scan__fJ(v_wl: Tensor) -> float:
 def _expected_wl_side__fJ(v_wl: Tensor) -> float:
     """The control side alone: each cell's word-line node at its own gate level."""
     total = 0.0
-    for col in range(_COL_NUM):
+    for _col in range(_COL_NUM):
         for row in range(_ROW_NUM):
-            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[col, row]))
+            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
     return total
 
 
@@ -304,7 +301,7 @@ def _expected_bl_in_wl_scan__fJ(v_wl: Tensor, *, v_x_rest: RestLevel = _v_x_rest
         for row in range(_ROW_NUM):
             # Both rail nodes sit exactly at their held level: no term.
             total += _V_DD_BL__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl) - v_x_rest(col, row))
-            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[col, row]))
+            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
     return total + _expected_rest__fJ(v_x_rest) / _ROW_NUM
 
 
@@ -314,9 +311,9 @@ def _expected_bl_in_wl_scan__fJ(v_wl: Tensor, *, v_x_rest: RestLevel = _v_x_rest
 
 
 def test_wl_in_bl_scan_bills_the_full_excursion_from_ground(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The scanned-BL total is the hand-written sum over every cap in the tile."""
-    array = _build_array(XbarArray1t1rOperationMode.WL_IN_BL_SCAN)
-    v_wl = _v_wl_grid()
+    """The scanned-BL total is the hand-written sum over every cap in the array."""
+    array = _build_array(XbarArray1t1rScanMode.WL_IN_BL_SCAN)
+    v_wl = _v_wl_lines()
 
     billed, _i_bl = _solve(array, v_wl, monkeypatch)
 
@@ -325,8 +322,8 @@ def test_wl_in_bl_scan_bills_the_full_excursion_from_ground(monkeypatch: pytest.
 
 def test_bl_in_wl_scan_bills_the_displacement_plus_the_amortized_hold(monkeypatch: pytest.MonkeyPatch) -> None:
     """The scanned-WL total is the hand-written displacement sum plus one row scan's share."""
-    array = _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN)
-    v_wl = _v_wl_grid()
+    array = _build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN)
+    v_wl = _v_wl_lines()
 
     billed, _i_bl = _solve(array, v_wl, monkeypatch)
 
@@ -346,8 +343,8 @@ def test_the_access_node_rests_at_its_bit_line_level(monkeypatch: pytest.MonkeyP
     every cell: the two candidate rest levels give different totals and the
     billed one is the declared boundary.
     """
-    array = _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN)
-    v_wl = _v_wl_grid()
+    array = _build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN)
+    v_wl = _v_wl_lines()
 
     billed, _i_bl = _solve(array, v_wl, monkeypatch)
 
@@ -363,8 +360,8 @@ def test_a_tile_at_its_declared_rest_bills_no_displacement(monkeypatch: pytest.M
     displacement ledger vanishes and the access bills its amortized share of
     establishing the hold and nothing else.
     """
-    array = _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
-    idle = torch.zeros(_COL_NUM, _ROW_NUM, dtype=_DTYPE)
+    array = _build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
+    idle = torch.zeros(_ROW_NUM, dtype=_DTYPE)
 
     billed, _i_bl = _solve(array, idle, monkeypatch)
 
@@ -379,13 +376,13 @@ def test_a_grounded_boundary_makes_the_two_ledgers_one(monkeypatch: pytest.Monke
     measured from zero exactly as the scanned one's are, and its
     establishment term is zero. What is left in both is the control side.
     """
-    v_wl = _v_wl_grid()
+    v_wl = _v_wl_lines()
 
     scanned_bl, _i_bl = _solve(
-        _build_array(XbarArray1t1rOperationMode.WL_IN_BL_SCAN), v_wl, monkeypatch, bl_ref__V=0.0, sl_ref__V=0.0
+        _build_array(XbarArray1t1rScanMode.WL_IN_BL_SCAN), v_wl, monkeypatch, bl_ref__V=0.0, sl_ref__V=0.0
     )
     scanned_wl, _i_wl = _solve(
-        _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN), v_wl, monkeypatch, bl_ref__V=0.0, sl_ref__V=0.0
+        _build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN), v_wl, monkeypatch, bl_ref__V=0.0, sl_ref__V=0.0
     )
 
     assert float(scanned_bl) == pytest.approx(_expected_wl_side__fJ(v_wl), rel=1e-12)
@@ -401,15 +398,15 @@ def test_a_full_row_scan_bills_exactly_one_hold(monkeypatch: pytest.MonkeyPatch)
     """`row_num` idle scanned solves cost exactly one establishment of the rest state.
 
     With every gate at 0 V and the off branch parked on the bit line, the
-    tile already sits at its rest boundary, so a `bl_in_wl_scan` solve
+    array already sits at its rest boundary, so a `bl_in_wl_scan` solve
     carries no displacement at all and bills its amortized share alone; the
     same rest state reached from ground is what a `wl_in_bl_scan` solve of
-    the identical tile bills in full. The scan contract is that identity: one
+    the identical array bills in full. The scan contract is that identity: one
     hold covers exactly `row_num` accesses.
     """
-    idle = torch.zeros(_COL_NUM, _ROW_NUM, dtype=_DTYPE)
-    held = _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
-    grounded = _build_array(XbarArray1t1rOperationMode.WL_IN_BL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
+    idle = torch.zeros(_ROW_NUM, dtype=_DTYPE)
+    held = _build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
+    grounded = _build_array(XbarArray1t1rScanMode.WL_IN_BL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
 
     scanned, _i_scanned = _solve(held, idle, monkeypatch)
     from_ground, _i_ground = _solve(grounded, idle, monkeypatch)
@@ -426,10 +423,10 @@ def test_a_full_row_scan_bills_exactly_one_hold(monkeypatch: pytest.MonkeyPatch)
 
 def test_mode_moves_the_billing_and_leaves_the_solve_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     """The two modes solve one identical network and disagree only on the bill."""
-    v_wl = _v_wl_grid()
+    v_wl = _v_wl_lines()
 
-    e_wl_in_bl, i_wl_in_bl = _solve(_build_array(XbarArray1t1rOperationMode.WL_IN_BL_SCAN), v_wl, monkeypatch)
-    e_bl_in_wl, i_bl_in_wl = _solve(_build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN), v_wl, monkeypatch)
+    e_wl_in_bl, i_wl_in_bl = _solve(_build_array(XbarArray1t1rScanMode.WL_IN_BL_SCAN), v_wl, monkeypatch)
+    e_bl_in_wl, i_bl_in_wl = _solve(_build_array(XbarArray1t1rScanMode.BL_IN_WL_SCAN), v_wl, monkeypatch)
 
     assert torch.equal(i_wl_in_bl, i_bl_in_wl)
     assert float(e_wl_in_bl) != float(e_bl_in_wl)
@@ -448,20 +445,20 @@ def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatc
     Cap values do not enter the DC solve, so raising `bl_node_c__fF` alone
     moves the bill by exactly `v_dd_bl * delta_c` times the summed node
     displacement — here the whole bit-line node grid, the scanned mode
-    resting at ground. Under a conducting tile the clamp the column is driven
+    resting at ground. Under a conducting array the clamp the column is driven
     from differs from every node behind it, so the slope separates the node
     law from a bill taken at the boundary.
     """
     delta__fF = 0.5
-    v_wl = _v_wl_grid()
-    mode = XbarArray1t1rOperationMode.WL_IN_BL_SCAN
+    v_wl = _v_wl_lines()
+    scan_mode = XbarArray1t1rScanMode.WL_IN_BL_SCAN
 
-    base, _i_base = _solve(_build_array(mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
+    base, _i_base = _solve(_build_array(scan_mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
     # min_outer at the outer count keeps the terminal record alone, which is
     # the only iterate carrying a DCOP.
     with ColBlColSlProber(min_outer=_N_OUTER) as probe:
         raised, _i_raised = _solve(
-            _build_array(mode, g_cell_on__uS=80.0, bl_node_c__fF=_BL_NODE_C__fF + delta__fF),
+            _build_array(scan_mode, g_cell_on__uS=80.0, bl_node_c__fF=_BL_NODE_C__fF + delta__fF),
             v_wl,
             monkeypatch,
         )
@@ -493,15 +490,15 @@ def test_the_sl_node_cap_bills_at_every_cell_node_too(monkeypatch: pytest.Monkey
     separates the node law from a bill taken at the drive.
     """
     delta__fF = 0.5
-    v_wl = _v_wl_grid()
-    mode = XbarArray1t1rOperationMode.WL_IN_BL_SCAN
+    v_wl = _v_wl_lines()
+    scan_mode = XbarArray1t1rScanMode.WL_IN_BL_SCAN
 
-    base, _i_base = _solve(_build_array(mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
+    base, _i_base = _solve(_build_array(scan_mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
     # min_outer at the outer count keeps the terminal record alone, which is
     # the only iterate carrying a DCOP.
     with ColBlColSlProber(min_outer=_N_OUTER) as probe:
         raised, _i_raised = _solve(
-            _build_array(mode, g_cell_on__uS=80.0, sl_node_c__fF=_SL_NODE_C__fF + delta__fF),
+            _build_array(scan_mode, g_cell_on__uS=80.0, sl_node_c__fF=_SL_NODE_C__fF + delta__fF),
             v_wl,
             monkeypatch,
         )

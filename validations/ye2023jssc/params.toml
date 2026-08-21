@@ -88,7 +88,6 @@ max_bits_rescale_factor = 1.0
 # --- Weight fan-out geometry ---
 weight_radix = [1, 2, 4]          # [measured p4 Fig.7(a)] SUBA1/2/3 T2 slice multipliers, LSB-first
 redundant_radix = [4]             # [measured p4 Fig.7(a)] SUBA4 redundant slice, m(T2) = 4
-v_bl_in1__V = 0.3                 # [measured p4 Fig.7(a)] BL level for IN = 1 (IN = 0 -> 0 V)
 
 # --- Layout pitch [um] ---
 # One pitch per axis: the lattice is uniform and whatever lead-in a boundary

@@ -212,16 +212,14 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
         plane = (x_long >> k) & 1
         # Shape: [..., row]
         v_wl = macro.wl_dac.convert(plane)
-        # The array takes a full-grid WL drive and both boundary snaps ready
+        # The array takes the line-level WL drive and both boundary snaps ready
         # made, exactly as vec_mat_mul builds them: one solve over every
         # physical column, the MUX slot living outside the array.
         leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
-        # Shape: [..., row] -> [*leading, phys_col, row]
-        v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, phys_col_num, macro.row_num)
         ref_shape = (*leading, phys_col_num)
         v_blc = macro.cablc_vref.v_out__V[..., 0, 0]
         steady = macro.array.solve_array(
-            v_wl_grid,
+            v_wl,
             bl_driver=macro.cablc,
             bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
             sl_driver=macro.sl_driver,
@@ -287,7 +285,7 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
         assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"
     # The DSWCT / SINWP-SC modules are reporter leaves too; the witness ships
     # their leakage seats at 0.0, so they appear with exactly zero leakage. The
-    # array itself holds no static conduction path (both scan organizations rest
+    # array itself holds no static conduction path (both scan modes rest
     # at zero cell bias), so its leakage seat is architecturally zero.
     for seat in ("dswct", "sinwp_sc", "array"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"

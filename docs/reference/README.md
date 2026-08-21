@@ -8,4 +8,4 @@ Use the site navigation to browse subsystem and leaf specifications.
 - [physics](primitive/physics.md) — the physical constants and the supply-draw billing law for every node capacitance
 - [unit family](architecture/unit/family.md) — operator and placement laws
 - [CIM macro family](primitive/macro/cim/family.md) — primitive program and VMM contract
-- [xbar array family](primitive/xbar/array/family.md) — array operating-point model
+- [crossbar array family](primitive/xbar/array/family.md) — array operating-point model

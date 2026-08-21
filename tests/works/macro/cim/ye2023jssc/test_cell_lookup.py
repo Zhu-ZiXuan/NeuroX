@@ -16,9 +16,7 @@ Laws (config = arbitrary hand-written witness, not the assertion target):
     `XbarCell1t1rDcop` whose `i__uA == g_cell__uS * (v_bl__V - v_sl__V)` and
     `v_x__V == v_bl__V - vx_ratio * (v_bl__V - v_sl__V)` exactly,
   * the cell adds NO energy model of its own: the capacitive law is the kernel
-    1T1R cell's supply-draw one, pinned where it lives,
-  * the `(config, policy)` pair dispatches through the `XbarCell1t1r`
-    registry to `Ye2023Jssc2t1rCell`.
+    1T1R cell's supply-draw one, pinned where it lives.
 
 Runs eagerly (dynamo disabled) so nothing is unrolled; tiny CPU shapes.
 """
@@ -32,7 +30,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rDcop
+from neurox.primitive.xbar.cell import XbarCell1t1rDcop
 from neurox.works.macro.cim.ye2023jssc.cell import (
     Ye2023Jssc2t1rCell,
     Ye2023Jssc2t1rCellConfig,
@@ -81,15 +79,13 @@ def _build_config() -> Ye2023Jssc2t1rCellConfig:
 
 
 def _build_cell(config: Ye2023Jssc2t1rCellConfig, inst_shape: tuple[int, ...]) -> Ye2023Jssc2t1rCell:
-    cell = XbarCell1t1r.from_config(
+    return Ye2023Jssc2t1rCell(
         config=config,
         policy=Ye2023Jssc2t1rCellPolicy(),
         inst_shape=inst_shape,
         dtype=_DTYPE,
         T__K=300.0,
     )
-    assert isinstance(cell, Ye2023Jssc2t1rCell)
-    return cell
 
 
 def _snapshot(cell: Ye2023Jssc2t1rCell, v_wl__V: Tensor) -> Ye2023Jssc2t1rCellSnap:
@@ -122,13 +118,6 @@ def _solved(
     v_bl__V = torch.full(inst_shape, v_bl__V, dtype=_DTYPE)
     v_sl__V = torch.zeros(inst_shape, dtype=_DTYPE)
     return cell.solve_dc(v_bl__V, v_sl__V, snap)
-
-
-def test_registry_dispatch() -> None:
-    """The (config, policy) pair selects the WH-2T1R lookup cell."""
-    cell = _build_cell(_build_config(), (2, 3))
-    assert isinstance(cell, Ye2023Jssc2t1rCell)
-    assert cell.w_state_num == 2
 
 
 def test_i_t2_selects_state_and_operating_point() -> None:

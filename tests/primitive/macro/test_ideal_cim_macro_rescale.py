@@ -40,7 +40,7 @@ def _make_macro(
         quantization_input_ranges=quantization_input_ranges,
         adc_max_bits=adc_max_bits,
     )
-    xbar = IdealCimMacro(
+    macro = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
         input_num=input_num,
@@ -49,13 +49,13 @@ def _make_macro(
         dtype=torch.float32,
         T__K=300.0,
     )
-    xbar.eval()
-    xbar.fabricate()
-    return xbar
+    macro.eval()
+    macro.fabricate()
+    return macro
 
 
 def _dot_macro(*, quantization_input_ranges: tuple[tuple[int, int], ...], adc_max_bits: int) -> IdealCimMacro:
-    """A 1x1 identity tile: the input value *is* the plane dot."""
+    """A 1x1 identity macro: the input value is the plane dot."""
     macro = _make_macro(
         quantization_input_ranges=quantization_input_ranges,
         adc_max_bits=adc_max_bits,

@@ -4,8 +4,7 @@ The detailed 1T1R cell condenses its access node with a per-cell Newton and
 emits the access-node KCL residual to `XbarCell1t1rDetailProber` once per
 `solve_dc` call. These tests pin the emitter contract (laws, not numbers):
 one record per `solve_dc` call, the record names the emitting cell and its
-`cell__uA` is the non-negative `|I_NMOS - I_RRAM|` over the branch grid,
-and the lean `solve_branch` hot path emits nothing.
+`cell__uA` is the non-negative `|I_NMOS - I_RRAM|` over the branch grid.
 """
 
 from __future__ import annotations
@@ -20,6 +19,8 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rDetailPolicy,
     XbarCell1t1rDetailProber,
 )
+from neurox.primitive.xbar.solver import ColBlColSlProber, ColBlColSlSolverConfig, solve_col_bl_col_sl_dc
+from tests.utils.standalone_solver_fixture import build_solver_harness
 
 
 def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rDetail:
@@ -80,20 +81,32 @@ def test_solve_dc_emits_one_residual_record() -> None:
     assert bool((residual.cell__uA >= 0.0).all())
 
 
-def test_solve_branch_emits_nothing() -> None:
-    """Only `solve_dc` emits; the lean hot path stays off the side channel."""
-    cell = _build_cell((2, 2))
-    v_bl__V, v_sl__V, v_wl__V = _grids()
-    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
-
-    with XbarCell1t1rDetailProber() as prober:
-        cell.solve_branch(v_bl__V, v_sl__V, snap)
-    assert prober.records == ()
-
-
 def test_solve_dc_without_prober_is_silent() -> None:
     """The emit hook is a no-op when no prober is active (no error)."""
     cell = _build_cell((2, 2))
     v_bl__V, v_sl__V, v_wl__V = _grids()
     snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
     cell.solve_dc(v_bl__V, v_sl__V, snap)
+
+
+def test_array_solve_records_every_detail_cell_evaluation(device: torch.device) -> None:
+    n_outer = 2
+    n_inner = 3
+    harness = build_solver_harness(
+        solver_config=ColBlColSlSolverConfig(n_outer=n_outer, n_inner=n_inner),
+        device=device,
+        col_num=2,
+        row_num=2,
+    )
+    cell = _build_cell((2, 2)).to(device)
+    v_wl__V = harness.v_wl_drive__V.unsqueeze(-2).expand(1, 2, 2)
+    cell_snap = cell.snapshot(control=v_wl__V, shape=(1, 2, 2), t_elapsed=0.0)
+    solve_kwargs = harness.solve_kwargs()
+    solve_kwargs["cell"] = cell
+    solve_kwargs["cell_snap"] = cell_snap
+
+    with XbarCell1t1rDetailProber() as cell_prober, ColBlColSlProber(min_outer=0) as solver_prober:
+        solve_col_bl_col_sl_dc(**solve_kwargs)
+
+    assert len(cell_prober.records) == 2 + n_outer * n_inner
+    assert len(solver_prober.records) == n_outer * (1 + n_inner) + 1

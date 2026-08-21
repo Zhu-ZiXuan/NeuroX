@@ -88,9 +88,10 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     config_type=XbarCell1t1rLinearConfig,
     policy_type=XbarCell1t1rLinearPolicy,
 )
-class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy, XbarCell1t1rLinearSnap]):
-    """Table-driven linearized 1T1R cell."""
-
+class XbarCell1t1rLinear[
+    ConfigT: XbarCell1t1rLinearConfig,
+    PolicyT: XbarCell1t1rLinearPolicy,
+](XbarCell1t1r[ConfigT, PolicyT, XbarCell1t1rLinearSnap]):
     # === Functional buffers ===
 
     _g_cell_off_table__uS: Tensor  # Shape: [w_state_num]
@@ -108,8 +109,8 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
     def __init__(
         self,
         *,
-        config: XbarCell1t1rLinearConfig,
-        policy: XbarCell1t1rLinearPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -161,6 +162,31 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         self._vx_ratio_off = self._vx_ratio_off_table[idx]
         self._vx_ratio_on = self._vx_ratio_on_table[idx]
 
+    def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
+        """WL-switched `(g_cell__uS, vx_ratio)` of the linear branch."""
+        on = snap.v_wl__V > self._v_wl_on_threshold__V
+        g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
+        vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
+        return g_cell__uS, vx_ratio
+
+    def solve_dc(
+        self,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        snap: XbarCell1t1rLinearSnap,
+    ) -> XbarCell1t1rDcop:
+        """Full branch working point including the divider V_X."""
+        g_cell__uS, vx_ratio = self._select_branch_params(snap)
+        dv__V = v_bl__V - v_sl__V
+        i__uA = g_cell__uS * dv__V
+        v_x__V = v_bl__V - vx_ratio * dv__V
+        return XbarCell1t1rDcop(
+            i__uA=i__uA,
+            di_dvbl__uS=g_cell__uS,
+            di_dvsl__uS=-g_cell__uS,
+            v_x__V=v_x__V,
+        )
+
     def snapshot(
         self,
         *,
@@ -184,40 +210,4 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             g_cell_off__uS=view(self._g_cell_off__uS),
             vx_ratio_on=view(self._vx_ratio_on),
             vx_ratio_off=view(self._vx_ratio_off),
-        )
-
-    def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
-        """WL-switched `(g_cell__uS, vx_ratio)` of the linear branch."""
-        on = snap.v_wl__V > self._v_wl_on_threshold__V
-        g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
-        vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
-        return g_cell__uS, vx_ratio
-
-    def solve_branch(
-        self,
-        v_bl__V: Tensor,
-        v_sl__V: Tensor,
-        snap: XbarCell1t1rLinearSnap,
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        """Closed-form branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
-        g_cell__uS, _vx_ratio = self._select_branch_params(snap)
-        i__uA = g_cell__uS * (v_bl__V - v_sl__V)
-        return i__uA, g_cell__uS, -g_cell__uS
-
-    def solve_dc(
-        self,
-        v_bl__V: Tensor,
-        v_sl__V: Tensor,
-        snap: XbarCell1t1rLinearSnap,
-    ) -> XbarCell1t1rDcop:
-        """Full branch working point including the divider V_X."""
-        g_cell__uS, vx_ratio = self._select_branch_params(snap)
-        dv__V = v_bl__V - v_sl__V
-        i__uA = g_cell__uS * dv__V
-        v_x__V = v_bl__V - vx_ratio * dv__V
-        return XbarCell1t1rDcop(
-            i__uA=i__uA,
-            di_dvbl__uS=g_cell__uS,
-            di_dvsl__uS=-g_cell__uS,
-            v_x__V=v_x__V,
         )

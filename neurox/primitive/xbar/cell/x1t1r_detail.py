@@ -230,16 +230,6 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         di_dvsl__uS = dc_nmos.did_dvs__uS * dc_rram.di_dv__uS / denom__uS
         return i_r__uA, i_n__uA, di_dvbl__uS, di_dvsl__uS, v_x__V
 
-    def solve_branch(
-        self,
-        v_bl__V: Tensor,
-        v_sl__V: Tensor,
-        snap: XbarCell1t1rDetailSnap,
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        """Condensed branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
-        i_r__uA, _i_n__uA, di_dvbl__uS, di_dvsl__uS, _v_x__V = self._solve_vx(v_bl__V, v_sl__V, snap)
-        return i_r__uA, di_dvbl__uS, di_dvsl__uS
-
     def solve_dc(
         self,
         v_bl__V: Tensor,

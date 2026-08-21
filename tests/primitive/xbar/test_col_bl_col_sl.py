@@ -2,7 +2,7 @@
 
 The subject is the resistor-network IR-drop solve: the harness
 (`tests.utils.standalone_solver_fixture.build_solver_harness`)
-builds a fully LINEAR tiny tile — table-driven linear cells and ideal
+builds a fully LINEAR tiny array — table-driven linear cells and ideal
 `r_out = 0` rail clamps — so the exact DCOP is the solution of a dense
 KCL conductance system with Dirichlet boundaries at the reference taps.
 
@@ -15,7 +15,7 @@ Covers:
     holding the DCOP.
   * open-end law: each rail is a uniform ladder that stops at the last
     row, so that node balances on one rail link where an interior node
-    balances on two — pinned on a five-row tile and, in closed form, on
+    balances on two — pinned on a five-row array and, in closed form, on
     a one-row one.
 """
 
@@ -28,7 +28,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.primitive.xbar.cell import XbarCellDcop
+from neurox.primitive.xbar.cell import XbarCell1t1rDcop
 from neurox.primitive.xbar.solver import (
     ColBlColSlDcop,
     ColBlColSlProber,
@@ -144,7 +144,7 @@ def test_dcop_matches_dense_kcl_oracle(device: torch.device) -> None:
     ids=["single_column", "single_row", "single_cell"],
 )
 def test_a_degenerate_axis_is_well_defined(device: torch.device, col_num: int, row_num: int) -> None:
-    """A tile of one column, one row, or one cell solves like any other.
+    """An array of one column, one row, or one cell solves like any other.
 
     Neither axis carries a lower bound: a single column is one independent
     ladder, a single row is a ladder of one node, and the dense KCL oracle
@@ -173,7 +173,7 @@ def test_a_degenerate_axis_is_well_defined(device: torch.device, col_num: int, r
 # ---------------------------------------------------------------------------
 
 
-def _tensors_of(record: ColBlColSlRecord[XbarCellDcop]) -> list[Tensor]:
+def _tensors_of(record: ColBlColSlRecord[XbarCell1t1rDcop]) -> list[Tensor]:
     """Every tensor the record carries, reaching inside a nested DCOP."""
     found: list[Tensor] = []
     for name in ("f_bl_clamp__V", "f_sl_clamp__V", "f_bl_kcl__uA", "f_sl_kcl__uA"):
@@ -198,7 +198,7 @@ def _tensors_of(record: ColBlColSlRecord[XbarCellDcop]) -> list[Tensor]:
 
 def _probe(
     harness: SolverHarness, *, min_outer: int = 0
-) -> tuple[tuple[ColBlColSlRecord[XbarCellDcop], ...], ColBlColSlDcop[XbarCellDcop]]:
+) -> tuple[tuple[ColBlColSlRecord[XbarCell1t1rDcop], ...], ColBlColSlDcop[XbarCell1t1rDcop]]:
     """Run one probed solve, returning `(records, dcop)`."""
     with ColBlColSlProber(min_outer=min_outer) as prober:
         dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
@@ -257,7 +257,7 @@ def test_each_record_kind_fills_only_its_own_residuals(device: torch.device) -> 
     assert terminal.f_sl_clamp__V is None
 
 
-def _bl_kcl_at__uA(harness: SolverHarness, dcop: ColBlColSlDcop[XbarCellDcop]) -> Tensor:
+def _bl_kcl_at__uA(harness: SolverHarness, dcop: ColBlColSlDcop[XbarCell1t1rDcop]) -> Tensor:
     """Rebuild the BL wire KCL residual of a settled state, node by node.
 
     Assembly follows the solver's own convention (`_wire_kcl.f_kcl__uA`): at
@@ -419,8 +419,8 @@ def test_the_far_node_is_the_ladder_open_end(device: torch.device) -> None:
     assert (interior_one_link__uA + onward__uA).abs().max().item() < 1e-9
 
 
-def test_a_single_row_tile_matches_the_one_link_closed_form(device: torch.device) -> None:
-    """A one-row tile is one node per rail, reached through exactly one link.
+def test_a_single_row_array_matches_the_one_link_closed_form(device: torch.device) -> None:
+    """A one-row array is one node per rail, reached through exactly one link.
 
     Nothing is left to iterate: each rail is the reference tap in series with
     a single link, so the cell branch sees `dV / (1 + g_cell (r_BL + r_SL))`

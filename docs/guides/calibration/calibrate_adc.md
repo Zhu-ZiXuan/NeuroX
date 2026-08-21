@@ -2,9 +2,9 @@
 
 Goal: seat the ADC operating points of a CIM macro — the quantization mode set, the analog threshold ladder, and the per-mode rescale factor — so a run's output codes carry the MAC values the model expects.
 
-The commands live in `neurox.tools.calibrate_adc` and are scheme-independent. They resolve the tile through the macro registry, so a scheme contributes run-config TOMLs and nothing else; importing `neurox` registers every bundled macro before dispatch.
+The commands live in `neurox.tools.calibrate_adc` and are scheme-independent. They resolve the macro through the macro registry, so a scheme contributes run-config TOMLs and nothing else; importing `neurox` registers every bundled macro before dispatch.
 
-The two probing steps build the configured tile alongside its lossless `to_ideal()` twin. The physical tile's ADC input is captured through a probe while the twin's return value is the ideal view directly, and both tiles are driven over the macro's sub-phase axis — at most `max_active_num` live rows per conversion, the rest zeroed — so a calibration sample is taken under the same masked drive the engine applies at run time. Run them under the all-off policy: a nonideality left on turns a placement into a sample of one random draw.
+The two probing steps build the configured macro alongside its lossless `to_ideal()` twin. The physical macro's ADC input is captured through a probe while the twin's return value is the ideal view directly, and both macros are driven over the macro's sub-phase axis — at most `max_active_num` live rows per conversion, the rest zeroed — so a calibration sample is taken under the same masked drive the engine applies at run time. Run them under the all-off policy: a nonideality left on turns a placement into a sample of one random draw.
 
 All three follow the [tool conventions](tool_conventions.md) and add `--log-dir` for the per-run log file. Each command's own mechanism — the stimulus battery, the pairing rule, the fit target — is in its module docstring, reachable with `--help`.
 
@@ -35,7 +35,7 @@ python -m neurox.tools.calibrate_adc.threshold_probe \
 
 Read the margins first. The headline is the minimum band margin; a negative margin means two adjacent bands overlap and the placement is invalid at that boundary, which no later stage can repair. A pooled linear fit and a band-mean monotonicity check accompany the report as sanity signals.
 
-Keep the battery inside the workload envelope the macro's DC solve converges on. A fully dense, fully driven extreme outside that envelope contaminates the observed bands with a KCL-violating iteration fixed point rather than a physical current, so `grid_col_stride` dilutes the programmed columns on a wide tile, `full_drive_caps` selects which count caps also run a full-drive element, and `include_saturating` gates the dense saturating columns. Confirm the envelope with the [solver iteration sweep](solver_iteration_counts.md) before enabling the extremes.
+Keep the battery inside the workload envelope the macro's DC solve converges on. A fully dense, fully driven extreme outside that envelope contaminates the observed bands with a KCL-violating iteration fixed point rather than a physical current, so `grid_col_stride` dilutes the programmed columns on a wide array, `full_drive_caps` selects which count caps also run a full-drive element, and `include_saturating` gates the dense saturating columns. Confirm the envelope with the [solver iteration sweep](solver_iteration_counts.md) before enabling the extremes.
 
 The output is a single `i_refs__uA` bank, one row per mode with the row index as `quantization_mode`, pasted into the macro's `reference_config`. That reference block is the whole ladder source the ADC reads per call, at the macro's maximum resolution; every lower bit width runs against the same full ladder. Figures per mode — the grid curve with its bands and thresholds, and the margin bars — land under `--plot-dir`.
 
@@ -56,6 +56,6 @@ The output is a `[[modes]]` fragment, one table per mode carrying the canonical 
 
 A large battery can outlast a single command. The battery's element list is deterministic for a given config, so `threshold_probe` splits: `--element-range a:b` probes a contiguous slice, `--capture-out part.pt` saves that slice's pooled streams and skips placement, and a final run merges every `--capture-in` part ahead of its own slice before placing the ladder over the union. The log records the merged provenance.
 
-## Naming the tile
+## Naming the macro
 
-A probing run config names its tile in `[macro]`: the config files, the section inside them, the policy file, and its section, all by path relative to the run config ([tool conventions](tool_conventions.md)). The `config_files` list merges first-wins, so a geometry overlay can precede the scheme default without editing it.
+A probing run config names its macro in `[macro]`: the config files, the section inside them, the policy file, and its section, all by path relative to the run config ([tool conventions](tool_conventions.md)). The `config_files` list merges first-wins, so a geometry overlay can precede the scheme default without editing it.

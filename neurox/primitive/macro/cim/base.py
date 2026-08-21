@@ -223,7 +223,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     @property
     @abstractmethod
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive single-cycle integer input range the tile accepts."""
+        """Inclusive single-cycle integer input range the macro accepts."""
         raise NotImplementedError
 
     @property

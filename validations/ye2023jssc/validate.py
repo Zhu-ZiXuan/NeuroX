@@ -64,6 +64,7 @@ import torch
 from torch import Tensor
 
 from neurox import Profiler, Reporter, stamp_names
+from neurox.primitive.analog.voltage_dac import GeneralVdacConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro
 
@@ -846,7 +847,10 @@ def _all_hrs_floor__uW(macro: Ye2023JsscCimMacro, p_zero_input: float) -> float:
     """Lower bound [uW] on input-branch conduction power: every weight cell at HRS."""
     config = macro.config
     g_hrs__uS = config.cell_config.g_cell_on_table__uS[0]
-    v_bl__V = config.array_config.v_bl_in1__V
+    bl_dac_config = config.bl_dac_config
+    if not isinstance(bl_dac_config, GeneralVdacConfig):
+        raise TypeError(f"require: bl_dac_config a GeneralVdacConfig; got {type(bl_dac_config).__name__}")
+    v_bl__V = bl_dac_config.code_to_signal[1]
     active = macro.row_num * (1.0 - p_zero_input)
     plane_num = len(config.array_config.weight_radix)
     return config.v_dd_bl__V * (g_hrs__uS * v_bl__V) * active * plane_num

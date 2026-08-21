@@ -1,6 +1,6 @@
 """Standalone linear solver harness for solver-only tests.
 
-Builds a fully hand-written, fully linear tiny tile: an
+Builds a fully hand-written, fully linear tiny array: an
 `XbarCell1t1rLinear` cell grid (table-driven chord conductance,
 empty policy), two IDEAL `VoltageDriver` rail clamps
 (`r_out = 0`, so `solve_dc` returns the reference voltage
@@ -186,9 +186,9 @@ def build_solver_harness(
         v_wl_drive__V: Uniform WL drive voltage for the harness call
             (default above the on-threshold: every access device on).
         col_num: Number of independent columns; a degenerate `1` is a
-            legitimate tile.
+            legitimate array.
         row_num: Number of wire-ladder nodes per column; a degenerate
-            `1` is a legitimate tile.
+            `1` is a legitimate array.
     """
     cell_config = _linear_cell_config()
     grid_shape = (col_num, row_num)

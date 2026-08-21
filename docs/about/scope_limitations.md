@@ -16,7 +16,7 @@ TODO — aggregate the Assumptions of each device Reference document (RRAM, MOSF
 
 ### Crossbar and solvers
 
-TODO — aggregate the Assumptions of the xbar Reference documents (cell array, IR-drop solver, offset operation).
+TODO — aggregate the Assumptions of the crossbar Reference documents (cell, array, IR-drop solver, offset operation).
 
 ### Analog peripherals
 

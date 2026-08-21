@@ -63,7 +63,7 @@ def test_registry_dispatch_yields_linear_leaf() -> None:
     assert type(cell) is XbarCell1t1rLinear
 
 
-def test_solve_branch_matches_table_conductance() -> None:
+def test_solve_dc_matches_table_conductance() -> None:
     cell = _build_cell((2, 2))
     w_state = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
     cell.program(w_state)
@@ -80,11 +80,11 @@ def test_solve_branch_matches_table_conductance() -> None:
 
     v_bl__V = torch.full((2, 2), 0.3, dtype=torch.float64)
     v_sl__V = torch.full((2, 2), 0.05, dtype=torch.float64)
-    i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl__V, v_sl__V, snap)
+    dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
 
-    torch.testing.assert_close(i__uA, g_cell__uS * (v_bl__V - v_sl__V))
-    torch.testing.assert_close(di_dvbl__uS, g_cell__uS)
-    torch.testing.assert_close(di_dvsl__uS, -g_cell__uS)
+    torch.testing.assert_close(dcop.i__uA, g_cell__uS * (v_bl__V - v_sl__V))
+    torch.testing.assert_close(dcop.di_dvbl__uS, g_cell__uS)
+    torch.testing.assert_close(dcop.di_dvsl__uS, -g_cell__uS)
 
 
 def test_wl_threshold_switches_off_at_and_below() -> None:
@@ -97,7 +97,7 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
     for v_wl__V in (_V_WL_ON_THRESHOLD__V, _V_WL_ON_THRESHOLD__V + 0.01):
         v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=torch.float64)
         snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1), t_elapsed=0.0)
-        i_levels.append(float(cell.solve_branch(v_bl__V, v_sl__V, snap)[0]))
+        i_levels.append(float(cell.solve_dc(v_bl__V, v_sl__V, snap).i__uA))
     i_at_threshold, i_above = i_levels
 
     g_off = _G_CELL_OFF_TABLE__uS[1]

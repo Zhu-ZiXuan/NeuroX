@@ -12,16 +12,19 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from neurox.common import ModuleBase
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.device import MosfetConfig, MosfetPolicy, Nmos, Rram, RramConfig, RramPolicy
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
 from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
+
+type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
+type _Module = ModuleBase[ConfigBase, PolicyBase]
 
 
 def _array_config() -> XbarArray1t1rConfig:
@@ -51,7 +54,7 @@ def _array_config() -> XbarArray1t1rConfig:
     )
 
 
-def _build_array(*, device: torch.device) -> XbarArray1t1r:
+def _build_array(*, device: torch.device) -> _Array:
     """Build a minimal standalone 1T1R pure array, every policy toggle off."""
     policy = _array_policy(solve_chunk_size=0)
     array = XbarArray1t1r(
@@ -60,7 +63,7 @@ def _build_array(*, device: torch.device) -> XbarArray1t1r:
         inst_shape=(),
         row_num=2,
         col_num=2,
-        operation_mode=XbarArray1t1rOperationMode.WL_IN_BL_SCAN,
+        scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
         v_dd_wl__V=1.0,
         v_dd_bl__V=1.0,
         dtype=torch.float64,
@@ -110,13 +113,13 @@ def test_array_fabricate_resamples_each_node_once_preorder(
     assert Rram in node_types
     assert Nmos in node_types
 
-    order: list[ModuleBase] = []
+    order: list[_Module] = []
     counts: dict[int, int] = {id(n): 0 for n in nodes}
 
     for node in nodes:
         original: Callable[[], None] = node._sample_fabrication_variation
 
-        def make_spy(n: ModuleBase, orig: Callable[[], None]) -> Callable[[], None]:
+        def make_spy(n: _Module, orig: Callable[[], None]) -> Callable[[], None]:
             def spy() -> None:
                 order.append(n)
                 counts[id(n)] += 1

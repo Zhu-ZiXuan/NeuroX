@@ -2,10 +2,10 @@
 
 The testbench is registry-driven and scheme-agnostic: the tool TOML names a
 macro config / policy file pair, `CimMacroConfig.from_file` and
-`CimMacro.from_config` resolve the concrete tile, and the two calibration
-views are obtained by different means. The physical tile's analog ADC input
+`CimMacro.from_config` resolve the concrete macro, and the two calibration
+views are obtained by different means. The physical macro's analog ADC input
 and code come from the `IadcProber`; the lossless integer dots come straight
-from the return value of the ideal twin's `vec_mat_mul` (the ideal tile is
+from the return value of the ideal twin's `vec_mat_mul` (the ideal macro is
 reachable data, so it needs no side channel). Pairing relies on the macro
 preserving logical-column order through exact reshapes, so the flattened
 per-record streams align element for element.
@@ -75,7 +75,7 @@ class MacroSection(ValidateMixin):
 def build_physical_macro(
     section: MacroSection, *, base: Path, device: torch.device
 ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
-    """Build, fabricate, and eval-freeze the physical tile named by `section`.
+    """Build, fabricate, and eval-freeze the physical macro named by `section`.
 
     Args:
         section: The `[macro]` file references.
@@ -317,9 +317,9 @@ def run_paired_stimulus(
     quantization_mode: int,
     adc_bits: int,
 ) -> PairedConversion:
-    """Program + run one stimulus through both tiles, pairing their views.
+    """Program and run one stimulus through both macros, pairing their views.
 
-    Both tiles are programmed with the same digit tensor (the ideal twin shares
+    Both macros are programmed with the same digit tensor (the ideal twin shares
     no state) and driven with the same sub-phase-expanded WL planes, so
     calibration converts under the per-sub-phase masked drive the runtime
     applies and the streams stay element-aligned. The physical VMM runs at
@@ -329,9 +329,9 @@ def run_paired_stimulus(
     the ideal returns are paired positionally.
 
     Args:
-        physical: Fabricated physical tile.
+        physical: Fabricated physical macro.
         ideal: Its lossless twin.
-        w: Integer weight tensor programmed into both tiles.
+        w: Integer weight tensor programmed into both macros.
             Shape: `[*inst_shape, input_num, output_num]`.
         x: Activation tensor; the sub-phase expansion happens internally.
             Shape: `[..., input_num]`.
@@ -354,7 +354,7 @@ def run_paired_stimulus(
     physical.program(w)
     ideal.program(w)
     # Runtime-parity drive: serialize each requested plane over the
-    # sub-phase axis so both tiles convert at most `max_active_num`
+    # sub-phase axis so both macros convert at most `max_active_num`
     # live rows per plane, exactly as the engine layer drives the macro.
     # Shape: [..., input_num] -> [..., P, *inst_shape=1, input_num]
     x = _unroll_sub_phase(

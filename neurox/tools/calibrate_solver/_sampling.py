@@ -37,7 +37,7 @@ class AxisDistribution(TensorDataClassBase):
 class Distribution(TensorDataClassBase):
     """Parsed synthetic-workload distribution.
 
-    A `None`-valued axis means uniform sampling over the xbar's legal integer
+    A `None`-valued axis means uniform sampling over the macro's legal integer
     range on that axis.
     """
 
@@ -49,7 +49,7 @@ class Distribution(TensorDataClassBase):
     """Human-readable provenance — `uniform` or the TOML path."""
 
 
-def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacroPolicy]) -> Distribution:
+def load_distribution(path: Path | None, macro: CimMacro[CimMacroConfig, CimMacroPolicy]) -> Distribution:
     """Load a synthetic-workload distribution TOML.
 
     A `None` path means fully uniform; a present file may omit `[w]` or `[x]`
@@ -65,7 +65,7 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
 
     Args:
         path: TOML path, or `None` for uniform sampling.
-        xbar: Built macro supplying the legal value ranges the value sets are
+        macro: Built macro supplying the legal value ranges the value sets are
             validated against.
 
     Returns:
@@ -76,7 +76,7 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
             not of the required scalar type.
         ValueError: An unknown top-level key, or a malformed section — a
             missing or empty list, length mismatch, negative or all-zero
-            probability, a value outside the xbar's legal range.
+            probability, a value outside the macro's legal range.
     """
     if path is None:
         return Distribution(w=None, x=None, source="uniform")
@@ -88,8 +88,8 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
             f"distribution TOML at {path}: unknown top-level key(s) {unknown}; only '[w]' and '[x]' are recognised"
         )
     return Distribution(
-        w=_load_axis(raw, "w", xbar.w_value_range),
-        x=_load_axis(raw, "x", xbar.x_value_range),
+        w=_load_axis(raw, "w", macro.w_value_range),
+        x=_load_axis(raw, "x", macro.x_value_range),
         source=str(path),
     )
 
@@ -141,7 +141,7 @@ def _load_axis(
     lo, hi = legal_range
     for v in values_raw:
         if not (lo <= v <= hi):
-            raise ValueError(f"distribution [{key}].values: value {v} outside xbar legal range [{lo}, {hi}]")
+            raise ValueError(f"distribution [{key}].values: value {v} outside macro legal range [{lo}, {hi}]")
 
     return AxisDistribution(
         values=torch.tensor(values_raw, dtype=torch.int64),
@@ -163,7 +163,7 @@ def sample_w(
     """Yield `n // batch_w` batches of logical weight matrices.
 
     `n` must be a multiple of `batch_w`: every yielded tensor carries a fixed
-    leading `batch_w` axis to match the xbar's `inst_shape=(batch_w,)`
+    leading `batch_w` axis to match the macro's `inst_shape=(batch_w,)`
     contract, so a partial final batch fails the `program(w)` shape check. A
     call site wanting "at least N" coverage rounds `n` up to the next multiple
     of `batch_w`.
@@ -181,7 +181,7 @@ def sample_w(
     if n % batch_w != 0:
         raise ValueError(
             f"sample_w: n ({n}) must be a multiple of batch_w ({batch_w}); "
-            "partial final batches would break the xbar's fixed inst_shape contract"
+            "partial final batches would break the macro's fixed inst_shape contract"
         )
     leading = () if batch_w == 1 else (batch_w,)
     shape_per = (*leading, input_num, output_num)

@@ -10,7 +10,6 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.xbar.cell import (
-    XbarCell1t1r,
     XbarCell1t1rDcop,
     XbarCell1t1rLinear,
     XbarCell1t1rLinearConfig,
@@ -60,11 +59,12 @@ class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
     """
 
 
-@XbarCell1t1r.register_neurox_module(
-    config_type=Ye2023Jssc2t1rCellConfig,
-    policy_type=Ye2023Jssc2t1rCellPolicy,
-)
-class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
+class Ye2023Jssc2t1rCell(
+    XbarCell1t1rLinear[
+        Ye2023Jssc2t1rCellConfig,
+        Ye2023Jssc2t1rCellPolicy,
+    ]
+):
     """WH-2T1R lookup cell: linear 1T1R divider plus a per-state I_T2 table.
 
     The T2 compute current is selected at `program` time and read back by

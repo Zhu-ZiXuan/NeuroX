@@ -1,10 +1,3 @@
-from .base import (
-    XbarCell,
-    XbarCellConfig,
-    XbarCellDcop,
-    XbarCellPolicy,
-    XbarCellSnap,
-)
 from .x1t1r import (
     XbarCell1t1r,
     XbarCell1t1rConfig,
@@ -28,7 +21,6 @@ from .x1t1r_linear import (
 )
 
 __all__ = [
-    "XbarCell",
     "XbarCell1t1r",
     "XbarCell1t1rConfig",
     "XbarCell1t1rDcop",
@@ -44,8 +36,4 @@ __all__ = [
     "XbarCell1t1rLinearSnap",
     "XbarCell1t1rPolicy",
     "XbarCell1t1rSnap",
-    "XbarCellConfig",
-    "XbarCellDcop",
-    "XbarCellPolicy",
-    "XbarCellSnap",
 ]

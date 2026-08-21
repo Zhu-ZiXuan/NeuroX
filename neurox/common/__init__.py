@@ -1,5 +1,5 @@
 from . import encoding, serialize
-from .module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase, fabricate
+from .module import ConfigBase, DcopBase, DeviceBase, ModuleBase, PolicyBase, SnapBase, fabricate
 from .profiler import EnergyRecord, Profiler
 from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
@@ -8,6 +8,7 @@ from .serialize_mixin import SerializeMixin
 from .tensor_dataclass import TensorDataClassBase
 from .tensor_fields import walk_tensor_fields
 from .tensor_group_mixin import TensorGroupMixin
+from .torch_compat import torch_compiler_disable
 from .tree import neurox_roots, stamp_names
 from .validate_mixin import ValidateMixin
 
@@ -16,6 +17,7 @@ __all__ = [
     "serialize",
     "ConfigBase",
     "DcopBase",
+    "DeviceBase",
     "ModuleBase",
     "PolicyBase",
     "SnapBase",
@@ -35,5 +37,6 @@ __all__ = [
     "fabricate",
     "neurox_roots",
     "stamp_names",
+    "torch_compiler_disable",
     "walk_tensor_fields",
 ]

@@ -1,8 +1,8 @@
 from .x1t1r import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
     XbarArray1t1rSolveProjection,
     XbarArray1t1rSteadyState,
 )
@@ -10,7 +10,7 @@ from .x1t1r import (
 __all__ = [
     "XbarArray1t1r",
     "XbarArray1t1rConfig",
-    "XbarArray1t1rOperationMode",
+    "XbarArray1t1rScanMode",
     "XbarArray1t1rPolicy",
     "XbarArray1t1rSolveProjection",
     "XbarArray1t1rSteadyState",

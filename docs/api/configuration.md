@@ -4,7 +4,7 @@ A module tree is built from a paired file set: one file carrying the immutable d
 
 ## The two files
 
-- **Config** — the immutable circuit design: tile geometry, device and circuit parameters, and the calibrated tables the design carries. One config file fully specifies a chip and holds no nonideality switch.
+- **Config** — the immutable circuit design: module geometry, device and circuit parameters, and the calibrated tables the design carries. One config file fully specifies a chip and holds no nonideality switch.
 - **Policy** — the run's stance on that design: one `bool` per nonideality source (device mismatch, thermal noise, programming noise, ADC offsets, ...), plus the numerical knobs a run tunes, such as the array's `solve_chunk_size`. Its section tree mirrors the config's.
 
 The entry point names the pair. The bundled examples pass the two files as `--config` and `--policy` (the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md) runs them end to end); a calibration tool instead takes one run config that names the pair together with the section to pluck from each, under the rules in [tool conventions](../guides/calibration/tool_conventions.md). The file set a calibration campaign ships, and the provenance tag every physical value in it carries, are specified in [campaigns](../validation/campaigns.md).

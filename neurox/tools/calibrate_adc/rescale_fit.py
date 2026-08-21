@@ -10,8 +10,8 @@ stimulus battery, so a per-mode run bounds single-command runtime and the
 emitted fragments concatenate.
 
 For each requested `quantization_mode` the tool programs random ternary weight
-patterns into the physical tile and its lossless twin, drives random binary WL
-batches through both, pairs the physical tile's `current_adc.convert` records
+patterns into the physical macro and its lossless twin, drives random binary WL
+batches through both, pairs the physical macro's `current_adc.convert` records
 with the ideal twin's `vec_mat_mul` return element for element, maps the ideal
 dots onto the macro's ADC input code axis, drops pairs outside that mode's
 input code range and top-code-saturated pairs (both drop counts logged per

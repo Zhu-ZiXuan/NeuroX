@@ -4,12 +4,10 @@ See Also:
     docs/reference/primitive/device/rram.md
 """
 
-from typing import ClassVar
-
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common import ConfigBase, DcopBase, DeviceBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -81,7 +79,7 @@ class RramSnap(SnapBase):
     """Sampled per-cell conductance, read noise included. Shape: `[...]`."""
 
 
-class Rram(ModuleBase[RramConfig, RramPolicy]):
+class Rram(DeviceBase[RramConfig, RramPolicy]):
     """Stateful programmable-conductance RRAM model.
 
     Programming variation is applied by `program()` and read variation by
@@ -90,8 +88,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     Args:
         g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
     """
-
-    is_profile_target: ClassVar[bool] = False
 
     # === Programmed state ===
 

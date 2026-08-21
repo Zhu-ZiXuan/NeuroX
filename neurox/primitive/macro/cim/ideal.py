@@ -1,4 +1,4 @@
-"""Tile-level ideal crossbar with window-driven output quantization.
+"""Ideal CIM macro with window-driven output quantization.
 
 See Also:
     docs/reference/primitive/macro/cim/ideal.md
@@ -37,9 +37,9 @@ class IdealCimMacroConfig(CimMacroConfig):
         # --- Value ranges ---
 
         if self.x_value_range == (0, 0):
-            raise ValueError("require: x_value_range cannot be (0, 0) — a zero-only tile carries no signal")
+            raise ValueError("require: x_value_range cannot be (0, 0) — a zero-only macro carries no signal")
         if self.w_value_range == (0, 0):
-            raise ValueError("require: w_value_range cannot be (0, 0) — a zero-only tile carries no signal")
+            raise ValueError("require: w_value_range cannot be (0, 0) — a zero-only macro carries no signal")
 
         # --- Quantization ---
 
@@ -55,7 +55,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 
 @CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)
 class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
-    """Ideal tile VMM with per-plane, window-driven output quantization.
+    """Ideal macro VMM with per-plane, window-driven output quantization.
 
     One conversion reads the exact integer plane dot through the canonical
     window `[lower, upper]` that `quantization_mode` selects, as the unsigned

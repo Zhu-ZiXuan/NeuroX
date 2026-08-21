@@ -93,7 +93,7 @@ Order a class header: docstring, class variable assignments, grouped state decla
 The class header is the object's state manifest for the human reader; a declaration is kept even where a direct assignment would let mypy infer the attribute.
 
 - Exactly three kinds are declared: buffers registered in `__init__`, tensors produced by `fabricate()`, and tensors produced by `program(...)`.
-- A child object or submodule is not declared — one visible assignment in `__init__` and the module tree already expose it — and neither is compact scalar metadata bound there.
+- A child object or submodule is not declared — one visible assignment in `__init__` and the module tree already expose it — and neither is compact scalar metadata bound there. A subclass may repeat an inherited child declaration solely to narrow its static type; that declaration introduces no new state.
 - An attribute a base class requires of its subclass is declared as an abstract property on the base, per §Property vs method.
 - A config, policy, or Protocol field, or a field of a public tensor container, stays explicit because its declaration defines that data structure; it is no state declaration, so the grouping, typing, and shape rules below do not reach it.
 - Register each buffer with an explicit literal name; never hide buffer creation behind a loop or `setattr`.
@@ -166,8 +166,11 @@ At an emission site the shape annotation writes the caller block as a named grou
 - A default is legal only where it is the identity value — the no-op, the neutral element, or the absent state — so that omitting the argument and passing the default are the same call. A parameter whose value picks behavior, selects a policy, or states a physical quantity carries no default and is named at every call site.
 - Annotate with `object` only an operation that genuinely never inspects the value. Anything that reads, converts, or dispatches on it takes `Any`, or better the abstract base it actually requires.
 - Treat mypy as a helper, not a gate. When a false positive comes from an external library or a pattern mypy cannot express — a TypeVar not re-bound after an `isinstance` narrowing, a `fields()` or `replace()` call needing a `DataclassInstance` — leave the error unsuppressed. Never write `# type: ignore`.
-- For base-class-related narrowing, fix the generic rather than reach for `cast`.
+- In reusable core code, fix a base-class-related narrowing in the generic contract rather than reach for `cast`. A final concrete implementation under `neurox.works` may cast at an override boundary when its own construction and dispatch uniquely fix the runtime subtype that the base signature erased. Keep that cast local to the boundary; never use this exception for registry results, external input, optional values, tensor properties, or unrelated types.
 - Never add a meaningless runtime conversion only to satisfy typing.
+- `ModuleBase` binds only `ConfigT` and `PolicyT`, the two roles every physical module owns. A family base adds a type parameter for each further associated type that appears in its interface; it does not burden unrelated module families with dummy `SnapT` or `DcopT` parameters.
+- A reusable implementation layer remains generic over every associated type its family is designed to vary, and each concrete leaf binds that tuple once. Do not extract a synthetic shared base solely so one final work-specific implementation can extend an otherwise complete concrete model; that edge may inherit the model and recover an erased subtype under the local-cast rule above. If independent descendants make the variation recurring, promote it into a real generic implementation layer.
+- A registry factory returns its family abstraction: runtime dispatch proves which registered class was selected, but the static type does not pretend to recover that class's complete generic specialization. Keep any erased associated type at this construction boundary. Code that depends on a concrete member's extended interface constructs that member through a typed path instead of casting a registry result; downstream helpers preserve the exact type they receive and never widen it to `Any`.
 
 ## Config, policy, and cross-module data classes
 
@@ -220,7 +223,7 @@ Library code is written to be traceable, so a caller's `torch.compile` gets a gr
 - **No rebuilding of fixed tensor sources on the run path.** A config- or design-derived constant is registered at construction and migrates with the module; a runtime-derived tensor is built with `*_like` or `new_*` off a semantically related input, never off an unrelated tensor borrowed as a dtype or device anchor.
 - **Grad guards trace.** `torch.no_grad()` and `torch.enable_grad()` are safe, though the latter makes dynamo more conservative.
 
-Library code tolerates graph breaks, so `fullgraph` stays off; `fullgraph=True` is a test-side tool for catching an accidental sync. `@torch.compiler.disable` is no license to sync — disabling another function to silence a trace error hides a real violation, so fix the control flow or the state mutation instead.
+Library code tolerates graph breaks, so `fullgraph` stays off; `fullgraph=True` is a test-side tool for catching an accidental sync. `@torch_compiler_disable` is no license to sync — disabling another function to silence a trace error hides a real violation, so fix the control flow or the state mutation instead.
 
 ## Device placement
 

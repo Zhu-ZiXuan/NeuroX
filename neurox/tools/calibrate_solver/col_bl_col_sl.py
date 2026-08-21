@@ -10,13 +10,12 @@ residual guard, staged:
            -> pick the smallest `n_inner` at the step plateau.
 
 Host-agnostic: the tool binds only to its calibration target — the nested
-solver family and the 1T1R cell record it consumes — and the abstract
-`CimMacro` surface. Each candidate is a fresh macro rebuilt from the macro
-config file with the swept iteration count patched onto the nested-solver table
-located by `[macro].solver_section`; the workload rides the public
-`vec_mat_mul` over serialized row planes and the calibration data is captured
-by the solver / cell probers upstream of the ADC. Both criteria are
-chip-parameter-free.
+solver family and its cell-residual channel — and the abstract `CimMacro`
+surface. Each candidate is a fresh macro rebuilt from the macro config file
+with the swept iteration count patched onto the nested-solver table located by
+`[macro].solver_section`; the workload rides the public `vec_mat_mul` over
+serialized row planes and the calibration data is captured by the solver and
+cell probers upstream of the ADC. Both criteria are chip-parameter-free.
 
 CLI: `python -m neurox.tools.calibrate_solver.col_bl_col_sl --help`
 """
@@ -199,20 +198,20 @@ def main(argv: list[str] | None = None) -> int:
     log.info("loaded config from %s", args.config)
 
     inst_shape = tuple(cfg.workload.inst_shape)
-    # inst_shape[0] is the xbar's parallel weight-program axis; sample_w
+    # inst_shape[0] is the macro's parallel weight-program axis; sample_w
     # produces tensors with that exact leading dim. Any mismatch with
-    # batch_w trips xbar.program(w)'s shape check immediately.
+    # batch_w trips macro.program(w)'s shape check immediately.
     if len(inst_shape) != 1 or inst_shape[0] != cfg.workload.batch_w:
         raise SystemExit(
             f"[workload].inst_shape ({list(inst_shape)}) must be exactly "
             f"[batch_w]={[cfg.workload.batch_w]} — the two axes are bound by the "
-            "xbar's program(w) shape contract."
+            "macro's program(w) shape contract."
         )
     dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
     device = torch.device(args.device)
 
     # Resolve the macro files once; the base dict is patched per candidate and
-    # the sampling host is a single tile built from the shipped config.
+    # the sampling host is a single macro built from the shipped config.
     config_paths, policy_path = resolve_macro_files(cfg.macro, base=args.config)
     base_macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
     policy = CimMacroPolicy.from_file(policy_path, section=cfg.macro.policy_section)
@@ -278,12 +277,14 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info("Stage A: sweep n_outer with n_inner pinned at %d", cfg.sweep.inner_ref)
     log.info("-" * 80)
-    outer_rows, outer_scale = aggregate_solver_sweep(
+    outer_result = aggregate_solver_sweep(
         swept_key="n_outer",
         candidates=cfg.sweep.outer_candidates,
         fixed_overrides={"n_inner": cfg.sweep.inner_ref},
         context=sweep_context,
     )
+    outer_rows = outer_result.rows
+    outer_scale = outer_result.scale
     log.info(
         "workload scale: max|I_cell|=%.3e uA, max|V_BL_node|=%.3e V",
         outer_scale.i_cell_typ__uA,
@@ -319,12 +320,14 @@ def main(argv: list[str] | None = None) -> int:
     log.info("=" * 80)
     log.info("Stage B: sweep n_inner with n_outer pinned at %d", pick_outer)
     log.info("-" * 80)
-    inner_rows, inner_scale = aggregate_solver_sweep(
+    inner_result = aggregate_solver_sweep(
         swept_key="n_inner",
         candidates=cfg.sweep.inner_candidates,
         fixed_overrides={"n_outer": pick_outer},
         context=sweep_context,
     )
+    inner_rows = inner_result.rows
+    inner_scale = inner_result.scale
     log.info("")
     for r in inner_rows:
         log.info(_format_row(r, label="n_inner"))

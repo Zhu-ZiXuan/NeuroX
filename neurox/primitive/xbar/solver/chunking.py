@@ -17,7 +17,7 @@ from typing import NamedTuple
 import torch
 from torch import Tensor
 
-from neurox.common import walk_tensor_fields
+from neurox.common import torch_compiler_disable, walk_tensor_fields
 
 
 class _Chunk(NamedTuple):
@@ -131,7 +131,7 @@ class _ResultFold[ResultT]:
         return walk_tensor_fields(self._folded, unflatten)
 
 
-@torch.compiler.disable(
+@torch_compiler_disable(
     recursive=False,
     reason="eager chunk loop; the fixed-shape per-chunk run body compiles separately",
 )

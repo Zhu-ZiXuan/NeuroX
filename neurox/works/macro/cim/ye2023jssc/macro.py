@@ -564,13 +564,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         wl_code = self._wl_onehot_code.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
             *solve_leading, self.col_num
         )
-        v_wl_lines__V = self.wl_dac.convert(wl_code)
-        # The array reads one value per cell GATE, and one word line spans every
-        # column of its row, which the stride-0 expand over the column axis
-        # states — it is also this macro's declaration that a scanned row carries
-        # no per-column structure.
-        # Shape: [..., out, *inst_shape, phys_col, array_row]
-        v_wl__V = v_wl_lines__V.unsqueeze(-2).expand(*solve_leading, phys_col_num, self.col_num)
+        # Shape: [..., out, *inst_shape, array_row]
+        v_wl__V = self.wl_dac.convert(wl_code)
         # The same per-column inputs for every output.
         # Shape: [..., out, *inst_shape, phys_col]
         bl_v_ref__V = v_bl__V.unsqueeze(-(n_inst + 2)).expand(*solve_leading, phys_col_num)
@@ -581,7 +576,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # per (output access, instance, column), the output axis sitting ahead
         # of each clamp bank's own (*inst_shape, phys_col) block, which is where
         # a right-aligned bank expects a time axis. Both snaps arrive at the
-        # canonical [..., col] shape, so the array normalizes nothing.
+        # canonical [..., col] shape; the array distributes the line-level WL
+        # drive over its own columns.
         # Shape: [..., out, *inst_shape, phys_col]
         event_shape = (*solve_leading, phys_col_num)
         bl_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=event_shape)

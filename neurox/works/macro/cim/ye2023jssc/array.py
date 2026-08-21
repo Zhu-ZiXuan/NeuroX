@@ -21,19 +21,25 @@ from torch import Tensor
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
-    XbarArray1t1rOperationMode,
     XbarArray1t1rPolicy,
+    XbarArray1t1rScanMode,
     XbarArray1t1rSolveProjection,
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rSnap
 from neurox.primitive.xbar.solver import ClampDcop, ClampDriver, ClampSnap, ColBlColSlDcop
 
-# Import triggers the cell's registry registration so `from_config` dispatches.
-from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellSnap
+from .cell import (
+    Ye2023Jssc2t1rCell,
+    Ye2023Jssc2t1rCellConfig,
+    Ye2023Jssc2t1rCellPolicy,
+    Ye2023Jssc2t1rCellSnap,
+)
 
 
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
+    cell_config: Ye2023Jssc2t1rCellConfig
+
     weight_radix: tuple[int, ...]
     """Per-plane place values of the weight-bearing planes, LSB-first. Non-empty; every
     entry a positive int."""
@@ -46,8 +52,6 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
     share of the row leakage floor and nothing else. The paper's redundant-slice
     mapping algorithm itself is not modeled.
     """
-    v_bl_in1__V: float
-    """BL voltage driven for input bit 1; input bit 0 drives 0 V."""
 
     def validate(self) -> None:
         super().validate()
@@ -58,11 +62,9 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
         for plane, m in enumerate(self.redundant_radix):
             self._require_pos(m, f"redundant_radix[{plane}]")
 
-        self._require_pos(self.v_bl_in1__V, "v_bl_in1__V")
-
 
 class Ye2023Jssc2t1rArrayPolicy(XbarArray1t1rPolicy):
-    pass
+    cell_policy: Ye2023Jssc2t1rCellPolicy
 
 
 class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
@@ -74,12 +76,12 @@ class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
     """
 
 
-class Ye2023Jssc2t1rArray(XbarArray1t1r):
+class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArrayPolicy]):
     """Kernel 1T1R array extended by the WH-2T1R transpose-bitline lookup sum.
 
-    The scan organization is fixed: the BL boundary holds the input pattern while
+    The scan mode is fixed: the BL boundary holds the input pattern while
     the word lines are scanned one row per solve, so the array is always a
-    `XbarArray1t1rOperationMode.BL_IN_WL_SCAN` one and its capacitive billing is
+    `XbarArray1t1rScanMode.BL_IN_WL_SCAN` one and its capacitive billing is
     the kernel's for that mode.
 
     The TBL sum is the cell's per-cell T2 current weighted by the place value of
@@ -100,6 +102,8 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             `len(weight_radix) + len(redundant_radix)`, since the place values are
             laid out plane-major over equal column groups.
     """
+
+    cell: Ye2023Jssc2t1rCell
 
     # === Functional buffers ===
 
@@ -137,7 +141,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             inst_shape=inst_shape,
             row_num=row_num,
             col_num=col_num,
-            operation_mode=XbarArray1t1rOperationMode.BL_IN_WL_SCAN,
+            scan_mode=XbarArray1t1rScanMode.BL_IN_WL_SCAN,
             v_dd_wl__V=v_dd_wl__V,
             v_dd_bl__V=v_dd_bl__V,
             dtype=dtype,
@@ -149,6 +153,15 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             "_radix_per_col",
             torch.tensor(all_radix, dtype=dtype).repeat_interleave(col_num // len(all_radix)),
             persistent=False,
+        )
+
+    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+        self.cell = Ye2023Jssc2t1rCell(
+            config=self.config.cell_config,
+            policy=self.policy.cell_policy,
+            inst_shape=self.weight_grid_shape,
+            dtype=dtype,
+            T__K=T__K,
         )
 
     def solve_array[BLSnapT: ClampSnap, BLDcopT: ClampDcop, SLSnapT: ClampSnap, SLDcopT: ClampDcop](
@@ -167,8 +180,8 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         is released, so only the reduced lookup current survives.
 
         Args:
-            v_wl__V: Analog WL drive, one value per cell gate.
-                Shape: `[..., col_num, row_num]`.
+            v_wl__V: Analog WL drive, one value per word line.
+                Shape: `[..., row_num]`.
             bl_driver: BL boundary clamp in the structural `ClampDriver` role.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call shape; its
                 `v_ref__V` is the ideal BL rest level, which is also the per-column
@@ -216,14 +229,13 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )
+        cell_snap = cast(Ye2023Jssc2t1rCellSnap, cell_snap)
 
         # Row selection and operating point are BOTH the cell's own call; the
         # array contributes the place values and the reduction. The grid-shaped
         # intermediates die with this DCOP; only the reduction leaves.
-        cell = cast(Ye2023Jssc2t1rCell, self.cell)
-        cell_snap = cast(Ye2023Jssc2t1rCellSnap, cell_snap)
         # Shape: [..., col_num, row_num] -> [...]
-        i_tbl__uA = (cell.i_t2__uA(dcop.cell, cell_snap) * self._radix_per_col.view(-1, 1)).sum(dim=(-2, -1))
+        i_tbl__uA = (self.cell.i_t2__uA(dcop.cell, cell_snap) * self._radix_per_col.view(-1, 1)).sum(dim=(-2, -1))
 
         state = base.steady_state
         return XbarArray1t1rSolveProjection(

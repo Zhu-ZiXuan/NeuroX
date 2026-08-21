@@ -5,7 +5,7 @@
 # solve per plane, with the parallel BL/SL solver over a positive wire ladder (BL/SL first
 # 20 Ohm, segment 5 Ohm). The solver iteration counts (n_outer, n_inner) are therefore really
 # used: the wire IR drop couples BL/SL and the DC solve is non-trivial. This run-config
-# targets the Detail SOURCE model (params_detail.toml), a config-complete xbar whose wire
+# targets the Detail SOURCE model (params_detail.toml), a config-complete macro tree whose wire
 # ladder MIRRORS the runtime array, so the calibrated (n_outer, n_inner) transfer to
 # ../params.toml. It also:
 #   - reactivates tests/tools/test_calibrate_solver.py::TestShippedRunConfig (the three

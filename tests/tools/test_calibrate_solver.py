@@ -14,9 +14,12 @@ from pathlib import Path
 import pytest
 import torch
 
-from neurox.primitive.xbar.cell import XbarCell1t1rDcop
+from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailRecord
 from neurox.primitive.xbar.solver import ColBlColSlDcop, ColBlColSlRecord
 from neurox.tools.calibrate_solver._common import (
+    aggregate_residual_trajectory,
+    build_residual_trajectories,
+    current_residual_max,
     load_macro_config_dict,
     resolve_macro_files,
     resolve_solver_table,
@@ -208,6 +211,10 @@ def _inner_step(*, outer: int, inner: int, wire_bl: float) -> ColBlColSlRecord:
     )
 
 
+def _cell_step(residual__uA: float) -> XbarCell1t1rDetailRecord:
+    return XbarCell1t1rDetailRecord(cell__uA=torch.ones(_GRID) * residual__uA)
+
+
 def _solve(*, clamp_bl: tuple[float, ...], wire_bl: tuple[float, ...]) -> list[ColBlColSlRecord]:
     """One whole synthetic solve: its trajectory then its terminal record.
 
@@ -215,15 +222,86 @@ def _solve(*, clamp_bl: tuple[float, ...], wire_bl: tuple[float, ...]) -> list[C
     iterate the solve stopped on, which is the only one the guard reads.
     """
     trajectory: list[ColBlColSlRecord] = []
-    for outer, clamp in enumerate(clamp_bl):
+    for outer, (clamp, wire) in enumerate(zip(clamp_bl, wire_bl, strict=True)):
         trajectory.append(_clamp_event(outer=outer, clamp_bl=clamp))
-    for inner, wire in enumerate(wire_bl):
-        trajectory.append(_inner_step(outer=len(clamp_bl) - 1, inner=inner + 1, wire_bl=wire))
+        trajectory.append(_inner_step(outer=outer, inner=1, wire_bl=wire))
     trajectory.append(_terminal(outer=len(clamp_bl), v_bl_node__V=0.0, v_x__V=0.0))
     return trajectory
 
 
 class TestRecordAggregationLaw:
+    def test_full_solver_and_cell_trajectories_are_retained_per_solve(self) -> None:
+        solver_records = (
+            *_solve(clamp_bl=(1.0, 0.1), wire_bl=(2.0, 0.2)),
+            *_solve(clamp_bl=(3.0, 0.3), wire_bl=(4.0, 0.4)),
+        )
+        # n_outer=2, n_inner=1: seed + two iterative evaluations + terminal.
+        cell_records = tuple(_cell_step(value) for value in (9.0, 8.0, 7.0, 0.07, 6.0, 5.0, 4.0, 0.04))
+
+        trajectories = build_residual_trajectories(
+            solver_records,
+            cell_records,
+            n_outer=2,
+            n_inner=1,
+        )
+
+        assert len(trajectories) == 2
+        assert trajectories[0].solver_records == tuple(solver_records[:5])
+        assert trajectories[0].cell_records == cell_records[:4]
+        assert trajectories[1].solver_records == tuple(solver_records[5:])
+        assert trajectories[1].cell_records == cell_records[4:]
+
+        solver_trace, cell_trace = aggregate_residual_trajectory(
+            trajectories,
+            n_outer=2,
+            n_inner=1,
+        )
+        assert [(point.outer, point.inner) for point in solver_trace] == [(0, 0), (0, 1), (1, 0), (1, 1)]
+        assert solver_trace[0].f_bl_clamp__V == pytest.approx(3.0)
+        assert solver_trace[1].f_bl_kcl__uA == pytest.approx(4.0)
+        assert [point.cell__uA for point in cell_trace] == pytest.approx([9.0, 8.0, 7.0, 0.07])
+        assert [point.stage for point in cell_trace] == ["seed", "iteration", "iteration", "terminal"]
+
+    def test_current_residual_uses_each_solve_stopping_point(self) -> None:
+        solver_records = tuple(_solve(clamp_bl=(9.0, 0.02), wire_bl=(8.0, 0.5)))
+        cell_records = tuple(_cell_step(value) for value in (7.0, 6.0, 5.0, 0.03))
+        trajectories = build_residual_trajectories(
+            solver_records,
+            cell_records,
+            n_outer=2,
+            n_inner=1,
+        )
+
+        residual = current_residual_max(trajectories)
+
+        assert residual["cell__uA"] == pytest.approx(0.03)
+        assert residual["f_bl_kcl__uA"] == pytest.approx(0.5)
+        assert residual["f_bl_clamp__V"] == pytest.approx(0.02)
+
+    def test_cell_trajectory_must_align_with_complete_solves(self) -> None:
+        solver_records = tuple(_solve(clamp_bl=(0.1,), wire_bl=(0.2,)))
+        with pytest.raises(ValueError, match="expected 3 per solve"):
+            build_residual_trajectories(
+                solver_records,
+                tuple(_cell_step(value) for value in (1.0, 0.1)),
+                n_outer=1,
+                n_inner=1,
+            )
+
+    def test_cell_without_residual_channel_keeps_solver_trajectory(self) -> None:
+        solver_records = tuple(_solve(clamp_bl=(0.1,), wire_bl=(0.2,)))
+        trajectories = build_residual_trajectories(
+            solver_records,
+            (),
+            n_outer=1,
+            n_inner=1,
+        )
+
+        assert len(trajectories) == 1
+        assert trajectories[0].solver_records == solver_records
+        assert trajectories[0].cell_records == ()
+        assert "cell__uA" not in current_residual_max(trajectories)
+
     def test_step_delta_is_max_abs_field_difference(self) -> None:
         prev = [
             _terminal(v_bl_node__V=0.0, v_x__V=0.0),
