@@ -1,10 +1,10 @@
-"""Dedicated WH-2T1R array — the kernel 1T1R array plus the I_T2 lookup sum.
+"""Dedicated WH-2T1R array — the kernel 1T1R array plus its T2 path.
 
 Geometry follows the solver convention `[..., col_num, row_num]`: `col_num`
 bit-line columns carrying the per-column BL input voltages, `row_num` word-line
-rows of which one is driven per solve. Everything below the lookup — the divider
-solve, the wire ladders, the capacitive billing — is the kernel array's; this
-extension adds the transpose-bitline (TBL) current alone.
+rows of which one is driven per solve. The divider solve and the BL/SL wire
+ladders are the kernel array's; this extension adds the transpose-bitline (TBL)
+current and its node-capacitance excursion.
 
 See Also:
     docs/reference/primitive/xbar/array/1t1r.md
@@ -40,6 +40,10 @@ from .cell import (
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
     cell_config: Ye2023Jssc2t1rCellConfig
 
+    tbl_node_c__fF: float
+    """Effective total capacitance to ground seen at each TBL-connected cell
+    site, including the T2 terminal and TBL interconnect parasitics."""
+
     weight_radix: tuple[int, ...]
     """Per-plane place values of the weight-bearing planes, LSB-first. Non-empty; every
     entry a positive int."""
@@ -56,6 +60,7 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
     def validate(self) -> None:
         super().validate()
 
+        self._require_non_neg(self.tbl_node_c__fF, "tbl_node_c__fF")
         self._require_non_empty(self.weight_radix, "weight_radix")
         for plane, m in enumerate(self.weight_radix):
             self._require_pos(m, f"weight_radix[{plane}]")
@@ -80,9 +85,9 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
     """Kernel 1T1R array extended by the WH-2T1R transpose-bitline lookup sum.
 
     The scan mode is fixed: the BL boundary holds the input pattern while
-    the word lines are scanned one row per solve, so the array is always a
-    `XbarArray1t1rScanMode.BL_IN_WL_SCAN` one and its capacitive billing is
-    the kernel's for that mode.
+    the word lines are scanned one row per solve. The kernel bills its BL, X,
+    SL, and WL nodes under `XbarArray1t1rScanMode.BL_IN_WL_SCAN`; this extension
+    bills the selected row's TBL nodes for one ground-to-clamp excursion.
 
     The TBL sum is the cell's per-cell T2 current weighted by the place value of
     its column: which rows contribute and which calibration operating point each
@@ -94,8 +99,8 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
     anywhere in the scheme, and the multiplier scales the floor and leakage table
     entries exactly as it scales the on-current. T2 in sub-threshold saturation is a
     near-ideal current source, so what reaches the readout is that sum whatever the
-    line drops: the transpose bit line gets no solve, and no capacitance either — it
-    is co-driven with its word line and then held at the readout clamp's DC level.
+    line drops. The TBL therefore needs no DC solve, while its known clamp excursion
+    still determines its capacitive energy.
 
     Args:
         col_num: Number of physical BL columns; divisible by
@@ -117,8 +122,8 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
         inst_shape: tuple[int, ...],
         row_num: int,
         col_num: int,
-        v_dd_wl__V: float,
-        v_dd_bl__V: float,
+        v_tbl__V: float,
+        vdd__V: float,
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
@@ -142,11 +147,11 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
             row_num=row_num,
             col_num=col_num,
             scan_mode=XbarArray1t1rScanMode.BL_IN_WL_SCAN,
-            v_dd_wl__V=v_dd_wl__V,
-            v_dd_bl__V=v_dd_bl__V,
+            vdd__V=vdd__V,
             dtype=dtype,
             T__K=T__K,
         )
+        self._v_tbl__V = v_tbl__V
 
         # Plane-major place values: each radix spans an equal group of columns.
         self.register_buffer(
@@ -203,6 +208,22 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
             ),
         )
 
+    def _energy_bl_in_wl_scan__fJ(
+        self,
+        *,
+        solver_dcop: ColBlColSlDcop[XbarCell1t1rDcop],
+        cell_snap: XbarCell1t1rSnap,
+        bl_driver_snap: ClampSnap,
+        sl_driver_snap: ClampSnap,
+    ) -> Tensor:
+        energy__fJ = super()._energy_bl_in_wl_scan__fJ(
+            solver_dcop=solver_dcop,
+            cell_snap=cell_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
+        )
+        return energy__fJ + self._vdd__V * self.config.tbl_node_c__fF * self._col_num * abs(self._v_tbl__V)
+
     def _project_dcop(
         self,
         *,
@@ -221,7 +242,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
             sl_driver_snap: SL clamp snap.
 
         Returns:
-            The extended steady state and the kernel array energy.
+            The extended steady state and the kernel-plus-TBL array energy.
         """
         base = super()._project_dcop(
             dcop=dcop,

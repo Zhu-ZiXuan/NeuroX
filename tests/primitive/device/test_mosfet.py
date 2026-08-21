@@ -80,12 +80,12 @@ def test_nmos_enhancement_conducts_and_partial_signs() -> None:
 def test_pmos_enhancement_conducts_negative() -> None:
     """Enhancement PMOS (vth0 < 0): source-high / drain-low with a low gate conducts; ids < 0."""
     k = 3
-    v_dd = 0.9
+    vdd = 0.9
     dev = _make(Pmos, vth0__V=-0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,))
-    # Gate swept low -> high; source held high (v_dd), drain low (0).
+    # Gate swept low -> high; source held high (vdd), drain low (0).
     vg = torch.linspace(0.0, 0.5, k, dtype=torch.float64)
-    vs = torch.full((k,), v_dd, dtype=torch.float64)
+    vs = torch.full((k,), vdd, dtype=torch.float64)
     vd = torch.zeros(k, dtype=torch.float64)
     dc = dev.solve_dc(vg__V=vg, vd__V=vd, vs__V=vs, snap=snap)
     # Real source -> drain flow gives a negative I_ds for a p-channel device.

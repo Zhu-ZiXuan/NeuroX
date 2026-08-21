@@ -165,15 +165,11 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Declared operating period, the static-energy time base: the leakage integration
     window of one access. Must be >= the total conduction span."""
 
-    # === Supply rails (separate variables even when numerically equal) ===
+    # === Core analog supply ===
 
-    v_dd__V: float
+    vdd__V: float
     """Rail every channelled branch is billed across, including the whole input branch on
-    the `cablc` channel. It is also the BL driver rail handed to the array, so the
-    conduction-path capacitance is charged from it."""
-    v_dd_wl__V: float
-    """Word-line driver rail — the supply behind the WL wire and the per-cell gate
-    capacitance, driven rail-to-rail while the read path hangs off the main rail."""
+    the `cablc` channel and every array-node capacitance."""
 
     # === Per-op dynamic constants ===
 
@@ -213,7 +209,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Dedicated CABLC reference source holding the degenerate one-mode single-tap bank
     whose sole tap is the BL clamp reference, read per solve at the array's full call
     shape; the per-cell `V_BL` droops below it by the wire IR drop the solver computes.
-    The tap must be in `[0, v_dd__V]`."""
+    The tap must be in `[0, vdd__V]`."""
     sl_driver_config: VoltageDriverConfig
     """The array's SL clamp, an ideal source. The SL is a direct ground tie, so its
     reference is a plain 0 V tensor rather than a reference source."""
@@ -312,16 +308,15 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_ge(self.t_cycle__ns, "t_cycle__ns", self.conduction_span__ns)
         self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
 
-        self._require_non_neg(self.v_dd__V, "v_dd__V")
-        self._require_non_neg(self.v_dd_wl__V, "v_dd_wl__V")
+        self._require_non_neg(self.vdd__V, "vdd__V")
         # The CABLC consumes exactly one reference tap and holds it across every
         # mode, so its dedicated source is the degenerate single-row single-tap
         # bank. The clamp reference is a BL node between the SL ground and the
-        # V_DD supply, so it must not exceed the rail.
+        # VDD supply, so it must not exceed the rail.
         self._require_len(self.cablc_vref_config.v_refs__V, "cablc_vref_config.v_refs__V", 1)
         self._require_len(self.cablc_vref_config.v_refs__V[0], "cablc_vref_config.v_refs__V[0]", 1)
         v_bl_clamp__V = self.cablc_vref_config.v_refs__V[0][0]
-        self._require_le(v_bl_clamp__V, "cablc_vref_config.v_refs__V[0][0]", self.v_dd__V)
+        self._require_le(v_bl_clamp__V, "cablc_vref_config.v_refs__V[0][0]", self.vdd__V)
 
         # --- TMCSA phase windows against the ADC step timing ---
 
@@ -498,7 +493,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # the cells are wired, so the array holds every physical column and
         # settles all of them in one solve per WL plane. The word line carries
         # the held input and the bit-line boundary is what the MUX scans, hence
-        # WL_IN_BL_SCAN; the two rails are declared here, once, and cascade into
+        # WL_IN_BL_SCAN; the core supply is declared here, once, and cascades into
         # the array's capacitive billing.
         self.array = XbarArray1t1r(
             config=config.array_config,
@@ -507,8 +502,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             row_num=self.row_num,
             col_num=phys_col_num,
             scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
-            v_dd_wl__V=config.v_dd_wl__V,
-            v_dd_bl__V=config.v_dd__V,
+            vdd__V=config.vdd__V,
             dtype=dtype,
             T__K=T__K,
         )
@@ -566,20 +560,20 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             policy=policy.dswct_policy,
             inst_shape=(*self.inst_shape, gn, _POLARITY_NUM),
             digit_ratios=torch.tensor(config.digit_ratios, dtype=dtype),
-            v_dd__V=config.v_dd__V,
+            vdd__V=config.vdd__V,
         )
         self.sinwp_sc = SinwpSc(
             config=config.sinwp_sc_config,
             policy=policy.sinwp_sc_policy,
             inst_shape=(*self.inst_shape, gn, _POLARITY_NUM),
             bit_ratios=torch.tensor(config.x_bit_ratios, dtype=dtype),
-            v_dd__V=config.v_dd__V,
+            vdd__V=config.vdd__V,
         )
         self.pn_isub = PnIsub(
             config=config.pn_isub_config,
             policy=policy.pn_isub_policy,
             inst_shape=(*self.inst_shape, gn),
-            v_dd__V=config.v_dd__V,
+            vdd__V=config.vdd__V,
         )
 
         # --- Kernel SAR current ADC (value only), one per IO; no ladder ---
@@ -600,7 +594,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             config=config.tmcsa_config,
             policy=policy.tmcsa_policy,
             inst_shape=(*self.inst_shape, gn),
-            v_dd__V=config.v_dd__V,
+            vdd__V=config.vdd__V,
             dtype=dtype,
         )
         # One threshold source per fabricated sub-array copy, shared across that
@@ -856,7 +850,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
         self._mode(quantization_mode)
         config = self.config
-        v_dd = config.v_dd__V
+        vdd__V = config.vdd__V
         gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
         x_long = x.long()  # dtype guard for >> and the bit-expand
 
@@ -965,7 +959,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # Shape: -> [..., *inst_shape, x_bits, gs, gn, polarity, wd]
         i_dl = _move_axis_block(i_bl_seat__uA, src=batch_num, dst=batch_num + inst_num, num=1)
 
-        # The whole input branch V_DD * I_DL is the macro's to bill, since the
+        # The whole input branch VDD * I_DL is the macro's to bill, since the
         # macro owns the per-bit conduction window; the array bills only its
         # capacitive cycling. Solving every column at once does NOT mean every
         # column conducts at once: a column conducts during its own slot, for
@@ -974,7 +968,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         record_dynamic_energy = self._is_dynamic_energy_profile_active()
         if record_dynamic_energy:
             # Shape: [..., x_bits, gs, gn, polarity, wd] -> [..., x_bits]
-            read_power = (v_dd * i_dl).sum(dim=(-4, -3, -2, -1))
+            read_power = (vdd__V * i_dl).sum(dim=(-4, -3, -2, -1))
             # Every slot shares one per-bit window here, so the slot axis folds
             # into the sum above and the bit axis folds here; what is left is x's
             # leading, whose last axes are this macro's instance axes, which the

@@ -64,8 +64,7 @@ def _build_array(*, device: torch.device) -> _Array:
         row_num=2,
         col_num=2,
         scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
-        v_dd_wl__V=1.0,
-        v_dd_bl__V=1.0,
+        vdd__V=1.0,
         dtype=torch.float64,
         T__K=300.0,
     )

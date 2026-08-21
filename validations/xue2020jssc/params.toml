@@ -79,16 +79,10 @@ t_settle__ns = 2.66               # [assumed] tail non-sensing settle window (T_
 # leakage_power * t_cycle. Must be >= the conduction span (14.6 ns).
 t_cycle__ns = 50.0
 
-# --- Supply rails (two variables, kept separate even when numerically close) ---
-# v_dd__V is the read rail: every channelled branch bills across it, and it is
-# also the BL driver rail behind the BL/SL wire and cell conduction-path caps.
-# v_dd_wl__V is the word-line driver rail behind the WL wire and the per-cell
-# gate cap. [assumed] The paper gives no WL supply; the WL DAC is a rail-to-rail
-# 1-bit driver, so its rail is taken as its own ON level (wl_dac_config
-# code_to_signal[1] = 0.9 V) -- the same assumption, stated once more here
-# because a rail may never be read out of another block's transfer table.
-v_dd__V = 1.0                     # [measured p209] 1.0 V supply rail (every channelled branch bills across it)
-v_dd_wl__V = 0.9                  # [assumed] WL driver rail = the assumed WL ON level
+# --- Core analog supply ---
+# Every channelled branch and array-node excursion draws from this supply. The
+# 0.9 V WL level is a node voltage, not an independent supply.
+vdd__V = 1.0                      # [measured p209] core supply
 
 # --- Transcribed per-op dynamic constant ---
 # [transcribed] Control per-ACCESS dynamic energy. Control (address decode, CMD
@@ -126,7 +120,7 @@ max_bits_rescale_factor = 1.0
 # Each WL sub-phase is one DC solve at the position-dependent wire IR drop,
 # returning the per-column BL port current I_DL. The array is a REPORTER: it bills
 # ONLY its wire / cell capacitive cycling on its own module row; the macro bills
-# the whole input branch V_DD*I_DL on the cablc channel (the array caps row + that
+# the whole input branch VDD*I_DL on the cablc channel (the array caps row + that
 # channel fold into the cablc+dswct pair slice).
 [cim_macro.array_config]
 
@@ -236,7 +230,7 @@ leakage_per_inst__uW = 0.0
 # Column-MUX time-shared: fabricated at inst_shape (n_io, 2, 2) = 16 devices per
 # sub-array (4 per CIM-IO: polarity x MSB/LSB). Ideal source (r_out = 0): the wire IR
 # drop lives in the ARRAY, not the clamp. The whole input-branch conduction
-# V_DD*I_DL is billed by the macro cablc channel, so energy_per_op MUST be 0
+# VDD*I_DL is billed by the macro cablc channel, so energy_per_op MUST be 0
 # (the CMD precharge is under the control channel).
 r_out__MOhm = 0.0
 offset_sigma__V = 0.0
@@ -386,7 +380,7 @@ leakage_per_inst__uW = 0.0
 # ===========================================================================
 # DSWCT -- digit-weighted current-mirror bank module (one bank per (IO, polarity))
 # ===========================================================================
-# Self-bills its rail conduction V_DD * |I_WDL| * window on its own module row;
+# Self-bills its rail conduction VDD * |I_WDL| * window on its own module row;
 # the digit ratios derive from dswct_ratio_msb above.
 [cim_macro.dswct_config]
 area_per_inst__um2 = 0.0
@@ -408,7 +402,7 @@ c_load__fF = 0.0
 # (n_w 32 x n_x 256 x 4 rounds, seed 0) under the sinwp_sc+pn_isub pair caliber.
 # The pair-2 residual 0.2300 pJ/access (11.4 % share minus the leg + 3-branch
 # conduction, the kept 5 fJ comparator per-op staying inside the measured PN-ISUB
-# row) seats the cap term: 16 c_hold*v_dd^2 events per access (x_bits x IO x polarity)
+# row) seats the cap term: 16 c_hold*vdd^2 events per access (x_bits x IO x polarity)
 # -> c_hold = 14.3768 fF. Plausible at 55 nm: inside the 10-100 fF S/H band;
 # kT/C ~ 0.54 mV rms at 300 K.
 c_hold__fF = 14.3768

@@ -11,10 +11,9 @@ field — never assumed zero in code; the DC solver needs `R > 0`). The word lin
 is gate-only: it carries no DC current, so it has capacitance fields but no
 resistance. The wire R is
 tiny relative to the cell branch, so the array's IR drop is a fraction of a
-percent and the per-cell current is `I = g_chord * V_BLC`. The WL
-driver rail `v_dd_wl__V` is deliberately distinct from the read rail
-`v_dd__V` so a swapped rail shows up in the array's capacitive billing. Under
-this chain the ADC input current `I_SUB` is monotone in the signed integer MAC,
+percent and the per-cell current is `I = g_chord * V_BLC`. Every array node and
+read branch draws from the shared core supply `vdd__V`. Under this chain the ADC
+input current `I_SUB` is monotone in the signed integer MAC,
 so a mid-point ladder probed from the macro's own transfer decodes any MAC
 bit-exactly.
 
@@ -226,10 +225,7 @@ def build_config(
         t_sample__ns=t_sample__ns,
         t_settle__ns=t_settle__ns,
         t_cycle__ns=t_cycle__ns,
-        v_dd__V=1.0,
-        # Deliberately distinct from v_dd__V: the WL rail and the read rail are
-        # separate variables, so a swapped rail moves the array's cap energy.
-        v_dd_wl__V=0.9,
+        vdd__V=1.0,
         e_control_per_op__fJ=5.0,
         control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
         dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0, c_load__fF=0.0),

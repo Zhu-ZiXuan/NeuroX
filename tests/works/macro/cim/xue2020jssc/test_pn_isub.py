@@ -9,7 +9,7 @@ Hand-built tiny witness, eager, CPU. Three laws:
     `|I_P - I_N|` and sign `I_N > I_P` (a tie is non-negative) —
     and is billing-independent (identical with and without a profiler).
   * BILLING LAW: one un-channelled dynamic event per forward whose total is
-    `sum(V_DD * window * (I_P + I_N + I_SUB)) + e_per_op * entry_count`
+    `sum(VDD * window * (I_P + I_N + I_SUB)) + e_per_op * entry_count`
     — the three rail branches over the injected window plus the comparator
     decision constant once per (slot, IO) entry.
 """
@@ -29,7 +29,7 @@ _OUTPUT_NUM = 4
 _MUX_FACTOR = 2  # serial slot count; gn = output_num // mux_factor = 2
 
 # --- Witness physics knobs (small explicit values, no code defaults) ---
-_V_DD__V = 0.9
+_VDD__V = 0.9
 _WINDOW__ns = 3.5
 _E_PER_OP__fJ = 1.25
 _AREA_PER_INST__um2 = 2.0
@@ -49,7 +49,7 @@ def _build(*, gn: int) -> PnIsub:
         config=_config(),
         policy=PnIsubPolicy(),
         inst_shape=(gn,),
-        v_dd__V=_V_DD__V,
+        vdd__V=_VDD__V,
     )
     module.eval()
     module.fabricate()
@@ -112,7 +112,7 @@ def test_forward_equals_inline_subtraction() -> None:
 
 
 def test_dynamic_energy_equals_rail_branches_plus_per_op() -> None:
-    """E = sum(V_DD * window * (I_P + I_N + I_SUB)) + e_per_op per (slot, IO) entry."""
+    """E = sum(VDD * window * (I_P + I_N + I_SUB)) + e_per_op per (slot, IO) entry."""
     gn = _OUTPUT_NUM // _MUX_FACTOR
     module = _build(gn=gn)
     i_p, i_n = _lane_currents(gn)
@@ -121,7 +121,7 @@ def test_dynamic_energy_equals_rail_branches_plus_per_op() -> None:
         module(i_p, i_n, window__ns=_WINDOW__ns)
 
     i_sub_abs = (i_p - i_n).abs()
-    conduction__fJ = float((_V_DD__V * _WINDOW__ns * (i_p + i_n + i_sub_abs)).sum())
+    conduction__fJ = float((_VDD__V * _WINDOW__ns * (i_p + i_n + i_sub_abs)).sum())
     entry_count = i_p.numel()  # once per output-code sign decision: per (slot, IO) entry
     expected__fJ = conduction__fJ + _E_PER_OP__fJ * entry_count
 

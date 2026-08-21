@@ -147,16 +147,10 @@ At the declared p_zero = 0.3530: total = 32.061 pJ/access = 1.000x (err +0.0%), 
 ## Values to write back into params.toml (print only; nothing is mutated)
 
 - `reference_config.i_refs__uA = [[0.808528, 2.425583, 4.042638, 5.652523, 7.255236, 8.857949, 10.451908]]`  # stage 1, calibrated ladder
-- `array_config.bl_first_c__fF = 0.1391216`  # stage 2, cap scale x0.69561
-- `array_config.bl_segment_c__fF = 0.0055648638`  # stage 2, cap scale x0.69561
-- `array_config.sl_first_c__fF = 0.1391216`  # stage 2, cap scale x0.69561
-- `array_config.sl_segment_c__fF = 0.0055648638`  # stage 2, cap scale x0.69561
-- `array_config.wl_first_c__fF = 0.1391216`  # stage 2, cap scale x0.69561
-- `array_config.wl_segment_c__fF = 0.0055648638`  # stage 2, cap scale x0.69561
-- `array_config.cell_config.c_bl__fF = 0.1391216`  # stage 2, cap scale x0.69561
-- `array_config.cell_config.c_x__fF = 0.20868239`  # stage 2, cap scale x0.69561
-- `array_config.cell_config.c_sl__fF = 0.069560798`  # stage 2, cap scale x0.69561
-- `array_config.cell_config.c_wl__fF = 0.1391216`  # stage 2, cap scale x0.69561
+- `array_config.bl_node_c__fF = 0.1446864638`  # stage 2, cap scale x0.69561
+- `array_config.x_node_c__fF = 0.20868239`  # stage 2, cap scale x0.69561
+- `array_config.sl_node_c__fF = 0.0751256618`  # stage 2, cap scale x0.69561
+- `array_config.wl_node_c__fF = 0.1446864638`  # stage 2, cap scale x0.69561
 - `sinwp_sc_config.c_hold__fF = 14.3768`  # stage 2, pair-2 residual over 16 events/access
 - `tmcsa_config.t_ph2_per_step__ns = [0.878232, 0.853219, 0.864336]`  # stage 3, as-drawn x1.54401
 - `tmcsa_config.t_ph3_per_step__ns = [1.463719, 1.422031, 1.440559]`  # stage 3, as-drawn x1.54401
@@ -166,4 +160,3 @@ At the declared p_zero = 0.3530: total = 32.061 pJ/access = 1.000x (err +0.0%), 
 - `reference_config.leakage_per_inst__uW = 151.97625`  # stage 3, adopted (reference 100 % static)
 
 Read-path physical declarations (g_map, V_BL_CLAMP, wire R, conduction windows) are left as declared, the read-path static seats stay declared small/zero, and `anchors.toml` is not a write-back target of this campaign: the p_zero lock above is reported against its declared value, never written.
-

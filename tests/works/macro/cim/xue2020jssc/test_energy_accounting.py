@@ -20,16 +20,13 @@ Coverage:
     unchanged, while doubling a conduction window (`t_settle`) scales the read
     rows and leaves the window-invariant control channel untouched,
   * the input branch conduction is billed WHOLE by the macro on the `cablc`
-    channel (`V_DD * I_DL` over the per-bit window — the macro owns the
+    channel (`VDD * I_DL` over the per-bit window — the macro owns the
     conduction window), while the array module row bills ONLY its wire / node
     capacitive cycling: the channel matches the reconstructed whole branch
     exactly, the array row is strictly positive yet window-invariant (the cap
     oracle), and array + channel cover the whole branch plus the caps with no
     double-bill,
-  * the array's capacitive row rides BOTH declared supply rails independently
-    (`v_dd_wl__V` behind the WL wire / gate caps, `v_dd__V` behind the
-    BL / SL wire and cell conduction-path nodes), so neither collapses into the
-    other,
+  * the array's capacitive row rides the shared core supply `vdd__V`,
   * the control channel fires once per access (`mux_factor` mux steps x batch),
   * each read row is LINEAR in every window knob (`t_sample[k]`,
     `t_settle`), the SC held-leg SUFFIX-SUM law (window
@@ -188,7 +185,7 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     (deterministic under all-off + eval), and returns the whole input branch the
     macro bills on the `cablc` channel::
 
-        whole = sum_k  V_DD * I_DL * window_array[k]
+        whole = sum_k  VDD * I_DL * window_array[k]
 
     where `I_DL` is the per-column BL port current the solver returns and the
     conduction window `t` is the macro's, applied here post-solve. The array
@@ -200,7 +197,7 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     fabrication prefix would mis-seat.
     """
     cfg = macro.config
-    v_dd = cfg.v_dd__V
+    vdd__V = cfg.vdd__V
     x_long = x.long()
     window = cfg.window_array__ns
 
@@ -229,7 +226,7 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
             ),
         )
         # Shape: [..., phys_col] -> []
-        step_energy = ((v_dd * steady.i_bl_port__uA).sum(dim=-1) * window[k]).sum()
+        step_energy = ((vdd__V * steady.i_bl_port__uA).sum(dim=-1) * window[k]).sum()
         whole += float(step_energy)
     return whole
 
@@ -334,11 +331,11 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
 def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.device) -> None:
     """The macro bills the whole input branch on `.cablc`; the array bills caps only.
 
-    The `.cablc` channel bills the whole input branch `V_DD * I_DL` over the
+    The `.cablc` channel bills the whole input branch `VDD * I_DL` over the
     per-bit conduction window (the macro owns the window); the array module row
     bills ONLY its wire / node capacitive cycling — no conduction. Reconciled
     against a re-solve: `.cablc` matches the reconstructed WHOLE branch EXACTLY
-    (a clamp-side-only `(V_DD - V_BL)` bill would fall strictly below it), the
+    (a clamp-side-only `(VDD - V_BL)` bill would fall strictly below it), the
     array row is strictly positive (caps) yet window-INVARIANT — the cap oracle: a
     conduction term would move it with the window and double-count the branch — and
     `array + cablc` covers the whole branch plus the caps with no double-bill.
@@ -365,8 +362,8 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
     # The witness must actually draw BL current at V_BLC > 0, else the whole branch
     # is zero and the collapse cannot be distinguished.
     assert whole > 0.0, f"witness draws no branch current: whole={whole}"
-    # cablc bills the WHOLE input branch (V_DD * I_DL), matching the re-solve — NOT
-    # the clamp-side (V_DD - V_BL) fraction alone.
+    # cablc bills the WHOLE input branch (VDD * I_DL), matching the re-solve — NOT
+    # the clamp-side (VDD - V_BL) fraction alone.
     assert cablc == pytest.approx(whole), f"cablc {cablc} != reconstructed whole branch {whole}"
     # The array self-bills its capacitive cycling only (strictly positive, no conduction).
     assert array > 0.0, f"array row {array} must bill its capacitive cycling"
@@ -386,19 +383,12 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
 
 
 # ---------------------------------------------------------------------------
-# Two rails: the WL rail and the read rail are separate variables
+# Shared core supply
 # ---------------------------------------------------------------------------
 
 
-def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None:
-    """The array cap row moves with EACH rail on its own — neither stands in for the other.
-
-    The capacitive law is a supply draw `V_rail * C * |dv|`, and the two
-    supplies are distinct domains: `v_dd_wl__V` is behind the WL wire ladder
-    and the per-cell gate cap, `v_dd__V` behind the BL / SL wire and the cell's
-    conduction-path nodes. Raising either alone must raise the array row; a
-    single collapsed rail would make one of the two moves inert.
-    """
+def test_array_cap_row_rides_the_shared_core_supply(device: torch.device) -> None:
+    """Every array-node capacitance is billed against the shared `vdd__V`."""
     base = build_config()
     w, x = _w_full(), _x_full(2)
 
@@ -407,11 +397,9 @@ def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None
         return reporter.by_name(prof)["array"]
 
     e_base = array_row(base)
-    e_wl = array_row(dataclasses.replace(base, v_dd_wl__V=2.0 * base.v_dd_wl__V))
-    e_bl = array_row(dataclasses.replace(base, v_dd__V=2.0 * base.v_dd__V))
+    raised = array_row(dataclasses.replace(base, vdd__V=2.0 * base.vdd__V))
     assert e_base > 0.0
-    assert e_wl > e_base, "the array row must ride the WL driver rail (WL wire + gate caps)"
-    assert e_bl > e_base, "the array row must ride the read rail (BL / SL wire + cell nodes)"
+    assert raised == pytest.approx(2.0 * e_base)
 
 
 # ---------------------------------------------------------------------------

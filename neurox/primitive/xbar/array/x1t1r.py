@@ -54,16 +54,13 @@ class XbarArray1t1rConfig(ConfigBase):
     sl_segment_r__MOhm: float
 
     bl_node_c__fF: float
-    """Total node-to-ground capacitance at each cell's BL node: the cell
-    junction plus that node's share of the bit line."""
+    """Total capacitance to ground seen at each cell's BL node."""
     x_node_c__fF: float
-    """Total node-to-ground capacitance at each cell's internal access node X."""
+    """Total capacitance to ground seen at each cell's internal access node X."""
     sl_node_c__fF: float
-    """Total node-to-ground capacitance at each cell's SL node: the cell
-    junction plus that node's share of the source line."""
+    """Total capacitance to ground seen at each cell's SL node."""
     wl_node_c__fF: float
-    """Total node-to-ground capacitance at each cell's WL node: the
-    access-device gate load plus that node's share of the word line."""
+    """Total capacitance to ground seen at each cell's WL node."""
 
     cell_config: XbarCell1t1rConfig
     """Its concrete subclass selects the cell model."""
@@ -147,10 +144,7 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
 
     Args:
         scan_mode: Scan mode the capacitive billing follows.
-        v_dd_wl__V: Word-line driver rail — the supply behind the WL node
-            capacitance.
-        v_dd_bl__V: Bit-line driver rail — the supply behind the BL, access
-            and SL node capacitance.
+        vdd__V: Core analog supply behind every array-node capacitance.
     """
 
     def __init__(
@@ -162,8 +156,7 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         row_num: int,
         col_num: int,
         scan_mode: XbarArray1t1rScanMode,
-        v_dd_wl__V: float,
-        v_dd_bl__V: float,
+        vdd__V: float,
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
@@ -171,8 +164,7 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         self._row_num = row_num
         self._col_num = col_num
         self._scan_mode = scan_mode
-        self._v_dd_wl__V = v_dd_wl__V
-        self._v_dd_bl__V = v_dd_bl__V
+        self._vdd__V = vdd__V
 
         self._init_children(dtype=dtype, T__K=T__K)
 
@@ -374,14 +366,13 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         """
         config = self.config
 
-        # The conduction-path nodes ride the BL driver's rail and the gate
-        # rides the word-line driver's.
+        # Every node draws charge from the core analog supply.
         # Shape: [..., col_num, row_num] -> [...]
         return (
-            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, solver_dcop.v_bl_node__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, solver_dcop.cell.v_x__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, solver_dcop.v_sl_node__V)
-            + e_cap_excursion__fJ(self._v_dd_wl__V, config.wl_node_c__fF, cell_snap.v_wl__V)
+            e_cap_excursion__fJ(self._vdd__V, config.bl_node_c__fF, solver_dcop.v_bl_node__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.x_node_c__fF, solver_dcop.cell.v_x__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.sl_node_c__fF, solver_dcop.v_sl_node__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.wl_node_c__fF, cell_snap.v_wl__V)
         ).sum(dim=(-2, -1))
 
     def _energy_bl_in_wl_scan__fJ(
@@ -423,10 +414,10 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
 
         # Shape: [..., col_num, row_num] -> [...]
         e_node__fJ = (
-            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, v_bl__V - v_bl_rest__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, solver_dcop.cell.v_x__V - v_bl_rest__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, v_sl__V - v_sl_rest__V)
-            + e_cap_excursion__fJ(self._v_dd_wl__V, config.wl_node_c__fF, cell_snap.v_wl__V)
+            e_cap_excursion__fJ(self._vdd__V, config.bl_node_c__fF, v_bl__V - v_bl_rest__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.x_node_c__fF, solver_dcop.cell.v_x__V - v_bl_rest__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.sl_node_c__fF, v_sl__V - v_sl_rest__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.wl_node_c__fF, cell_snap.v_wl__V)
         ).sum(dim=(-2, -1))
 
         # --- 2: bill establishing the rest state, amortized over its scan ---
@@ -441,9 +432,9 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         v_sl_rest_cell__V = v_sl_rest__V.expand_as(v_sl__V)
         # Shape: [..., col_num, row_num] -> [...]
         e_rest__fJ = (
-            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, v_bl_rest_cell__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, v_bl_rest_cell__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, v_sl_rest_cell__V)
+            e_cap_excursion__fJ(self._vdd__V, config.bl_node_c__fF, v_bl_rest_cell__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.x_node_c__fF, v_bl_rest_cell__V)
+            + e_cap_excursion__fJ(self._vdd__V, config.sl_node_c__fF, v_sl_rest_cell__V)
         ).sum(dim=(-2, -1))
 
         return e_node__fJ + e_rest__fJ / self._row_num

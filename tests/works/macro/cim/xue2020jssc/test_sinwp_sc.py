@@ -6,12 +6,12 @@ Hand-built tiny witness, eager, CPU. Three laws:
     magic numbers) and `forward` reduces exactly the bit axis.
   * VALUE LAW: `forward` equals the inline LSB-first ratio-weighted bit sum.
   * LEG-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
-    the materialized-leg formula — `v_dd * sum_k (sum_lanes s_k * i[k]) *
+    the materialized-leg formula — `vdd * sum_k (sum_lanes s_k * i[k]) *
     window[k]` with the per-leg currents `i_leg[k] = bit_ratios[k] * i[k]`
     (the mirror legs carry the `s_k`-scaled copies, NOT the raw interface
     current — non-unity ratios make an interface-current bill fail) and the
     SIGNED per-leg sum (a mixed-sign witness pins the no-`|I|` semantics) —
-    plus the `c_hold * v_dd**2` per-(slot x bit) per-instance cap event. The
+    plus the `c_hold * vdd**2` per-(slot x bit) per-instance cap event. The
     value output is the sum of the SAME legs the billing consumed.
 """
 
@@ -30,7 +30,7 @@ _GN = 3
 _POLARITY_NUM = 2
 _SERIAL = 2
 _X_BITS = 2
-_V_DD__V = 1.0
+_VDD__V = 1.0
 _C_HOLD__fF = 0.7
 # LSB-first input-radix combine ratios (paper law s_k = msb * 2**(k - (K-1))).
 _BIT_RATIOS = (0.25, 0.5)
@@ -47,7 +47,7 @@ def _build_sinwp_sc(*, c_hold__fF: float = _C_HOLD__fF) -> SinwpSc:
         policy=SinwpScPolicy(),
         inst_shape=(_GN, _POLARITY_NUM),
         bit_ratios=torch.tensor(_BIT_RATIOS, dtype=_DTYPE),
-        v_dd__V=_V_DD__V,
+        vdd__V=_VDD__V,
     )
     module.fabricate()
     stamp_names(module)  # the standalone module is its own root, named ""
@@ -86,7 +86,7 @@ def test_leg_billing_law() -> None:
     """Recorded energy == materialized-leg formula (signed leg sum) + cap events.
 
     The bit ratios are non-unity (0.25, 0.5), so a bill of the raw interface
-    currents (the pre-fix bug: `v_dd * sum_lanes(i[k]) * window[k]`) differs
+    currents (the pre-fix bug: `vdd * sum_lanes(i[k]) * window[k]`) differs
     from the leg bill by more than the tolerance — the witness discriminates
     the two placements of the scaling.
     """
@@ -107,16 +107,16 @@ def test_leg_billing_law() -> None:
     # Shape: [1, x_bits, serial, gn, 2] -> [1, x_bits]
     i_leg_per_bit = i_leg.sum(dim=(-3, -2, -1))
     # Shape: [1, x_bits] -> []
-    e_conduction__fJ = (_V_DD__V * (i_leg_per_bit * window).sum(dim=-1)).sum()
+    e_conduction__fJ = (_VDD__V * (i_leg_per_bit * window).sum(dim=-1)).sum()
     e_conduction = float(e_conduction__fJ)
-    e_cap = _C_HOLD__fF * _V_DD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
+    e_cap = _C_HOLD__fF * _VDD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
     assert Reporter(module).total_dynamic_energy__fJ(prof) == pytest.approx(e_conduction + e_cap)
 
     # The interface-current bill (the pre-fix scaling placement) is a
     # DIFFERENT number on this witness — the law discriminates.
     i_iface_per_bit = i__uA.sum(dim=(-3, -2, -1))
     # Shape: [1, x_bits] -> []
-    e_iface__fJ = (_V_DD__V * (i_iface_per_bit * window).sum(dim=-1)).sum()
+    e_iface__fJ = (_VDD__V * (i_iface_per_bit * window).sum(dim=-1)).sum()
     e_iface = float(e_iface__fJ)
     assert e_iface != pytest.approx(e_conduction)
 

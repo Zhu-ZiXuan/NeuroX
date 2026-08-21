@@ -37,7 +37,7 @@ against 14.9 + 11.5 = 26.4 % and ``sinwp_sc+pn_isub`` against 8.0 + 3.4 =
 rows stay visible (informational, no per-member target).
 
 The array module row bills only its wire / cell capacitive cycling, and the macro
-``cablc`` channel bills the whole input branch ``V_DD * I_DL``; the ``cablc``
+``cablc`` channel bills the whole input branch ``VDD * I_DL``; the ``cablc``
 slice SUMS the two.
 
 ROUND-based workload: ``--repeat`` rounds, each redrawing ``--n-w`` weight programs
@@ -113,7 +113,7 @@ _PAIR_MEMBERS = tuple(name for members in _PAIRED_SLICES.values() for name in me
 # Profiler energy-row keys per Fig.18 slice (dynamic side). A slice may pool
 # several rows. The ``cablc`` slice pools the ``array`` module energy row (the array
 # bills only its wire / cell capacitive cycling) PLUS the macro ``.cablc`` channel
-# (the whole input branch ``V_DD * I_DL``). The DSWCT / SINWP-SC / PN-ISUB
+# (the whole input branch ``VDD * I_DL``). The DSWCT / SINWP-SC / PN-ISUB
 # modules self-bill on their own module rows; ``reference`` has no dynamic row
 # (100 % static); ``tmcsa`` is the scheme phase-billing MODULE row (the kernel
 # ``adc`` is energy-silent). ``control`` is the one remaining macro channel

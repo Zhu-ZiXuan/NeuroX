@@ -74,9 +74,7 @@ V_WL_SEL__V = 0.6
 V_WL_ON_THRESHOLD__V = 0.3
 V_BL_IN1__V = 0.3
 V_SL__V = 0.0
-V_DD_CORE__V = 0.8
-V_DD_BL__V = 0.8  # BL driver rail — the array's conduction-path cap supply
-V_DD_WL__V = V_WL_SEL__V  # WL driver rail — a 1-bit driver's rail IS its ON level
+VDD__V = 0.8
 V_TBL__V = 0.1
 
 # --- RS-CSA timing / energy (witness values, NOT the paper's) ---
@@ -86,11 +84,12 @@ T_AC__ns = sum(T_PHASE__ns[:-1]) + T_INTRINSIC__ns[-1]  # the derived window at 
 MIRROR_SCALE = 0.25
 E_FIXED__fJ = 2.0
 
-# --- Per-node capacitances [fF] (cell junction + that node's line share) ---
+# --- Total capacitance to ground seen at each node [fF] ---
 BL_NODE_C__fF = 0.3
 X_NODE_C__fF = 0.3
 SL_NODE_C__fF = 0.2
 WL_NODE_C__fF = 0.3
+TBL_NODE_C__fF = 0.4
 
 # --- Converter per-code drive energies [fJ], indexed by code (deliberately
 # unequal, and nonzero at code 0: a deselected line is still driven) ---
@@ -134,6 +133,7 @@ def array_config() -> Ye2023Jssc2t1rArrayConfig:
         x_node_c__fF=X_NODE_C__fF,
         sl_node_c__fF=SL_NODE_C__fF,
         wl_node_c__fF=WL_NODE_C__fF,
+        tbl_node_c__fF=TBL_NODE_C__fF,
         cell_config=cell_config(),
         solver_config=ColBlColSlSolverConfig(n_outer=3, n_inner=3),
         weight_radix=TINY_WEIGHT_RADIX,
@@ -167,7 +167,7 @@ def adc_config(*, adc_bits: int = TINY_ADC_BITS) -> RsCsaIadcConfig:
     """RS-CSA witness: binary compare-phase weights + physical phase set."""
     return RsCsaIadcConfig(
         bits=adc_bits,
-        v_rail__V=V_DD_CORE__V,
+        v_rail__V=VDD__V,
         t_phase__ns=T_PHASE__ns,
         t_intrinsic__ns=T_INTRINSIC__ns,
         mirror_scale=MIRROR_SCALE,
@@ -230,9 +230,7 @@ def build_config(
         i_ph0_comp__uA=expected_ph0__uA(input_num=max_active_num),
         v_tbl__V=V_TBL__V,
         v_sl__V=V_SL__V,
-        v_dd_core__V=V_DD_CORE__V,
-        v_dd_bl__V=V_DD_BL__V,
-        v_dd_wl__V=V_DD_WL__V,
+        vdd__V=VDD__V,
         e_mux_driver_per_op__fJ=E_MUX_DRIVER__fJ,
         e_timing_ctrl_per_op__fJ=E_TIMING_CTRL__fJ,
         # One code carries one MAC unit, so the window holds the 2**adc_bits

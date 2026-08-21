@@ -16,8 +16,8 @@ Coverage:
     channels are the macro root's own events; no `cell` self-bill row leaks
     through), and they ADD UP to the report's total dynamic energy,
   * branch ownership: both conduction channels reconcile EXACTLY against an
-    independent re-solve oracle over ONE window — `.bl_cond == V_DD_bl *
-    sum(I_BL_port) * T_AC` and `.dl_cond == V_DD_core * sum(I_TBL_raw) * T_AC`
+    independent re-solve oracle over ONE window — `.bl_cond == VDD_bl *
+    sum(I_BL_port) * T_AC` and `.dl_cond == VDD_core * sum(I_TBL_raw) * T_AC`
     with the RAW row current (leakage floor included, before PH0),
   * the window is derived and shared: stretching the RS-CSA phase set stretches
     both conduction channels by the same factor and leaves every capacitive row
@@ -39,7 +39,7 @@ Coverage:
   * the all-off floor: with zero input the DL branch bills exactly the derived
     PH0 current on every output, the BL conduction vanishes, the BL converter
     still bills its code-0 entry per column, and the array collapses to its
-    closed-form WL-only value,
+    closed-form scanned-WL-plus-TBL value,
   * the RS-CSA is E_fixed-dominant: when `e_fixed` dwarfs the per-code SAR
     energy the per-conversion energy is code-independent to within a few percent,
   * latency is `T_AC` over the macro's own output axis, invariant to a caller
@@ -187,8 +187,8 @@ def _conduction_oracle(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[float, flo
     branch is billed on the rail its charge leaves, never on the node level it
     feeds::
 
-        bl_cond = V_DD_bl   * sum(I_BL_port) * T_AC
-        dl_cond = V_DD_core * sum(I_TBL_raw) * T_AC
+        bl_cond = VDD * sum(I_BL_port) * T_AC
+        dl_cond = VDD * sum(I_TBL_raw) * T_AC
     """
     cfg = macro.config
     v_wl, bl_v_ref, _x_tiled = _drive(macro, x)
@@ -203,8 +203,8 @@ def _conduction_oracle(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[float, flo
         sl_driver_snap=macro.sl_driver.snapshot(v_ref__V=v_sl__V.expand(event_shape), shape=event_shape),
     )
     t_ac__ns = float(macro.t_ac__ns)
-    bl_cond = float((cfg.v_dd_bl__V * steady.i_bl_port__uA).sum() * t_ac__ns)
-    dl_cond = float((cfg.v_dd_core__V * steady.i_tbl__uA).sum() * t_ac__ns)
+    bl_cond = float((cfg.vdd__V * steady.i_bl_port__uA).sum() * t_ac__ns)
+    dl_cond = float((cfg.vdd__V * steady.i_tbl__uA).sum() * t_ac__ns)
     return bl_cond, dl_cond
 
 
@@ -227,16 +227,19 @@ def _bl_dac_oracle__fJ(macro: Ye2023JsscCimMacro, x: Tensor) -> float:
     return high * E_BL_DAC_PER_CODE__fJ[1] + low * E_BL_DAC_PER_CODE__fJ[0]
 
 
-def _array_wl_only__fJ(macro: Ye2023JsscCimMacro) -> float:
-    """Closed-form array caps with every column input-low: the WL side alone.
+def _array_scan_caps__fJ(macro: Ye2023JsscCimMacro) -> float:
+    """Closed-form array caps with every column input-low: WL plus TBL.
 
     A zero-input access holds nothing, so both rails rest at and settle to 0 V
-    and the supply-draw law leaves each cell's WL node total (gate load plus that
-    node's line share), `V_DD_WL * C * |V_WL_sel|` per driven gate.
+    and only the paired WL and TBL excursions remain.
     """
     cfg = macro.config
     phys_col_num = macro.array.weight_grid_shape[-2]
-    per_access__fJ = phys_col_num * cfg.array_config.wl_node_c__fF * cfg.v_dd_wl__V * V_WL_SEL__V
+    per_access__fJ = (
+        cfg.vdd__V
+        * phys_col_num
+        * (cfg.array_config.wl_node_c__fF * V_WL_SEL__V + cfg.array_config.tbl_node_c__fF * cfg.v_tbl__V)
+    )
     return macro.col_num * per_access__fJ
 
 
@@ -462,7 +465,7 @@ def test_array_owns_every_node_capacitance(device: torch.device) -> None:
     def with_array(array_config: Ye2023Jssc2t1rArrayConfig) -> Ye2023JsscCimMacroConfig:
         return dataclasses.replace(base, array_config=array_config)
 
-    for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
+    for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF", "tbl_node_c__fF"):
         heavier = with_array(dataclasses.replace(base.array_config, **{field: 10.0}))
         _m, prof, rep = _run(heavier, w, x, device=device)
         by_name = rep.by_name(prof)
@@ -507,7 +510,7 @@ def test_zero_input_bills_only_the_leakage_floor(device: torch.device) -> None:
     by_name = reporter.by_name(prof)
 
     t_ac__ns = float(macro.t_ac__ns)
-    expected_dl = macro.config.v_dd_core__V * expected_ph0__uA() * TINY_OUTPUT_NUM * t_ac__ns
+    expected_dl = macro.config.vdd__V * expected_ph0__uA() * TINY_OUTPUT_NUM * t_ac__ns
     assert by_name[".dl_cond"] == pytest.approx(expected_dl)
     assert macro.rscsa.i_ph0_comp__uA == pytest.approx(expected_ph0__uA())
     assert by_name.get(".bl_cond", 0.0) == 0.0
@@ -515,8 +518,8 @@ def test_zero_input_bills_only_the_leakage_floor(device: torch.device) -> None:
     # that code's own entry on every physical column.
     phys_col_num = macro.array.weight_grid_shape[-2]
     assert by_name[_BL_DAC] == pytest.approx(phys_col_num * E_BL_DAC_PER_CODE__fJ[0])
-    # The array collapses to its closed-form WL-only per-access value.
-    assert by_name[_ARRAY_CAPS] == pytest.approx(_array_wl_only__fJ(macro))
+    # The array collapses to its closed-form scanned-node value.
+    assert by_name[_ARRAY_CAPS] == pytest.approx(_array_scan_caps__fJ(macro))
 
 
 def test_conduction_grows_with_active_inputs(device: torch.device) -> None:
@@ -631,36 +634,20 @@ def test_static_leakage_reconciles_via_static_entries(device: torch.device) -> N
     assert reporter_b.static.leakage__uW == pytest.approx(total_leakage)
 
 
-def test_bl_conduction_rides_the_bl_driver_rail(device: torch.device) -> None:
-    """`.bl_cond` is billed across `v_dd_bl__V`, not the core rail.
-
-    A branch bill states which supply the charge leaves. The two rails are
-    separate variables even when numerically equal, so moving one must move its
-    own branch and nothing else's.
-    """
+def test_conduction_branches_share_the_core_supply(device: torch.device) -> None:
+    """The BL and TBL conduction branches are both billed across `vdd__V`."""
     base = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
     _m, p_base, rep_base = _run(base, w, x, device=device)
     base__fJ = rep_base.by_name(p_base)
 
-    # Raising the core rail leaves the BL branch untouched and scales DL. The
-    # readout mirror rides the same rail, so both move together.
-    hot_core = dataclasses.replace(
+    hot = dataclasses.replace(
         base,
-        v_dd_core__V=2.0 * base.v_dd_core__V,
+        vdd__V=2.0 * base.vdd__V,
         adc_config=dataclasses.replace(base.adc_config, v_rail__V=2.0 * base.adc_config.v_rail__V),
     )
-    _m, p_hot, rep_hot = _run(hot_core, w, x, device=device)
+    _m, p_hot, rep_hot = _run(hot, w, x, device=device)
     hot__fJ = rep_hot.by_name(p_hot)
-    assert hot__fJ[".bl_cond"] == pytest.approx(base__fJ[".bl_cond"])
+    assert hot__fJ[".bl_cond"] == pytest.approx(2.0 * base__fJ[".bl_cond"])
     assert hot__fJ[".dl_cond"] == pytest.approx(2.0 * base__fJ[".dl_cond"])
-
-    # Raising the BL driver rail scales the BL branch by that factor and leaves
-    # the DL branch alone. The BL node levels are the converter's, so the solved
-    # port current does not move with the rail.
-    hot_bl = dataclasses.replace(base, v_dd_bl__V=2.0 * base.v_dd_bl__V)
-    _m, p_bl, rep_bl = _run(hot_bl, w, x, device=device)
-    bl__fJ = rep_bl.by_name(p_bl)
-    assert bl__fJ[".bl_cond"] == pytest.approx(2.0 * base__fJ[".bl_cond"])
-    assert bl__fJ[".dl_cond"] == pytest.approx(base__fJ[".dl_cond"])

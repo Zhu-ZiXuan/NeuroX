@@ -14,13 +14,13 @@
 # ===========================================================================
 [target]
 # [measured p210] Measured total macro power at the headline operating point.
-total_macro__mW = 5.13            # 5.13 mW @ 20 MHz, 2b-in / 3b-w, V_DD = 1.0 V
+total_macro__mW = 5.13            # 5.13 mW @ 20 MHz, 2b-in / 3b-w, VDD = 1.0 V
 op_frequency__MHz = 20.0          # [measured p210] measurement clock (the ACCESS rate)
 # [derived] 1-Mb macro / one 256-row x 512-column sub-array (Fig.5(a), p206) = 8.
 sub_array_num = 8
 input_bits = 2                    # [measured p210] 2-b input
 weight_bits = 3                   # [measured p210] 3-b signed weight
-v_dd__V = 1.0                     # [measured p209]
+vdd__V = 1.0                      # [measured p209]
 # [derived] The one gated number: 5.13 mW / 8 sub-arrays / 20 MHz = 32.06 pJ
 # (= 32060 fJ) per access. One access = one column-MUX slot conversion set; a full
 # vec_mat_mul over all col_num logical columns is mux_factor serial accesses.

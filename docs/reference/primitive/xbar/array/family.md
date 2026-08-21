@@ -4,7 +4,7 @@ A crossbar pure array is a grid of [cell](../cell/family.md) sites bridged by re
 
 ## Physical model
 
-The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive ladders along the row axis, one link per seat-to-seat step; IR drop develops along those links. Capacitance is lumped per node rather than per link: each node of a seat carries one total, its own junction plus that node's share of the line it hangs on. The word line is the driven boundary, carries no DC conduction path, and enters the array as the input drive $V_{\mathrm{WL},k}$ at each seat's word-line node.
+The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive ladders along the row axis, one link per seat-to-seat step; IR drop develops along those links. Each circuit node carries its total capacitance to ground, including the device and interconnect parasitics seen there. The word line is the driven boundary, carries no DC conduction path, and enters the array as the input drive $V_{\mathrm{WL},k}$ at each seat's word-line node.
 
 Two boundary clamp drivers close the circuit at each column: the bit-line clamp holds $V_{\mathrm{BL,CL}}$ while absorbing the column's bit-line port current, and the source-line driver holds $V_{\mathrm{SL,CL}}$. Both are peer blocks — the array does not own their transfer characteristics or their reference taps, but receives them per solve and pins its boundary voltages to them.
 
@@ -24,7 +24,7 @@ TODO: once the device / analog Reference documents settle, state exactly which s
 
 ## Energy model
 
-Per access the array dissipates the capacitive energy of its nodes under the supply-draw law in [capacitive energy](../../physics.md). Every node of every cell site carries one grounded capacitance total — the site's junction at that node plus that node's share of the line it hangs on — and is billed at its own displacement, with no separate wire term. The conduction-path nodes use the bit-line boundary supply and the control node its own supply. Duration-dependent DC-conduction energy and boundary-block energy are outside the array model. Array static PPA includes the cell-grid silicon area and leakage.
+Per access the array dissipates the capacitive energy of its nodes under the supply-draw law in [capacitive energy](../../physics.md). Every node is billed at its own displacement and total capacitance to ground against the shared core analog supply. Duration-dependent DC-conduction energy and boundary-block energy are outside the array model. Array static PPA includes the cell-grid silicon area and leakage.
 
 ## Parameters
 
@@ -35,7 +35,7 @@ The array parameters are the repeated cell seat — its layout pitch, rail link 
 | cell sub-module config | cell devices, sizing, state map, per-cell Newton count | — | — | see [cell](../cell/family.md) |
 | cell-seat pitch | layout spacing between adjacent cell seats along each axis | um | $> 0$ | Extracted |
 | bit-line / source-line link resistance | seat-to-seat rail interconnect | MOhm | $> 0$ | Extracted |
-| per-node capacitance total | node-to-ground total at each node of a seat, the junction plus that node's share of its line | fF | $\ge 0$ | Extracted |
+| per-node capacitance total | total capacitance to ground seen at each node of a seat | fF | $\ge 0$ | Extracted |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../api/README.md).
@@ -57,7 +57,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 ## Assumptions, scope & validity
 
 - Each array uses one topology-compatible cell family; within the BL/SL equations, every site contributes one condensed two-terminal branch and no internal cell node.
-- Each column's BL/SL rails are lumped per-link resistive ladders along the row axis, not distributed lines, and every line capacitance is folded into the node it hangs on.
+- Each column's BL/SL rails are lumped per-link resistive ladders along the row axis, not distributed lines.
 - The word line is the driven boundary, carries no DC conduction path, and enters as the input drive at each seat's word-line node.
 - Boundary transfer functions are supplied to each solve rather than modeled as part of the array.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.

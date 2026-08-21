@@ -42,9 +42,9 @@ Where the conduction path holds the input across a scan, the rest level is that 
 
 The establishment is charged by amortization rather than to one access of the scan. One hold covers exactly one full scan, so its cost divided by the accesses of that scan is what each access carries, and a complete scan bills exactly one establishment — no more and no less than the waveform contains. A scheme whose hold spans a different number of accesses states its own divisor.
 
-## Modelling statements
+## Node capacitance
 
-- **A line belongs to the nodes it hangs on.** A stretch of interconnect carries no level of its own; its capacitance is folded into the totals of the nodes it connects, and each node is then billed once at the level that node reaches. A structure of repeated identical seats therefore states one capacitance total per node of a seat, and the ledger over those totals is the whole capacitive account — nothing sits beside it to be reconciled against.
+Each circuit node states the total capacitance to ground seen at that node, including its device and interconnect parasitics. The node is billed once at its own voltage excursion.
 
 ## Symbols
 

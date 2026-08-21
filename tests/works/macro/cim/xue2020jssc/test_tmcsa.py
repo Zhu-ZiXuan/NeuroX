@@ -13,7 +13,7 @@ Hand-built tiny witness, eager, CPU. Five laws:
     round-trip both reconcile.
   * PHASE-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
     the hand-computed per-step formula on a tiny witness —
-    `sum_s v_dd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
+    `sum_s vdd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
     + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits` per
     converted element, with `i_ref_path[s]` looked up from the final code.
   * LOWERED-BIT LAW: a `b`-bit conversion truncates the max-bits search after
@@ -42,7 +42,7 @@ _SERIAL = 2  # column-MUX slots (ride the anonymous leading batch)
 _BITS = 3
 
 # --- Witness physics knobs (small explicit values, no code defaults) ---
-_V_DD__V = 1.2  # non-unity so a dropped rail factor is caught
+_VDD__V = 1.2  # non-unity so a dropped rail factor is caught
 _T_PH2__NS = (0.5, 0.4, 0.3)
 _T_PH3__NS = (0.9, 0.8, 0.7)
 _E_FIXED__fJ = 1.25
@@ -73,7 +73,7 @@ def _build(*, gn: int = _GN) -> Tmcsa:
         config=_config(),
         policy=TmcsaPolicy(),
         inst_shape=(gn,),
-        v_dd__V=_V_DD__V,
+        vdd__V=_VDD__V,
         dtype=_DTYPE,
     )
     module.eval()
@@ -204,7 +204,7 @@ def test_phase_billing_law_hand_computed() -> None:
             i_ref = _LADDER[int(module._ref_tap_lut[c_val, s])]
             i_ph2 = 3.0 * (i_val + i_ref)  # PH2: inputs (1x each) + internal P3/P4 (2x each)
             i_ph3 = 2.0 * (i_val + i_ref)  # PH3: internal only; 2x splits into two 1x sinks
-            expected += _V_DD__V * (i_ph2 * _T_PH2__NS[s] + i_ph3 * _T_PH3__NS[s]) + _E_FIXED__fJ
+            expected += _VDD__V * (i_ph2 * _T_PH2__NS[s] + i_ph3 * _T_PH3__NS[s]) + _E_FIXED__fJ
 
     reporter = Reporter(module)
     assert reporter.total_dynamic_energy__fJ(prof) == pytest.approx(expected, rel=1e-12)
@@ -248,7 +248,7 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
         ),
         policy=TmcsaPolicy(),
         inst_shape=(_GN,),
-        v_dd__V=_V_DD__V,
+        vdd__V=_VDD__V,
         dtype=_DTYPE,
     )
     leading_only.eval()

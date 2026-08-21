@@ -38,7 +38,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             (CIM-IO, polarity).
         digit_ratios: LSB-first per-digit mirror ratios, in the module's working dtype.
             Shape: `[w_digit]`.
-        v_dd__V: Supply rail every weighted leg conducts across.
+        vdd__V: Supply rail every weighted leg conducts across.
     """
 
     # === Functional buffers ===
@@ -52,14 +52,14 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         policy: DswctPolicy,
         inst_shape: tuple[int, ...],
         digit_ratios: Tensor,
-        v_dd__V: float,
+        vdd__V: float,
     ) -> None:
         if len(inst_shape) < 2 or inst_shape[-1] != 2:
             raise ValueError(f"require: inst_shape ({inst_shape}) ends with (gn, 2) — one bank per (IO, polarity)")
         if digit_ratios.ndim != 1 or digit_ratios.numel() < 1:
             raise ValueError(f"require: digit_ratios is a non-empty 1-D tensor; got shape {tuple(digit_ratios.shape)}")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._v_dd__V = v_dd__V
+        self._vdd__V = vdd__V
         self.register_buffer("_digit_ratios", digit_ratios.detach().clone(), persistent=False)
 
     @property
@@ -111,12 +111,12 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             # axis past the caller's leading dims.
             # Shape: [...] -> [..., serial=1, gn=1, polarity=1]
             window_view__ns = window__ns[..., None, None, None] if isinstance(window__ns, Tensor) else window__ns
-            # Rail: V_DD * |I_WDL| * window over every (slot, lane, digit) leg.
+            # Rail: VDD * |I_WDL| * window over every (slot, lane, digit) leg.
             # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
             i_wdl_bank__uA = i_wdl__uA.abs().sum(dim=-1)
-            # Cap: c_load * V_DD**2 once per (slot x plane) per bank — one event
+            # Cap: c_load * VDD**2 once per (slot x plane) per bank — one event
             # per energy-tensor entry, since a bank IS one (gn, polarity) instance.
-            e__fJ = self._v_dd__V * window_view__ns * i_wdl_bank__uA + self.config.c_load__fF * self._v_dd__V**2
+            e__fJ = self._vdd__V * window_view__ns * i_wdl_bank__uA + self.config.c_load__fF * self._vdd__V**2
             self._record_dynamic_energy(e__fJ)
         # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
         return i_wdl__uA.sum(dim=-1)

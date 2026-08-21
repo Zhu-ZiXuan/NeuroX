@@ -78,24 +78,14 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     is a prediction of this model rather than a defect in it.
     """
 
-    # === Biases ===
+    # === Biases and supply ===
 
     v_tbl__V: float
-    """Transpose-bitline clamp voltage, an operating-point datum."""
+    """Transpose-bitline clamp voltage and per-access node excursion."""
     v_sl__V: float
-
-    # === Supply rails (separate variables even when numerically equal) ===
-
-    v_dd_core__V: float
-    """The readout's own rail, which the DL conduction branch is billed across; it must
-    equal `adc_config.v_rail__V`. It is NOT a driver rail — the two below are."""
-    v_dd_bl__V: float
-    """Handed to the array as the supply behind every conduction-path node it bills (BL,
-    X, SL), and carrying the macro's own BL input conduction branch."""
-    v_dd_wl__V: float
-    """Handed to the array as the supply behind every WL node it bills; the word line is
-    its own supply domain, driven rail-to-rail while the read path hangs off the
-    bit-line side."""
+    vdd__V: float
+    """Core analog supply behind array-node charging, BL/TBL conduction, and
+    the readout; it must equal `adc_config.v_rail__V`."""
 
     # === Flat peripheral per-op energies ===
 
@@ -130,16 +120,12 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
         # --- Cross-block bias consistency ---
 
-        if not (self.adc_config.v_rail__V == self.v_dd_core__V):
-            raise ValueError(
-                f"require: adc_config.v_rail__V ({self.adc_config.v_rail__V}) == v_dd_core__V ({self.v_dd_core__V})"
-            )
+        if not (self.adc_config.v_rail__V == self.vdd__V):
+            raise ValueError(f"require: adc_config.v_rail__V ({self.adc_config.v_rail__V}) == vdd__V ({self.vdd__V})")
         self._require_non_neg(self.i_ph0_comp__uA, "i_ph0_comp__uA")
         self._require_non_neg(self.v_tbl__V, "v_tbl__V")
         self._require_non_neg(self.v_sl__V, "v_sl__V")
-        self._require_non_neg(self.v_dd_core__V, "v_dd_core__V")
-        self._require_non_neg(self.v_dd_bl__V, "v_dd_bl__V")
-        self._require_non_neg(self.v_dd_wl__V, "v_dd_wl__V")
+        self._require_non_neg(self.vdd__V, "vdd__V")
         self._require_non_neg(self.e_mux_driver_per_op__fJ, "e_mux_driver_per_op__fJ")
         self._require_non_neg(self.e_timing_ctrl_per_op__fJ, "e_timing_ctrl_per_op__fJ")
 
@@ -261,8 +247,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # --- Dedicated WH-2T1R array (TRANSPOSED: rows = outputs, cols = in x plane) ---
 
         # The BL boundary holds the input pattern while the word lines are
-        # scanned, which the array fixes for itself. The two rails are declared
-        # once at this macro's top level and cascade into the array's capacitive
+        # scanned, which the array fixes for itself. The core supply is declared
+        # once at this macro's top level and cascades into the array's capacitive
         # billing from here.
         self.array = Ye2023Jssc2t1rArray(
             config=config.array_config,
@@ -270,8 +256,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             inst_shape=self.inst_shape,
             row_num=self.col_num,  # physical rows = logical outputs
             col_num=phys_col_num,  # physical cols = row_num * (weight planes + redundant planes)
-            v_dd_wl__V=config.v_dd_wl__V,
-            v_dd_bl__V=config.v_dd_bl__V,
+            v_tbl__V=config.v_tbl__V,
+            vdd__V=config.vdd__V,
             dtype=dtype,
             T__K=T__K,
         )
@@ -508,7 +494,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         n_weight_plane = config.w_digit_num
         n_redundant_plane = len(config.array_config.redundant_radix)
         row_num = self.row_num
-        v_dd_core = config.v_dd_core__V
+        vdd__V = config.vdd__V
         record = self._is_dynamic_energy_profile_active()
         x_long = x.long()
         # The EXECUTED access window: no sample-and-hold stands between the array
@@ -613,17 +599,17 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # is the sole account of the capacitance inside it, this column's own
         # included, so no capacitive channel is billed here.
         if record:
-            # BL input branch, PER ACCESS, on the BL driver's SUPPLY: a branch
+            # BL input branch, PER ACCESS, on the core supply: a branch
             # bill states what rail the charge leaves, never the level the node
             # it feeds sits at. An input-0 column carries no port current and
             # self-zeroes.
             # Shape: [..., out, *inst_shape, phys_col]
-            e_bl_cond = (config.v_dd_bl__V * i_bl_port) * t_ac__ns
+            e_bl_cond = (vdd__V * i_bl_port) * t_ac__ns
             self._record_dynamic_energy(e_bl_cond, channel="bl_cond")
             # DL branch, PER ACCESS: the RAW row current, before the readout's
-            # compensation subtraction, on the core rail.
+            # compensation subtraction, on the same core supply.
             # Shape: [..., out, *inst_shape]
-            e_dl_cond = (v_dd_core * i_tbl) * t_ac__ns
+            e_dl_cond = (vdd__V * i_tbl) * t_ac__ns
             self._record_dynamic_energy(e_dl_cond, channel="dl_cond")
 
         # --- 5: RS-CSA quantize against its single reference current ---

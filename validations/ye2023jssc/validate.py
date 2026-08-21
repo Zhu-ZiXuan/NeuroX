@@ -853,7 +853,7 @@ def _all_hrs_floor__uW(macro: Ye2023JsscCimMacro, p_zero_input: float) -> float:
     v_bl__V = bl_dac_config.code_to_signal[1]
     active = macro.row_num * (1.0 - p_zero_input)
     plane_num = len(config.array_config.weight_radix)
-    return config.v_dd_bl__V * (g_hrs__uS * v_bl__V) * active * plane_num
+    return config.vdd__V * (g_hrs__uS * v_bl__V) * active * plane_num
 
 
 def _fmt_finding(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement], anchors: dict) -> str:

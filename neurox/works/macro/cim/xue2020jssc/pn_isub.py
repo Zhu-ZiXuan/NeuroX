@@ -38,7 +38,7 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
 
     Args:
         inst_shape: Fabrication shape `(*inst_shape, gn)` — one subtractor per CIM-IO.
-        v_dd__V: Supply rail the three replica legs conduct across.
+        vdd__V: Supply rail the three replica legs conduct across.
     """
 
     def __init__(
@@ -47,12 +47,12 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
         config: PnIsubConfig,
         policy: PnIsubPolicy,
         inst_shape: tuple[int, ...],
-        v_dd__V: float,
+        vdd__V: float,
     ) -> None:
-        if not (v_dd__V >= 0.0):
-            raise ValueError(f"require: v_dd__V ({v_dd__V}) >= 0")
+        if not (vdd__V >= 0.0):
+            raise ValueError(f"require: vdd__V ({vdd__V}) >= 0")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._v_dd__V = v_dd__V
+        self._vdd__V = vdd__V
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -85,6 +85,6 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
             # decision constant, per (slot, IO) entry. The collector sums the slot
             # and CIM-IO axes past the caller's leading dims.
             # Shape: [..., serial, gn]
-            e__fJ = self._v_dd__V * window__ns * (i_p__uA + i_n__uA + i_sub_abs__uA) + self.config.e_per_op__fJ
+            e__fJ = self._vdd__V * window__ns * (i_p__uA + i_n__uA + i_sub_abs__uA) + self.config.e_per_op__fJ
             self._record_dynamic_energy(e__fJ)
         return i_sub_abs__uA, sign

@@ -24,9 +24,9 @@ Laws (config = arbitrary hand-written witness, not the assertion target):
     carries NO `v_x` (the internal node feeds nothing downstream),
   * under a profiler the array bills its capacitance as a single un-channelled
     event following the held-BL scan law: with every column input-low there is
-    no hold to establish and the bill collapses to the closed-form WL node
+    no hold to establish and the bill collapses to the closed-form WL and TBL node
     terms, while a held input pattern is established exactly ONCE per full row
-    scan — every per-node total (BL, X, SL, WL) moves the bill,
+    scan — every per-node total (BL, X, SL, WL, TBL) moves the bill,
   * chunk size is a memory knob — the port state, the lookup sum and the billed
     energy are bit-identical across chunk sizes, the un-chunked solve included.
 
@@ -78,17 +78,16 @@ _V_WL_SEL__V = 0.6
 _V_WL_ON_THRESHOLD__V = 0.3
 _V_BL_IN1__V = 0.3
 
-# --- Driver rails (separate variables; the WL driver is 1-bit, so its rail is
-# its own ON level, which makes the WL terms hand-computable) ---
-_V_DD_WL__V = _V_WL_SEL__V
-_V_DD_BL__V = 0.8
+# --- Core analog supply and node biases ---
+_VDD__V = 0.8
+_V_TBL__V = 0.1
 
-# Per-node capacitance totals [fF]: each cell node's junction plus that node's
-# share of the line it hangs on.
+# Total capacitance to ground seen at each cell node [fF].
 _WL_NODE_C__fF = 1.1
 _X_NODE_C__fF = 1.0
 _BL_NODE_C__fF = 1.1
 _SL_NODE_C__fF = 1.1
+_TBL_NODE_C__fF = 1.2
 
 # Tiny positive wire R (solver needs R > 0); small so the chain stays near-ideal.
 _WIRE_SEGMENT_R__MOhm = 5.0e-6
@@ -126,6 +125,7 @@ def _array_config() -> Ye2023Jssc2t1rArrayConfig:
         x_node_c__fF=_X_NODE_C__fF,
         sl_node_c__fF=_SL_NODE_C__fF,
         wl_node_c__fF=_WL_NODE_C__fF,
+        tbl_node_c__fF=_TBL_NODE_C__fF,
         cell_config=_cell_config(),
         solver_config=ColBlColSlSolverConfig(n_outer=2, n_inner=1),
         weight_radix=_WEIGHT_RADIX,
@@ -160,8 +160,8 @@ def _build_array(config: Ye2023Jssc2t1rArrayConfig | None = None, *, chunk_size:
         inst_shape=(),
         row_num=_ROW_NUM,
         col_num=_COL_NUM,
-        v_dd_wl__V=_V_DD_WL__V,
-        v_dd_bl__V=_V_DD_BL__V,
+        v_tbl__V=_V_TBL__V,
+        vdd__V=_VDD__V,
         dtype=_DTYPE,
         T__K=300.0,
     )
@@ -359,18 +359,18 @@ def test_profiler_bills_caps_as_one_record() -> None:
     assert array_records[0].dynamic_energy__fJ > 0.0
 
 
-def test_zero_input_caps_are_the_closed_form_wl_terms() -> None:
-    """With every column input-low there is no hold, so only the WL side is billed.
+def test_zero_input_caps_are_the_closed_form_scan_terms() -> None:
+    """With every column input-low, only the scanned WL and TBL nodes move.
 
     Both boundaries rest at 0 V and settle to 0 V, so every conduction-path
-    displacement and the whole precharge vanish and the supply-draw law leaves
-    the WL node total of every cell, at `V_DD_WL * C * |V_WL|` per driven gate.
+    displacement and the whole precharge vanish. Each access raises one WL and
+    its paired TBL from ground before both naturally discharge.
     """
     config = _array_config()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
     got = _profiled_energy(config, input_bits=(0, 0), state=state)
 
-    per_access__fJ = _COL_NUM * _WL_NODE_C__fF * _V_DD_WL__V * _V_WL_SEL__V
+    per_access__fJ = _VDD__V * _COL_NUM * (_WL_NODE_C__fF * _V_WL_SEL__V + _TBL_NODE_C__fF * _V_TBL__V)
     assert got == pytest.approx(_ROW_NUM * per_access__fJ)
 
     # Holding an input pattern adds the conduction-path terms on top.
@@ -382,13 +382,13 @@ def test_every_node_capacitance_moves_the_array_bill() -> None:
 
     The BL and X nodes move through the level the input is held at, the SL node
     through the IR-drop displacement off its grounded rest, the WL node through
-    the gate drive.
+    the gate drive, and the TBL node through its clamp excursion.
     """
     base = _array_config()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
     got = _profiled_energy(base, input_bits=(1, 0), state=state)
 
-    for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
+    for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF", "tbl_node_c__fF"):
         heavier = dataclasses.replace(base, **{field: 10.0})
         assert _profiled_energy(heavier, input_bits=(1, 0), state=state) > got, f"array caps blind to {field}"
 
@@ -411,7 +411,7 @@ def test_the_held_input_is_established_once_per_row_scan() -> None:
     moved = _profiled_energy(heavy, input_bits=input_bits, state=state) - _profiled_energy(
         base, input_bits=input_bits, state=state
     )
-    one_scan__fJ = _V_DD_BL__V * delta__fF * _COL_NUM * _ROW_NUM * _V_BL_IN1__V
+    one_scan__fJ = _VDD__V * delta__fF * _COL_NUM * _ROW_NUM * _V_BL_IN1__V
     assert moved == pytest.approx(one_scan__fJ, rel=1e-2)
     # An unamortized hold would cost row_num of those.
     assert moved < 0.5 * _ROW_NUM * one_scan__fJ

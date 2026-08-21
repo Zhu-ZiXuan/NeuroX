@@ -10,9 +10,9 @@ tiny hand-built witness config (no macro, no solve):
     LSB-first digit-ratio weighting then sum over `w_digit`; no profiler
     required and no events emitted outside one,
   * billing law — the recorded dynamic energy equals the hand-computed formula
-    on a tiny witness: rail `V_DD * |I_WDL leg| * window` summed over every
+    on a tiny witness: rail `VDD * |I_WDL leg| * window` summed over every
     (plane, slot, lane, digit) leg — the per-bit DIAGONAL window rides the
-    leading batch — plus the `c_load * V_DD**2` cap event per (slot x plane)
+    leading batch — plus the `c_load * VDD**2` cap event per (slot x plane)
     per bank; negative leg currents bill by `|I|`,
   * construction / call guards — a polarity axis that is not 2, a non-1-D
     ratio buffer, and a trailing shape mismatch all raise.
@@ -37,7 +37,7 @@ _W_DIGIT = 2  # place-value legs per bank
 _SERIAL = 3  # column-MUX slots
 _DTYPE = torch.float64
 
-_V_DD__V = 1.2  # non-unity so a dropped rail factor is caught
+_VDD__V = 1.2  # non-unity so a dropped rail factor is caught
 _DIGIT_RATIOS = (0.25, 0.5)  # LSB-first (MSB anchor 0.5, radix 2)
 
 
@@ -60,7 +60,7 @@ def _build_dswct(
         policy=DswctPolicy(),
         inst_shape=inst_shape,
         digit_ratios=torch.tensor(digit_ratios, dtype=_DTYPE),
-        v_dd__V=_V_DD__V,
+        vdd__V=_VDD__V,
     )
     dswct.eval()
     dswct.fabricate()
@@ -140,15 +140,15 @@ def test_forward_outside_profiler_emits_nothing_and_matches() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_rail_billing_is_v_dd_abs_i_wdl_window() -> None:
-    """Scalar window: E = V_DD * sum |i_dl * ratio| * window over all legs (signed input)."""
+def test_rail_billing_is_vdd_abs_i_wdl_window() -> None:
+    """Scalar window: E = VDD * sum |i_dl * ratio| * window over all legs (signed input)."""
     dswct = _build_dswct()
     i_dl = _i_dl(2)  # signed entries: the |I| convention is load-bearing
     window__ns = 4.0
     with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
-    expect__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
+    expect__fJ = float(_VDD__V * (i_dl * ratios).abs().sum() * window__ns)
     assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 
@@ -162,12 +162,12 @@ def test_per_bit_diagonal_window_rides_the_leading_batch() -> None:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     per_plane = (i_dl * ratios).abs().sum(dim=(-4, -3, -2, -1))
-    expect__fJ = float(_V_DD__V * (per_plane * window__ns).sum())
+    expect__fJ = float(_VDD__V * (per_plane * window__ns).sum())
     assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 
 def test_cap_event_per_slot_plane_bank() -> None:
-    """c_load * V_DD**2 fires once per (slot x plane) per bank on top of the rail term."""
+    """c_load * VDD**2 fires once per (slot x plane) per bank on top of the rail term."""
     c_load__fF = 0.5
     dswct = _build_dswct(c_load__fF=c_load__fF)
     plane_num = 2
@@ -176,8 +176,8 @@ def test_cap_event_per_slot_plane_bank() -> None:
     with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
-    rail__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
-    cap__fJ = c_load__fF * _V_DD__V**2 * (plane_num * _SERIAL * _GN * _POL)
+    rail__fJ = float(_VDD__V * (i_dl * ratios).abs().sum() * window__ns)
+    cap__fJ = c_load__fF * _VDD__V**2 * (plane_num * _SERIAL * _GN * _POL)
     assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(rail__fJ + cap__fJ, rel=1e-12)
 
 
@@ -189,7 +189,7 @@ def test_zero_c_load_bills_rail_only() -> None:
     with Profiler() as prof_zero:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
-    expect__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
+    expect__fJ = float(_VDD__V * (i_dl * ratios).abs().sum() * window__ns)
     assert Reporter(dswct).total_dynamic_energy__fJ(prof_zero) == pytest.approx(expect__fJ, rel=1e-12)
 
 
@@ -209,7 +209,7 @@ def test_construction_guards() -> None:
             policy=DswctPolicy(),
             inst_shape=(_GN, _POL),
             digit_ratios=torch.ones((2, 2), dtype=_DTYPE),  # not 1-D
-            v_dd__V=_V_DD__V,
+            vdd__V=_VDD__V,
         )
     with pytest.raises(ValueError, match="c_load__fF"):
         _build_config(c_load__fF=-1.0)

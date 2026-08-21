@@ -2,7 +2,7 @@
 
 Paper-design config, all-off policy, and calibration anchors for the `Xue2020JsscCimMacro` SINWP 1T1R CIM sub-array — one 256×512 sub-array of the 1-Mb ReRAM CIM macro of Xue et al. (JSSC 2020). This directory holds the citable design point the scheme is validated against; `validate.py` measures the total energy per access against the 32.06 pJ/access target in `anchors.toml`, and `tools/calibrate.py` re-derives the geometry-dependent seats (the ADC reference ladder, the capacitive remainders, the TMCSA windows and the adopted peripheral seats) for `[calibrated]` write-back.
 
-> **PENDING RECALIBRATION.** The macro now composes the kernel `XbarArray1t1r` (one solve per WL plane over every physical column; the column MUX is a macro axis) and bills capacitance by the supply-draw law `E = V_rail * C * |dv|` across two declared rails, `v_dd__V` and the new `v_dd_wl__V`. Every cap-bearing `[calibrated]` seat in `params.toml`, and hence the numbers in `results.md` and `calibration.md`, was fitted to the replaced full-cycle `C*V^2` form, so the gate is expected to run RED until the recalibration campaign re-derives them. The current path is unchanged and bit-exact, so the ADC ladder and the cell chord stand. `solve_chunk_size` (and `validate.py`'s `--solve-chunk` default) also need retuning for the flattened solve shapes.
+> **PENDING RECALIBRATION.** The macro now composes the kernel `XbarArray1t1r` (one solve per WL plane over every physical column; the column MUX is a macro axis) and bills capacitance by the supply-draw law `E = V_rail * C * |dv|` against the shared core supply `vdd__V`. Every cap-bearing `[calibrated]` seat in `params.toml`, and hence the numbers in `results.md` and `calibration.md`, was fitted to the replaced full-cycle `C*V^2` form, so the gate is expected to run RED until the recalibration campaign re-derives them. The current path is unchanged and bit-exact, so the ADC ladder and the cell chord stand. `solve_chunk_size` (and `validate.py`'s `--solve-chunk` default) also need retuning for the flattened solve shapes.
 
 ## Run
 
@@ -17,7 +17,7 @@ The three TOML artifacts are FIXED files beside `validate.py`; the workload `p_z
 
 ## Files
 
-- `params.toml` — the paper design: 256×512 sub-array, 32:1 column MUX (4 CIM-IOs), 9-row (3×3-kernel) block, MSB ratio anchors `dswct_ratio_msb` 0.5 / `sc_ratio_msb` 0.5, K=2 input, 3-bit ADC, V_DD 1.0 V, V_BLC 0.29 V. Every value carries a provenance tag from the legend in [campaigns.md](../../docs/validation/campaigns.md): `[measured pN]` (paper page), `[derived]`, `[transcribed]` (the two Fig.18 peripheral seats), `[assumed]`, or `[calibrated]` (the cell chord, solver n_outer/n_inner, ADC ladder, and the energy-campaign caps + per-op constants).
+- `params.toml` — the paper design: 256×512 sub-array, 32:1 column MUX (4 CIM-IOs), 9-row (3×3-kernel) block, MSB ratio anchors `dswct_ratio_msb` 0.5 / `sc_ratio_msb` 0.5, K=2 input, 3-bit ADC, VDD 1.0 V, V_BLC 0.29 V. Every value carries a provenance tag from the legend in [campaigns.md](../../docs/validation/campaigns.md): `[measured pN]` (paper page), `[derived]`, `[transcribed]` (the two Fig.18 peripheral seats), `[assumed]`, or `[calibrated]` (the cell chord, solver n_outer/n_inner, ADC ladder, and the energy-campaign caps + per-op constants).
 - `policy.toml` — the all-off (lossless) policy; every nonideality toggle false.
 - `anchors.toml` — the 5.13 mW hard target, Fig.18 shares, dyn/static conventions, data conventions, known-unknowns.
 - `validate.py` — the profiler-driven gate driver (build → draw → energy per access → single hard-gate total + informational paired-slice breakdown).
@@ -58,7 +58,7 @@ Each rail-to-GND branch is billed at its production site — the macro on its tw
 |---|---|---|---|
 | Control | 29.2% | `control` channel (`control_config` static seat zero) | 100% dyn `e_control_per_op` (pure per-op) |
 | Reference | 23.7% | `reference_config` leakage | 100% static |
-| CABLC | 14.9% | `cablc` channel (whole input branch V_DD·I_DL; array caps row folds in) + `cablc_config` leakage | dyn conduction + small/zero static |
+| CABLC | 14.9% | `cablc` channel (whole input branch VDD·I_DL; array caps row folds in) + `cablc_config` leakage | dyn conduction + small/zero static |
 | DSWCT | 11.5% | `dswct` module row (self-billed rail conduction) + `dswct_config` seats | dyn conduction + small/zero static |
 | SINWP-SC | 8.0% | `sinwp_sc` module row (self-billed held/live legs) + `sinwp_sc_config` seats | dyn conduction + small/zero static |
 | PN-ISUB | 3.4% | `pn_isub` module row (3-branch conduction + `e_per_op`) + `pn_isub_config` leakage | dyn conduction + small/zero static |

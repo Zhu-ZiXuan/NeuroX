@@ -98,7 +98,7 @@ out_bit = 4                       # [measured p6 Table II] 4bO (RS-CSA resolutio
 # --- Reporting conventions ---
 [conventions]
 rsm = false                       # [assumed] RSM mapping unused; the SUBA4 slice is physically present
-v_dd__V = 0.8                     # [measured p6 Table II] core supply
+vdd__V = 0.8                      # [measured p6 Table II] core supply
 # [assumed] ENERGY basis: the duty period one access's static power integrates
 # over, and the period its dynamic energy is averaged into a power over. The paper
 # publishes no clock, so its steady-state power figures are read as back-to-back

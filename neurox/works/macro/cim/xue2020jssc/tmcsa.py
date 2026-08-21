@@ -57,7 +57,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
 
     Args:
         inst_shape: Fabrication shape `(*inst_shape, gn)` — one billing unit per CIM-IO.
-        v_dd__V: Supply rail the phase branches conduct across.
+        vdd__V: Supply rail the phase branches conduct across.
     """
 
     # === Functional buffers ===
@@ -75,13 +75,13 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         config: TmcsaConfig,
         policy: TmcsaPolicy,
         inst_shape: tuple[int, ...],
-        v_dd__V: float,
+        vdd__V: float,
         dtype: torch.dtype,
     ) -> None:
-        if not (v_dd__V >= 0.0):
-            raise ValueError(f"require: v_dd__V ({v_dd__V}) >= 0")
+        if not (vdd__V >= 0.0):
+            raise ValueError(f"require: vdd__V ({vdd__V}) >= 0")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._v_dd__V = v_dd__V
+        self._vdd__V = vdd__V
         self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2_per_step__ns, dtype=dtype), persistent=False)
         self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3_per_step__ns, dtype=dtype), persistent=False)
         self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits), persistent=False)
@@ -176,7 +176,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         i_ph3__uA = 2.0 * i_common__uA  # PH3: internal only; the 2x splits into two 1x sinks
         # Shape: [..., serial, gn, bits] -> [..., serial, gn]
         e__fJ = (
-            self._v_dd__V * (i_ph2__uA * self._t_ph2__ns[:bits] + i_ph3__uA * self._t_ph3__ns[:bits]).sum(dim=-1)
+            self._vdd__V * (i_ph2__uA * self._t_ph2__ns[:bits] + i_ph3__uA * self._t_ph3__ns[:bits]).sum(dim=-1)
             + self.config.e_fixed_per_op__fJ * bits
         )
         # The SAR step axis is already summed above; the collector sums the slot

@@ -3,8 +3,8 @@
 The main witness is a hand-written array whose cells conduct nothing at all:
 the two rail ladders then sit exactly at their clamp references, so every
 node voltage in the array is known in closed form and the whole billed total
-can be written out by hand — all four node coefficients and both rails carry
-a distinct value, so a swapped term or a swapped rail moves the total.
+can be written out by hand — all four node coefficients carry distinct values,
+so a swapped term moves the total.
 
 Laws pinned here:
 
@@ -56,9 +56,8 @@ _ROW_NUM = 2
 # Outer solver steps; the terminal probe record sits at exactly this index.
 _N_OUTER = 3
 
-# Two supplies, deliberately unequal: a term billed on the wrong rail moves.
-_V_DD_WL__V = 1.1
-_V_DD_BL__V = 0.7
+# Core analog supply.
+_VDD__V = 0.7
 
 # Rail references, both nonzero and unequal.
 _BL_V_REF__V = 0.30
@@ -163,8 +162,7 @@ def _build_array(
         row_num=_ROW_NUM,
         col_num=_COL_NUM,
         scan_mode=scan_mode,
-        v_dd_wl__V=_V_DD_WL__V,
-        v_dd_bl__V=_V_DD_BL__V,
+        vdd__V=_VDD__V,
         dtype=_DTYPE,
         T__K=300.0,
     )
@@ -263,10 +261,10 @@ def _expected_wl_in_bl_scan__fJ(v_wl: Tensor) -> float:
     for col in range(_COL_NUM):
         for row in range(_ROW_NUM):
             drive = abs(float(v_wl[row]))
-            total += _V_DD_BL__V * _BL_NODE_C__fF * _BL_V_REF__V
-            total += _V_DD_BL__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl))
-            total += _V_DD_BL__V * _SL_NODE_C__fF * _SL_V_REF__V
-            total += _V_DD_WL__V * _WL_NODE_C__fF * drive
+            total += _VDD__V * _BL_NODE_C__fF * _BL_V_REF__V
+            total += _VDD__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl))
+            total += _VDD__V * _SL_NODE_C__fF * _SL_V_REF__V
+            total += _VDD__V * _WL_NODE_C__fF * drive
     return total
 
 
@@ -275,7 +273,7 @@ def _expected_wl_side__fJ(v_wl: Tensor) -> float:
     total = 0.0
     for _col in range(_COL_NUM):
         for row in range(_ROW_NUM):
-            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
+            total += _VDD__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
     return total
 
 
@@ -288,9 +286,9 @@ def _expected_rest__fJ(v_x_rest: RestLevel = _v_x_rest_declared) -> float:
     total = 0.0
     for col in range(_COL_NUM):
         for row in range(_ROW_NUM):
-            total += _V_DD_BL__V * _BL_NODE_C__fF * _BL_V_REF__V
-            total += _V_DD_BL__V * _X_NODE_C__fF * abs(v_x_rest(col, row))
-            total += _V_DD_BL__V * _SL_NODE_C__fF * _SL_V_REF__V
+            total += _VDD__V * _BL_NODE_C__fF * _BL_V_REF__V
+            total += _VDD__V * _X_NODE_C__fF * abs(v_x_rest(col, row))
+            total += _VDD__V * _SL_NODE_C__fF * _SL_V_REF__V
     return total
 
 
@@ -300,8 +298,8 @@ def _expected_bl_in_wl_scan__fJ(v_wl: Tensor, *, v_x_rest: RestLevel = _v_x_rest
     for col in range(_COL_NUM):
         for row in range(_ROW_NUM):
             # Both rail nodes sit exactly at their held level: no term.
-            total += _V_DD_BL__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl) - v_x_rest(col, row))
-            total += _V_DD_WL__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
+            total += _VDD__V * _X_NODE_C__fF * abs(_v_x(col, row, v_wl) - v_x_rest(col, row))
+            total += _VDD__V * _WL_NODE_C__fF * abs(float(v_wl[row]))
     return total + _expected_rest__fJ(v_x_rest) / _ROW_NUM
 
 
@@ -443,7 +441,7 @@ def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatc
     """A node total hangs on its own node, so it bills that node's displacement.
 
     Cap values do not enter the DC solve, so raising `bl_node_c__fF` alone
-    moves the bill by exactly `v_dd_bl * delta_c` times the summed node
+    moves the bill by exactly `vdd * delta_c` times the summed node
     displacement — here the whole bit-line node grid, the scanned mode
     resting at ground. Under a conducting array the clamp the column is driven
     from differs from every node behind it, so the slope separates the node
@@ -473,8 +471,8 @@ def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatc
     )
 
     slope__fJ = float(raised) - float(base)
-    at_node = _V_DD_BL__V * delta__fF * float(v_node__V.abs().sum())
-    at_clamp = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_clamp__V.abs().sum())
+    at_node = _VDD__V * delta__fF * float(v_node__V.abs().sum())
+    at_clamp = _VDD__V * delta__fF * _ROW_NUM * float(v_clamp__V.abs().sum())
 
     assert slope__fJ == pytest.approx(at_node, rel=1e-10)
     assert slope__fJ != pytest.approx(at_clamp, rel=1e-10)
@@ -513,8 +511,8 @@ def test_the_sl_node_cap_bills_at_every_cell_node_too(monkeypatch: pytest.Monkey
     )
 
     slope__fJ = float(raised) - float(base)
-    at_node = _V_DD_BL__V * delta__fF * float(v_node__V.abs().sum())
-    at_drive = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_drive__V.abs().sum())
+    at_node = _VDD__V * delta__fF * float(v_node__V.abs().sum())
+    at_drive = _VDD__V * delta__fF * _ROW_NUM * float(v_drive__V.abs().sum())
 
     assert slope__fJ == pytest.approx(at_node, rel=1e-10)
     assert slope__fJ != pytest.approx(at_drive, rel=1e-10)

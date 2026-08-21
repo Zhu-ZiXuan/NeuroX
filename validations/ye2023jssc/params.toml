@@ -9,9 +9,8 @@
 #
 # PENDING RECAL. Two families of value below are unsolved, so the validate gate
 # runs RED until the recalibration campaign closes them:
-#   * the array's four per-node capacitances, one per cell node (the cell's own
-#     junction plus that node's share of the line it hangs on), of which the WL
-#     node total carries the C_WL knob;
+#   * the array's five per-node capacitances, one total to ground at each BL, X,
+#     SL, WL, or TBL node, of which the WL node total carries the C_WL knob;
 #   * the two converter energy tuples, which bill the WL and BL drive events.
 # The C_WL band and its saturation status are solved against the array pin and
 # must be re-established over these values.
@@ -27,7 +26,7 @@ _neurox_class = "Ye2023JsscCimMacroConfig"
 max_active_num = 32               # [derived] input-parallel: every input selected at once
 
 # --- Biases ---
-v_tbl__V = 0.1                    # [measured p4 Fig.7(a)] TBL clamp; operating-point datum, not consumed by the energy path
+v_tbl__V = 0.1                    # [measured p4 Fig.7(a)] TBL clamp and per-access node excursion
 v_sl__V = 0.0                     # [measured p4 Fig.7(a)] source-line drive (grounded)
 
 # --- Readout PH0 compensation ---
@@ -36,20 +35,10 @@ v_sl__V = 0.0                     # [measured p4 Fig.7(a)] source-line drive (gr
 # 1.0 uA row leakage.
 i_ph0_comp__uA = 1.000032
 
-# --- Supply rails (three variables, kept separate even when numerically equal) ---
-# `v_dd_core__V` is the READOUT rail: the DL conduction branch bills across it and
-# it is cross-checked against `adc_config.v_rail__V`. The other two are DRIVER
-# rails: the array draws every node's charge from the supply of the driver that
-# moves it, and the macro's BL input-branch conduction is drawn from the BL one.
-# [assumed] both: the paper reports no separate BL-driver or WL-driver supply. The
-# BL input driver is taken to hang off the core supply (0.8 V is the only reported
-# on-chip rail), and the WL driver is a 1-bit rail-to-rail driver, so its rail is
-# taken as its own ON level (the `wl_dac_config` code_to_signal top entry, 0.6 V)
-# -- restated here because a rail may never be read out of another block's
-# transfer table.
-v_dd_core__V = 0.8                # [measured p6 Table II] core supply rail; the DL conduction is billed across it
-v_dd_bl__V = 0.8                  # [assumed] BL driver rail = the core supply (BL input branch + BL/X/SL nodes)
-v_dd_wl__V = 0.6                  # [assumed] WL driver rail = the assumed WL ON level (the WL nodes)
+# --- Core analog supply ---
+# Every analog branch and array-node excursion draws from the reported core
+# supply. BL, WL, and TBL voltages are node levels, not independent supplies.
+vdd__V = 0.8                      # [measured p6 Table II] core supply
 
 # --- Flat peripheral per-op energies ---
 # [derived] Structural zeros: both seats are billed as PURE STATIC leakage (their
@@ -104,20 +93,19 @@ bl_segment_r__MOhm = 5.0e-6
 sl_segment_r__MOhm = 5.0e-6
 
 # --- Per-node capacitance [fF] ---
-# One total per cell node: the cell's own junction plus that node's share of the
-# line it hangs on. The array bills all four -- the BL and X nodes through the
-# level the input is held at (X is pinned to V_BL through the RRAM while T1 is
-# off, and dips when the selected row turns on), the SL node through its
-# displacement off the grounded rest, the WL node through the per-access gate
-# toggle.
-# [derived] junction + line share per node, at 28nm-typical junction priors:
-# BL 0.250 + 0.055, X 0.150 (the access node hangs on no line), SL 0.010 + 0.008,
-# WL 1.504 + 0.055. PENDING RECAL: the WL node total carries the C_WL knob, whose
-# band and saturation status are solved against the array pin.
+# One total to ground at each cell node. The BL and X nodes move away from the
+# held input level, the SL node moves away from grounded rest, and the selected
+# WL and TBL nodes complete one ground-to-drive excursion per access.
+# [derived] 28nm-typical node totals. PENDING RECAL: the WL node total carries
+# the C_WL knob, whose band and saturation status are solved against the array
+# pin.
 bl_node_c__fF = 0.305
 x_node_c__fF = 0.150
 sl_node_c__fF = 0.018
 wl_node_c__fF = 1.559
+# [assumed] Effective TBL total per cell site over the fixed mixed-radix row;
+# replace with the extracted node total in the recalibration campaign.
+tbl_node_c__fF = 0.0355
 
 
 # --- WH-2T1R lookup cell = linear 1T1R divider (step1) + I_T2 table (step2) ---
@@ -173,7 +161,7 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 bits = 4                          # [measured p6 Table II] 4bO; also fixes the compare-phase weights 8/4/2/1
-# [measured p6 Table II] the same core supply as `v_dd_core__V` (the macro config
+# [measured p6 Table II] the same core supply as `vdd__V` (the macro config
 # cross-checks them); Fig.12 shows the comparator input mirror conducting from it,
 # not from the 0.1 V data line.
 v_rail__V = 0.8
@@ -243,7 +231,7 @@ leakage_per_inst__uW = 0.0
 
 # --- BL clamp -- ideal Thevenin VoltageDriver (r_out = 0), the array bl_driver ---
 # Ideal source: the wire IR drop lives in the ARRAY, not the clamp. The whole
-# input-branch conduction v_dd_bl__V * I_BL is macro-billed, so energy_per_op is 0.
+# input-branch conduction vdd__V * I_BL is macro-billed, so energy_per_op is 0.
 [cim_macro.bl_driver_config]
 # [derived] Structural zeros: this scheme models no mismatch and no noise, the
 # macro bills the whole input branch, and the clamp carries no static seat.

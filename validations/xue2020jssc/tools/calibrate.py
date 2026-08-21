@@ -121,7 +121,7 @@ _ROW_KEYS = (_CONTROL_CHANNEL, _CABLC_CHANNEL, _ARRAY_ROW, "dswct", "sinwp_sc", 
 
 
 def cap_events_per_access(cfg: Xue2020JsscCimMacroConfig, *, col_num: int) -> int:
-    """SINWP-SC hold-cap ``c_hold * v_dd**2`` events per ACCESS.
+    """SINWP-SC hold-cap ``c_hold * vdd**2`` events per ACCESS.
 
     The module bills ``x_bits * serial * gn * 2`` events on every leading
     (batch) element, and one leading element is ``serial = mux_factor``
@@ -354,18 +354,18 @@ def cap_scale_correction(rows: Rows, *, pair1_target__fJ: float) -> float:
 
 
 def c_hold_solution__fF(
-    rows: Rows, *, pair2_target__fJ: float, c_hold_now__fF: float, events: int, v_dd__V: float
+    rows: Rows, *, pair2_target__fJ: float, c_hold_now__fF: float, events: int, vdd__V: float
 ) -> float:
     """``c_hold`` closing the ``sinwp_sc+pn_isub`` pair at the measured conduction.
 
-    The SINWP-SC row is leg conduction + ``events * c_hold * v_dd**2`` per
+    The SINWP-SC row is leg conduction + ``events * c_hold * vdd**2`` per
     access, and the PN-ISUB row is its 3-branch conduction + the kept comparator
     per-op; only the cap term moves, so the pair miss converts straight into a
     cap-value correction.
     """
     measured__fJ = rows.row__fJ["sinwp_sc"] + rows.row__fJ["pn_isub"]
     delta__fJ = pair2_target__fJ - measured__fJ
-    return c_hold_now__fF + delta__fJ / (events * v_dd__V**2)
+    return c_hold_now__fF + delta__fJ / (events * vdd__V**2)
 
 
 def phase_scale_solution(
@@ -508,7 +508,7 @@ def main() -> None:
     read_path_target__fJ = shares["read_path_sum"] / 100.0 * target__fJ
     p_zero = float(anchors["data"]["p_zero"])
     t_cycle = cfg.t_cycle__ns
-    v_dd = cfg.v_dd__V
+    vdd = cfg.vdd__V
 
     pair1_target__fJ = (shares["cablc"] + shares["dswct"]) / 100.0 * target__fJ
     pair2_target__fJ = (shares["sinwp_sc"] + shares["pn_isub"]) / 100.0 * target__fJ
@@ -646,7 +646,7 @@ def main() -> None:
     correction = cap_scale_correction(rows2, pair1_target__fJ=pair1_target__fJ)
     cap_scale = scale_in * correction
     c_hold = c_hold_solution__fF(
-        rows2, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
+        rows2, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, vdd__V=vdd
     )
     emit(
         f"Conduction is FROZEN by stage 1; the two paired-slice residuals seat the capacitive remainders. "
@@ -660,7 +660,7 @@ def main() -> None:
     emit("|---|--:|--:|--:|--:|:--|")
     cond1 = rows2.row__fJ[_CABLC_CHANNEL] + rows2.row__fJ["dswct"]
     cap1 = rows2.row__fJ[_ARRAY_ROW]
-    cap2_in__fJ = cap_events * c_hold_in * v_dd**2
+    cap2_in__fJ = cap_events * c_hold_in * vdd**2
     cond2 = rows2.row__fJ["sinwp_sc"] + rows2.row__fJ["pn_isub"] - cap2_in__fJ
     emit(
         f"| cablc+dswct | {pair1_target__fJ:8.4f} | {cond1:8.4f} | {cap1:8.4f} (array row) | "
@@ -683,7 +683,7 @@ def main() -> None:
     block_scales = [scale_in * cap_scale_correction(b, pair1_target__fJ=pair1_target__fJ) for b in blocks2]
     block_holds = [
         c_hold_solution__fF(
-            b, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
+            b, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, vdd__V=vdd
         )
         for b in blocks2
     ]
@@ -751,7 +751,7 @@ def main() -> None:
             label,
             cap_scale_correction(r, pair1_target__fJ=pair1_target__fJ) * cap_scale,
             c_hold_solution__fF(
-                r, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold, events=cap_events, v_dd__V=v_dd
+                r, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold, events=cap_events, vdd__V=vdd
             ),
         )
         for label, r in points2

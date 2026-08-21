@@ -611,8 +611,7 @@ _VALUE_ROW = 6
 _VALUE_LEADING = 7
 _BL_V_REF__V = 0.3
 _SL_V_REF__V = 0.1
-_V_DD_WL__V = 1.1
-_V_DD_BL__V = 0.9
+_VDD__V = 0.9
 _DTYPE = torch.float64
 type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
 
@@ -644,8 +643,7 @@ def _array(*, row_num: int, chunk_size: int) -> _Array:
         row_num=row_num,
         col_num=_ARRAY_COL,
         scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
-        v_dd_wl__V=_V_DD_WL__V,
-        v_dd_bl__V=_V_DD_BL__V,
+        vdd__V=_VDD__V,
         dtype=_DTYPE,
         T__K=300.0,
     )

@@ -41,7 +41,7 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         bit_ratios: LSB-first per-input-bit combine ratios `s_k`, in the module's
             working dtype.
             Shape: `[x_bits]`.
-        v_dd__V: Supply rail every billed branch conducts across.
+        vdd__V: Supply rail every billed branch conducts across.
     """
 
     # === Functional buffers ===
@@ -55,7 +55,7 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         policy: SinwpScPolicy,
         inst_shape: tuple[int, ...],
         bit_ratios: Tensor,
-        v_dd__V: float,
+        vdd__V: float,
     ) -> None:
         if len(inst_shape) < 2 or inst_shape[-1] != _POLARITY_NUM:
             raise ValueError(
@@ -65,11 +65,11 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
             raise ValueError(f"require: bit_ratios is a non-empty 1-D tensor; got shape {tuple(bit_ratios.shape)}")
         if not bool((bit_ratios > 0.0).all()):
             raise ValueError(f"require: every bit_ratios entry > 0; got {bit_ratios.tolist()}")
-        if not (v_dd__V >= 0.0):
-            raise ValueError(f"require: v_dd__V ({v_dd__V}) >= 0")
+        if not (vdd__V >= 0.0):
+            raise ValueError(f"require: vdd__V ({vdd__V}) >= 0")
 
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._v_dd__V = v_dd__V
+        self._vdd__V = vdd__V
         self.register_buffer("_bit_ratios", bit_ratios.detach().clone(), persistent=False)
 
     @property
@@ -133,14 +133,14 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
             # Shape: [x_bits] -> [x_bits, serial=1, gn=1, polarity=1]
             window_view__ns = window_per_bit__ns.view(n_bits, 1, 1, 1)
             # Shape: [..., x_bits, serial, gn, polarity]
-            e_conduction = (self._v_dd__V * window_view__ns) * i_leg__uA
+            e_conduction = (self._vdd__V * window_view__ns) * i_leg__uA
             self._record_dynamic_energy(e_conduction)
-            # Hold-cap cycling: one c_hold * v_dd**2 event per (slot x bit) per
+            # Hold-cap cycling: one c_hold * vdd**2 event per (slot x bit) per
             # (IO, polarity) lane — a constant, so the expanded view holds no
             # storage and only the caller's leading dims are materialized.
             # Shape: [] -> [..., x_bits, serial, gn, polarity]
             e_hold__fJ = torch.full(
-                (), self.config.c_hold__fF * self._v_dd__V**2, dtype=torch.float32, device=i__uA.device
+                (), self.config.c_hold__fF * self._vdd__V**2, dtype=torch.float32, device=i__uA.device
             )
             self._record_dynamic_energy(e_hold__fJ.expand(i__uA.shape))
 
