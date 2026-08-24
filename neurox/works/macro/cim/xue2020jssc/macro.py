@@ -155,15 +155,13 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
     # === Conduction windows (dynamic-energy only) + static time base ===
 
-    t_sample__ns: tuple[float, ...]
-    """One sample sub-phase window per SAMPLED input bit, so `input_bit_num - 1` entries;
-    the live bit conducts in the tail window instead."""
+    t_sample__ns: float
+    """Duration of each sampled input-bit phase."""
     t_settle__ns: float
-    """Tail non-sensing settle window — the live-bit settle ONLY. The SAR sensing
-    durations join it from the ADC step windows."""
+    """Live-bit settle duration before SAR sensing begins."""
     t_cycle__ns: float
     """Declared operating period, the static-energy time base: the leakage integration
-    window of one access. Must be >= the total conduction span."""
+    window of one access. Must contain the maximum-resolution circuit latency."""
 
     # === Core analog supply ===
 
@@ -188,9 +186,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     sinwp_sc_config: SinwpScConfig
     pn_isub_config: PnIsubConfig
     tmcsa_config: TmcsaConfig
-    """Its window lists span exactly `adc_config.bits` steps and satisfy
-    `t_ph2[s] + t_ph3[s] <= adc_config.step_latency__ns[s]`, PH1/PH4 occupying the
-    rest."""
 
     # === Device-bearing sub-blocks (full nested configs) ===
 
@@ -202,8 +197,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """1-bit ON/OFF word-line drive, whose sub-phase likewise sits inside the access
     window."""
     cablc_config: VoltageDriverConfig
-    """The array's CABLC BL clamp, an ideal source (`r_out__MOhm = 0`) since the wire IR
-    drop is the array's, not the clamp's. Its reference is injected per call from
+    """The array's CABLC BL clamp. Its finite output resistance models clamp droop
+    separately from array-wire IR drop, and its reference is injected per call from
     `cablc_vref_config`."""
     cablc_vref_config: VrefConfig
     """Dedicated CABLC reference source holding the degenerate one-mode single-tap bank
@@ -215,9 +210,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     reference is a plain 0 V tensor rather than a reference source."""
     adc_config: SarIadcConfig
     """The kernel VALUE converter, built energy-silent because `tmcsa_config` bills the
-    conversion instead. Its `step_latency__ns` stays the physical sensing duration: the
-    executed prefix is the sensing part of the access time, and the whole tuple feeds
-    the read-chain window `t_other__ns`."""
+    conversion instead."""
     reference_config: IrefConfig
     """The `[mode][tap]` threshold bank the ADC reads as its ladder — the macro NAMES the
     mode and reads that row. It holds `2**adc_config.bits - 1` taps, and every row must
@@ -242,42 +235,24 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         k_top = self.input_bit_num - 1
         return tuple(self.sc_ratio_msb * 2.0 ** (k - k_top) for k in range(self.input_bit_num))
 
-    @property
-    def t_other__ns(self) -> float:
-        """Live/tail window — `t_settle__ns + sum(adc_config.step_latency__ns)`.
+    def tail__ns(self, adc_bits: int) -> float:
+        """Settle and sensing duration after the live input bit arrives."""
+        if not (1 <= adc_bits <= self.adc_config.bits):
+            raise ValueError(f"require: adc_bits ({adc_bits}) in [1, adc_config.bits ({self.adc_config.bits})]")
+        return self.t_settle__ns + adc_bits * self.adc_config.latency_per_step__ns
 
-        The live input bit (K-1) has no sample sub-phase of its own; its conduction,
-        the SINWP-SC combine, the PN-ISUB, and the TMCSA sensing all fall in this tail
-        window. The SAR sensing durations are added here, so the whole read chain
-        conducts through sensing while `t_settle__ns` stays the pure non-sensing
-        settle.
-        """
-        return self.t_settle__ns + sum(self.adc_config.step_latency__ns)
+    def array_windows__ns(self, adc_bits: int) -> tuple[float, ...]:
+        """Per-input-bit array, CABLC, and DSWCT conduction windows."""
+        return (self.t_sample__ns,) * (self.input_bit_num - 1) + (self.tail__ns(adc_bits),)
 
-    @property
-    def window_array__ns(self) -> tuple[float, ...]:
-        """Per-input-bit input-branch (array / CABLC / DSWCT) conduction window.
+    def sinwp_windows__ns(self, adc_bits: int) -> tuple[float, ...]:
+        """Per-input-bit SINWP-SC suffix-hold windows."""
+        tail__ns = self.tail__ns(adc_bits)
+        return tuple((self.input_bit_num - 1 - k) * self.t_sample__ns + tail__ns for k in range(self.input_bit_num))
 
-        Sampled bit `k` conducts for its sample window `t_sample__ns[k]`; the live bit
-        (K-1) conducts for `t_other`.
-        """
-        k_live = self.input_bit_num - 1
-        return tuple(self.t_sample__ns[k] if k < k_live else self.t_other__ns for k in range(self.input_bit_num))
-
-    @property
-    def window_sc__ns(self) -> tuple[float, ...]:
-        """Per-input-bit SINWP-SC leg conduction window.
-
-        A bit-`k` leg is held from its sample sub-phase to the end, so it conducts for
-        the suffix sum of the remaining sample windows plus the tail:
-        `sum(t_sample__ns[k:]) + t_other`. The live bit reduces to `t_other`.
-        """
-        return tuple(sum(self.t_sample__ns[k:]) + self.t_other__ns for k in range(self.input_bit_num))
-
-    @property
-    def conduction_span__ns(self) -> float:
-        """Total conduction span `sum(t_sample) + t_other`; must fit in `t_cycle__ns`."""
-        return sum(self.t_sample__ns) + self.t_other__ns
+    def access_latency__ns(self, adc_bits: int) -> float:
+        """Circuit latency of one column-MUX access."""
+        return (self.input_bit_num - 1) * self.t_sample__ns + self.tail__ns(adc_bits)
 
     def validate(self) -> None:
         super().validate()
@@ -297,15 +272,17 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_pos(self.dswct_ratio_msb, "dswct_ratio_msb")
         self._require_pos(self.sc_ratio_msb, "sc_ratio_msb")
 
-        # One sample window per SAMPLED bit; the live bit (K-1) has none.
-        self._require_len(self.t_sample__ns, "t_sample__ns", self.input_bit_num - 1)
-        for k, t in enumerate(self.t_sample__ns):
-            self._require_non_neg(t, f"t_sample__ns[{k}]")
+        self._require_non_neg(self.t_sample__ns, "t_sample__ns")
         self._require_non_neg(self.t_settle__ns, "t_settle__ns")
         self._require_pos(self.t_cycle__ns, "t_cycle__ns")
         # The static time base must contain the whole conduction span (the read
         # path idles for the remainder of the period).
-        self._require_ge(self.t_cycle__ns, "t_cycle__ns", self.conduction_span__ns)
+        self._require_ge(self.t_cycle__ns, "t_cycle__ns", self.access_latency__ns(self.adc_config.bits))
+        self._require_le(
+            self.tmcsa_config.t_ph2__ns + self.tmcsa_config.t_ph3__ns,
+            "tmcsa_config.t_ph2__ns + tmcsa_config.t_ph3__ns",
+            self.adc_config.latency_per_step__ns,
+        )
         self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
 
         self._require_non_neg(self.vdd__V, "vdd__V")
@@ -317,26 +294,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_len(self.cablc_vref_config.v_refs__V[0], "cablc_vref_config.v_refs__V[0]", 1)
         v_bl_clamp__V = self.cablc_vref_config.v_refs__V[0][0]
         self._require_le(v_bl_clamp__V, "cablc_vref_config.v_refs__V[0][0]", self.vdd__V)
-
-        # --- TMCSA phase windows against the ADC step timing ---
-
-        # The billing module resolves each of the ADC's binary-search steps
-        # into PH2/PH3 conduction phases: one window pair per step, and the
-        # phases must fit inside that step's latency (PH1/PH4 fill the rest).
-        self._require_len(
-            self.tmcsa_config.t_ph2_per_step__ns,
-            "tmcsa_config.t_ph2_per_step__ns",
-            self.adc_config.bits,
-        )
-        for s, (t_ph2, t_ph3) in enumerate(
-            zip(self.tmcsa_config.t_ph2_per_step__ns, self.tmcsa_config.t_ph3_per_step__ns, strict=True)
-        ):
-            step = self.adc_config.step_latency__ns[s]
-            self._require_le(
-                t_ph2 + t_ph3,
-                f"tmcsa_config.t_ph2_per_step__ns[{s}] + t_ph3_per_step__ns[{s}]",
-                step,
-            )
 
         # --- ADC reference and quantization modes ---
 
@@ -414,8 +371,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     # === Circuit constant buffers ===
 
     _sl_v_ref__V: Tensor  # Shape: []
-    _window_array__ns: Tensor  # Shape: [x_bits]
-    _window_sc__ns: Tensor  # Shape: [x_bits]
+    _window_array_by_bits__ns: Tensor  # Shape: [adc_max_bits, x_bits]
+    _window_sc_by_bits__ns: Tensor  # Shape: [adc_max_bits, x_bits]
 
     def __init__(
         self,
@@ -478,8 +435,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         if adc_bits is None:
             raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
         config = self.config
-        chain__ns = sum(config.t_sample__ns) + config.t_settle__ns + self.adc.latency__ns(bits=adc_bits)
-        return chain__ns * config.mux_factor
+        return config.access_latency__ns(adc_bits) * config.mux_factor
 
     def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
         """Scheduled duration of one VMM at the declared access period.
@@ -541,7 +497,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             T__K=T__K,
         )
 
-        # --- Clamp seats = the array's boundary drivers (ideal r_out = 0) ---
+        # --- Clamp seats = the array's boundary drivers ---
 
         # The CABLC is column-MUX time-shared: one physical clamp per (IO, polarity,
         # digit), so the fabricated inst_shape is the real device count for PPA
@@ -590,9 +546,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # --- Kernel SAR current ADC (value only), one per IO; no ladder ---
 
         # Energy-silent because the tmcsa module below bills the conversion
-        # phase-resolved. The ADC keeps its physical step_latency__ns, which
-        # answers the macro's access-time query at the executed resolution and
-        # sums to the sensing part of t_other.
+        # phase-resolved. The ADC owns the fixed decision-step latency used by
+        # the macro's runtime-width access timing.
         self.adc = SarIadc(
             config=config.adc_config,
             policy=policy.adc_policy,
@@ -605,6 +560,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             config=config.tmcsa_config,
             policy=policy.tmcsa_policy,
             inst_shape=(*self.inst_shape, gn),
+            max_bits=config.adc_config.bits,
             vdd__V=config.vdd__V,
             dtype=dtype,
         )
@@ -651,8 +607,22 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.register_buffer("_seat_of_phys", seat_of_phys, persistent=False)
         # SL direct ground tie: a plain all-zeros reference, no Vref module.
         self.register_buffer("_sl_v_ref__V", torch.zeros((), dtype=dtype), persistent=False)
-        self.register_buffer("_window_array__ns", torch.tensor(config.window_array__ns, dtype=dtype), persistent=False)
-        self.register_buffer("_window_sc__ns", torch.tensor(config.window_sc__ns, dtype=dtype), persistent=False)
+        self.register_buffer(
+            "_window_array_by_bits__ns",
+            torch.tensor(
+                tuple(config.array_windows__ns(bits) for bits in range(1, config.adc_config.bits + 1)),
+                dtype=dtype,
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_window_sc_by_bits__ns",
+            torch.tensor(
+                tuple(config.sinwp_windows__ns(bits) for bits in range(1, config.adc_config.bits + 1)),
+                dtype=dtype,
+            ),
+            persistent=False,
+        )
 
     @property
     def x_value_range(self) -> tuple[int, int]:
@@ -861,6 +831,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
         self._mode(quantization_mode)
         config = self.config
+        tail__ns = config.tail__ns(adc_bits)
+        window_array__ns = self._window_array_by_bits__ns[adc_bits - 1]
+        window_sc__ns = self._window_sc_by_bits__ns[adc_bits - 1]
         vdd__V = config.vdd__V
         gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
         x_long = x.long()  # dtype guard for >> and the bit-expand
@@ -985,26 +958,26 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             # leading, whose last axes are this macro's instance axes, which the
             # collector sums past the caller's leading dims.
             # Shape: [..., x_bits] -> [...]
-            e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
+            e_cablc = (read_power * window_array__ns).sum(dim=-1)
             self._record_dynamic_energy(e_cablc, channel="cablc")
 
         # --- 3: DSWCT place-value weighting -> I_WDL (self-billing) ---
 
         # The per-bit DIAGONAL window rides the x-bit leading axis.
         # Shape: [..., x_bits, gs, gn, polarity, wd] -> [..., x_bits, gs, gn, polarity]
-        i_wdl = self.dswct(i_dl, window__ns=self._window_array__ns)
+        i_wdl = self.dswct(i_dl, window__ns=window_array__ns)
 
         # --- 4: SINWP-SC temporal input-radix combine -> I_DL_PN (self-billing) ---
 
         # The held-leg suffix-sum window is injected per bit.
-        # Shape: [..., x_bits, gs, gn, polarity] -> [..., gs, gn, polarity]
-        i_dl_pn = self.sinwp_sc(i_wdl, window_per_bit__ns=self._window_sc__ns)
+        # Shape: [..., x_bits, gs, gn, polarity, wd] -> [..., gs, gn, polarity]
+        i_dl_pn = self.sinwp_sc(i_wdl, window_per_bit__ns=window_sc__ns)
 
         # --- 5: PN-ISUB single-ended magnitude + sign (self-billing) ---
 
-        # The three rail branches conduct in the tail window t_other.
+        # The three rail branches conduct in the live-bit tail.
         # Shape: [..., gs, gn, polarity] -> [..., gs, gn]
-        i_sub, sign = self.pn_isub(i_dl_pn[..., 0], i_dl_pn[..., 1], window__ns=config.t_other__ns)
+        i_sub, sign = self.pn_isub(i_dl_pn[..., 0], i_dl_pn[..., 1], window__ns=tail__ns)
 
         # --- 6: TMCSA quantize against the per-instance reference ladder ---
 

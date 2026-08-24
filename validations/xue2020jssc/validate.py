@@ -1,11 +1,13 @@
-"""Energy-basis, total-only, non-circular validation for the xue2020jssc CIM sub-array.
+"""Energy-basis, total-only validation for the xue2020jssc CIM sub-array.
 
 Builds :class:`~neurox.works.macro.cim.xue2020jssc.Xue2020JsscCimMacro` from
-``params.toml`` + ``policy.toml``, drives it DIRECTLY (rows ``0..active_row_num-1``
-live, the rest zeroed) over a round-based random workload per the ``anchors.toml``
-data conventions, and reduces the profiler to the ENERGY PER ACCESS. The one HARD
-GATE is the total energy per access against the paper's 32060 fJ/access (= 32.06 pJ
-= 5.13 mW / 8 sub-arrays / 20 MHz) within +-5% at the declared ``p_zero``.
+``params.toml`` + ``policy.toml``, drives it DIRECTLY (``max_active_num`` row
+positions sampled independently for every input, the rest zeroed) over a
+round-based random workload per the ``anchors.toml`` data conventions, and
+reduces the profiler to the ENERGY PER ACCESS. The one HARD
+GATE is the total energy per access against 32062.5 fJ/access (= 32.0625 pJ =
+the paper's simulated 5.13 mW / 8 sub-arrays / 20 MHz) within +-5% at the
+declared calibrated-activity workload.
 
 Energy-basis reduction. With ``accesses = n_samples * mux_factor`` (one VMM over
 all ``col_num`` logical columns is ``mux_factor`` serial accesses):
@@ -16,22 +18,22 @@ all ``col_num`` logical columns is ``mux_factor`` serial accesses):
 The total energy per access is their sum. 1 uA * 1 V * 1 ns = 1 fJ; 1 pJ = 1000 fJ.
 The macro's access time is reported beside them and integrates nothing.
 
-NON-CIRCULAR rigor: the ONLY seats declared to reproduce a Fig.18 share are
+ACCOUNTING BASIS: the seats declared to reproduce a Fig.18 share are
 Control (29.2 %) + Reference (23.7 %) -- ADOPTED, because those two peripherals
-are not modeled from physics. The whole read path (cablc, dswct, sinwp_sc,
-pn_isub, tmcsa) is pure physics with declared structural constants (g_map,
-V_BL_CLAMP, wire R, conduction windows); its static seats are declared small/zero
-and NEVER reverse-solved to fill the total. ``p_zero`` is LOCKED to the read-path
-physics -- the sparsity at which the pure-physics read path conducts its Fig.18
-read-path share (47.1 % x 32060 = 15100 fJ/access) -- and is NEVER solved against
-the total. The headline is the total energy per access at that locked ``p_zero``.
+are not modeled explicitly. The read path follows an explicit circuit model under
+declared device, parasitic, timing, and workload assumptions; its static seats are
+declared small/zero. The effective input and weight nonzero probabilities are
+calibrated against the two read-path conduction seats; conditional on being
+nonzero, sign-magnitude weights and unsigned inputs are uniform. The TMCSA scale
+is calibrated to its breakdown slice. With Control and Reference adopted from
+the remaining Fig.18 shares, agreement with the total is therefore a consistency
+check, not independent validation.
 
-PAIRED-SLICE caliber for the Fig.18 comparison: the paper splits ONE series input
-branch at node V_CMD (the drain of the DSWCT current-mirror input, p.207
-Fig.9(a)) between the DSWCT and CABLC pie slices, and one series sink branch
-between SINWP-SC (its sink transistors) and PN-ISUB (switches + comparator +
-isub); the internal node voltages are not published, so only the PAIR SUMS are
-well-defined comparison targets. The breakdown therefore compares ``cablc+dswct``
+PAIRED-SLICE caliber for the Fig.18 comparison: the model bills ONE series input
+branch across DSWCT and CABLC and one series sink branch across SINWP-SC and
+PN-ISUB. Fig.18 reports separate circuit-block shares, but the internal node
+voltages needed to reproduce that split are not published, so only the PAIR SUMS
+are well-defined model-comparison targets. The breakdown therefore compares ``cablc+dswct``
 against 14.9 + 11.5 = 26.4 % and ``sinwp_sc+pn_isub`` against 8.0 + 3.4 =
 11.4 %, with ``control`` / ``reference`` / ``tmcsa`` as singles; the four member
 rows stay visible (informational, no per-member target).
@@ -52,7 +54,7 @@ shapes together with the policy's own ``solve_chunk_size``. ``--device auto`` is
 the operator's choice, through ``CUDA_VISIBLE_DEVICES``.
 
 Per-block breakdown (INFORMATIONAL, not gated): each Fig.18 slice is reported in
-fJ/access next to its ``share * 32060 fJ`` reference; differences are labelled as
+fJ/access next to its ``share * target`` reference; differences are labelled as
 convention / node-voltage effects, not gated.
 
 Run:
@@ -65,8 +67,7 @@ directly:
     TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py \
         --device auto --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096
 
-``results.md`` records the run whose report text this harness logs; the workload
-``p_zero`` is read from ``anchors.toml``, never injected on the command line.
+``results.md`` records the run whose report text this harness logs.
 """
 
 from __future__ import annotations
@@ -94,15 +95,15 @@ _PARAMS_PATH = _VAL_DIR / "params.toml"
 _POLICY_PATH = _VAL_DIR / "policy.toml"
 _ANCHORS_PATH = _VAL_DIR / "anchors.toml"
 
-# Informational Fig.18 slices (never gated). Read path is pure physics; control /
+# Informational Fig.18 slices (never gated). Read path uses the explicit model; control /
 # reference are the two ADOPTED peripheral seats.
 _READ_PATH_SLICES = ("cablc", "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 _ADOPTED_SLICES = ("control", "reference")
 _ALL_SLICES = (*_ADOPTED_SLICES, *_READ_PATH_SLICES)
 
-# Paired-slice caliber: the paper splits one series input branch (at node V_CMD)
-# between DSWCT and CABLC, and one series sink branch between SINWP-SC and
-# PN-ISUB; only the pair sums are well-defined targets. Members keep no
+# Paired-slice caliber: the model bills one series input branch across DSWCT and
+# CABLC and one series sink branch across SINWP-SC and PN-ISUB; only the pair
+# sums are well-defined comparisons without unpublished internal node voltages. Members keep no
 # per-member target (rendered informationally).
 _PAIRED_SLICES: dict[str, tuple[str, ...]] = {
     "cablc+dswct": ("cablc", "dswct"),
@@ -147,9 +148,14 @@ _STATIC_NAMES: dict[str, tuple[str, ...]] = {
 # magnitude digits (LSB-first) -> a 3-bit signed weight.
 _QUANTIZATION_MODE = 0
 _ADC_BITS = 3
-# The sub-array geometry, PUBLIC: the calibration campaign builds the same macro.
+# [reported p211 Fig.20(c)] 256 rows x 512 physical columns per sub-array.
 ROW_NUM = 256
+# [derived] Four physical columns encode each logical output: two magnitude
+# digits x two polarities, so 512 / 4 = 128 logical outputs.
 COL_NUM = 128
+# [assumed] Nominal ambient operating point; the paper does not publish a
+# temperature for the power simulation.
+TEMPERATURE__K = 300.0
 
 
 def build_macro(
@@ -187,7 +193,7 @@ def build_macro(
         output_num=COL_NUM,
         inst_shape=(),
         dtype=torch.float32,
-        T__K=300.0,
+        T__K=TEMPERATURE__K,
     )
     macro.to(device)
     macro.eval()
@@ -199,31 +205,46 @@ def build_macro(
 def leakage_window__ns(macro: Xue2020JsscCimMacro) -> float:
     """Duration one access's static power integrates over [ns].
 
-    The measurement period ``t_cycle__ns`` = 1 / 20 MHz, the rate the paper's
-    5.13 mW power figure was taken at. That period is a DUTY-CYCLE property of
-    the measured setup, a distinct quantity from the ACCESS TIME the macro's
-    ``latency__ns`` reports (the span one read chain settles over, the executed
-    sensing included): a macro clocked at 20 MHz leaks for the whole period however
-    small a fraction of it the read occupies. Which of the two a GENERAL
-    workload should integrate over is an OPEN modelling choice — a duty-cycled
-    deployment takes the period, a back-to-back one the access time. It is
-    fixed here to the period, the basis the paper's figure was measured on, and
-    it is declared here rather than derived so the choice cannot be made
-    implicitly by whichever duration a consumer happens to reach for.
+    The simulated operating period ``t_cycle__ns`` = 1 / 20 MHz, the rate of the
+    paper's 5.13 mW power point. That period is a DUTY-CYCLE property, distinct
+    from the ACCESS TIME the macro's ``access_latency__ns`` reports (the span one
+    read chain settles over, the executed sensing included): a macro clocked at
+    20 MHz leaks for the whole period however
+    small a fraction of it the read occupies. The campaign therefore integrates
+    every declared static seat over the complete period; the active phase times
+    only govern dynamic conduction.
     """
     return macro.config.t_cycle__ns
 
 
-def _draw_weight(gen: torch.Generator, *, input_num: int, output_num: int, lo: int, hi: int) -> torch.Tensor:
-    """Value-uniform logical weights ``[input_num, output_num]``."""
-    return torch.randint(
-        lo,
-        hi + 1,
+def _draw_weight(
+    gen: torch.Generator,
+    *,
+    input_num: int,
+    output_num: int,
+    max_magnitude: int,
+    nonzero_probability: float,
+) -> torch.Tensor:
+    """Zero-inflated sign-magnitude weights, uniform conditional on nonzero."""
+    nonzero = torch.rand((input_num, output_num), generator=gen, device=gen.device) < nonzero_probability
+    magnitude = torch.randint(
+        1,
+        max_magnitude + 1,
         (input_num, output_num),
         generator=gen,
         dtype=torch.long,
         device=gen.device,
     )
+    negative = torch.randint(
+        0,
+        2,
+        (input_num, output_num),
+        generator=gen,
+        dtype=torch.bool,
+        device=gen.device,
+    )
+    signed = torch.where(negative, -magnitude, magnitude)
+    return torch.where(nonzero, signed, 0)
 
 
 def _draw_input(
@@ -234,21 +255,21 @@ def _draw_input(
     max_active_num: int,
     lo: int,
     hi: int,
-    p_zero: float,
+    nonzero_probability: float,
 ) -> torch.Tensor:
-    """Value-uniform inputs ``[batch, row]`` in ``[lo, hi]`` with an EXTRA Bernoulli zeroing at ``p_zero``.
-
-    ``p_zero`` is a dropout probability applied ON TOP of the value-uniform draw
-    (sparse-activation workload assumption), so the marginal zero fraction is
-    ``P(x=0) = f0 + (1 - f0) * p_zero`` for the base rate ``f0 = 1/(hi-lo+1)``, NOT
-    ``p_zero`` itself. Inactive rows (``>= active_row_num``) are forced to zero.
-    """
-    x = torch.randint(lo, hi + 1, (batch, input_num), generator=gen, dtype=torch.long, device=gen.device)
-    if p_zero > 0.0:
-        drop = torch.rand((batch, input_num), generator=gen, device=gen.device) < p_zero
-        x = torch.where(drop, torch.zeros_like(x), x)
-    x[:, max_active_num:] = 0
-    return x
+    """At most `max_active_num` candidate rows, zero-inflated independently."""
+    active_rows = torch.rand((batch, input_num), generator=gen, device=gen.device).topk(max_active_num, dim=1).indices
+    nonzero = torch.rand((batch, max_active_num), generator=gen, device=gen.device) < nonzero_probability
+    values = torch.randint(
+        max(1, lo),
+        hi + 1,
+        (batch, max_active_num),
+        generator=gen,
+        dtype=torch.long,
+        device=gen.device,
+    )
+    values = torch.where(nonzero, values, 0)
+    return torch.zeros((batch, input_num), dtype=torch.long, device=gen.device).scatter(1, active_rows, values)
 
 
 @dataclass(frozen=True)
@@ -319,8 +340,6 @@ class Measurement:
     """Input vectors drawn per weight program."""
     accesses: int
     """Output accesses read over every pooled round."""
-    p_zero: float
-    """Input-sparsity point the round(s) ran at."""
     seed: int
     """Generator seed of the first round."""
     repeat: int = 1
@@ -368,7 +387,6 @@ def measure(
     anchors: dict,
     *,
     n: int,
-    p_zero: float,
     seed: int,
     batch: int = 8,
 ) -> Measurement:
@@ -414,8 +432,8 @@ def measure(
                 gen,
                 input_num=macro.row_num,
                 output_num=macro.col_num,
-                lo=w_lo,
-                hi=w_hi,
+                max_magnitude=max(abs(w_lo), abs(w_hi)),
+                nonzero_probability=float(data["weight_nonzero_probability"]),
             )
             x = _draw_input(
                 gen,
@@ -424,7 +442,7 @@ def measure(
                 max_active_num=cfg.max_active_num,
                 lo=x_lo,
                 hi=x_hi,
-                p_zero=p_zero,
+                nonzero_probability=float(data["input_nonzero_probability"]),
             )
             # leading_rank=1: the `batch` axis indexes independent unit
             # operations, so each energy event resolves to [batch], one element
@@ -469,13 +487,12 @@ def measure(
         n_w=n_w,
         n_x=batch,
         accesses=accesses,
-        p_zero=p_zero,
         seed=seed,
         dyn_by_name=dyn,
     )
 
 
-def _pool_rounds(rounds: list[Measurement], *, p_zero: float, seed: int) -> Measurement:
+def _pool_rounds(rounds: list[Measurement], *, seed: int) -> Measurement:
     """Access-weighted mean of per-round measurements + the round-total relative std.
 
     Each round is an independent draw profiled in its own context, so the
@@ -518,7 +535,6 @@ def _pool_rounds(rounds: list[Measurement], *, p_zero: float, seed: int) -> Meas
         n_w=first.n_w,
         n_x=first.n_x,
         accesses=total_accesses,
-        p_zero=p_zero,
         seed=seed,
         repeat=len(rounds),
         rel_std=rel_std,
@@ -533,7 +549,6 @@ def measure_rounds(
     n_w: int,
     n_x: int,
     repeat: int,
-    p_zero: float,
     seed: int,
 ) -> Measurement:
     """Profile ``repeat`` rounds of ``n_w`` weight draws x ``n_x`` inputs and pool them.
@@ -548,11 +563,8 @@ def measure_rounds(
     of every round and supplies the fabrication-fixed static rows.
     """
     reporter = Reporter(macro)
-    rounds = [
-        measure(macro, reporter, anchors, n=n_w * n_x, p_zero=p_zero, seed=seed + idx, batch=n_x)
-        for idx in range(repeat)
-    ]
-    return _pool_rounds(rounds, p_zero=p_zero, seed=seed)
+    rounds = [measure(macro, reporter, anchors, n=n_w * n_x, seed=seed + idx, batch=n_x) for idx in range(repeat)]
+    return _pool_rounds(rounds, seed=seed)
 
 
 def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
@@ -576,7 +588,7 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     tol = anchors["gate"]["hard_tolerance_relative"]
     shares = anchors["fig18_shares"]
     lines: list[str] = []
-    lines.append("| Slice | Energy [fJ/acc] | dyn | static | Fig.18 x 32060 [fJ] | pred/ref | basis |")
+    lines.append("| Slice | Energy [fJ/acc] | dyn | static | Fig.18 x target [fJ] | pred/ref | basis |")
     lines.append("|---|--:|--:|--:|--:|--:|:--|")
 
     def row(s: SliceEnergy, *, basis: str) -> str:
@@ -588,8 +600,8 @@ def energy_table(m: Measurement, anchors: dict) -> str:
         )
 
     lines.extend(row(m.slice(name), basis="adopted") for name in _ADOPTED_SLICES)
-    lines.extend(row(pair, basis="physics pair") for pair in paired_slices(m.slices, shares, target))
-    lines.append(row(m.slice("tmcsa"), basis="physics"))
+    lines.extend(row(pair, basis="modeled pair") for pair in paired_slices(m.slices, shares, target))
+    lines.append(row(m.slice("tmcsa"), basis="modeled"))
     lines.extend(row(m.slice(name), basis="pair member") for name in _PAIR_MEMBERS)
     if abs(m.unmapped_static__fJ) > 1e-9:
         lines.append(
@@ -611,9 +623,8 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     tol = anchors["gate"]["hard_tolerance_relative"]
     within, rel = gate(m, anchors)
     data = anchors["data"]
-    x_lo, x_hi = data["input_range"]
-    f0 = 1.0 / (x_hi - x_lo + 1)
-    marginal = f0 + (1.0 - f0) * m.p_zero
+    input_nonzero_probability = float(data["input_nonzero_probability"])
+    weight_nonzero_probability = float(data["weight_nonzero_probability"])
 
     lines: list[str] = []
     lines.append("# xue2020jssc validation -- total energy per access")
@@ -626,27 +637,20 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     lines.append(
         f"Energy-basis profiler run for `{_PARAMS_PATH.name}` + `{_POLICY_PATH.name}` on {device}. "
         f"n_w = {m.n_w} weight draws x n_x = {m.n_x} inputs x {m.repeat} rounds = {m.draws} draws "
-        f"({m.accesses} accesses), seed {m.seed}, run p_zero = {m.p_zero:.3f} "
-        f"(marginal P(x=0) = {marginal:.3f}); anchors-declared workload p_zero = {anchors['data']['p_zero']:.2f}."
+        f"({m.accesses} accesses), seed {m.seed}; calibrated nonzero probabilities "
+        f"P(x!=0) = {input_nonzero_probability:.4f}, P(w!=0) = {weight_nonzero_probability:.4f}."
         f"{round_note}"
     )
     lines.append("")
-    declared_p = anchors["data"]["p_zero"]
-    declared_marg = f0 + (1.0 - f0) * declared_p
     lines.append("## Hard gate -- total energy per access")
     lines.append("")
     std_note = f" +- {m.rel_std * 100:.2f} % (round-total relative std over {m.repeat} rounds)" if m.repeat > 1 else ""
     lines.append(
-        f"Target 32060 fJ/access (= 32.06 pJ = 5.13 mW / 8 / 20 MHz); +-{tol * 100:.0f}%. At this run's p_zero = "
-        f"{m.p_zero:.3f} (marginal P(x=0) = {marginal:.3f}): result **{m.total__fJ:.3f} fJ/access = "
+        f"Target {target:.1f} fJ/access (= {target / 1000.0:.4f} pJ = simulated 5.13 mW / 8 / 20 MHz); "
+        f"+-{tol * 100:.0f}%. Under the declared calibrated-activity workload: result "
+        f"**{m.total__fJ:.3f} fJ/access = "
         f"{m.total__fJ / target:.3f}x**{std_note} (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
         f"{'yes' if within else 'no'}."
-    )
-    lines.append("")
-    lines.append(
-        f"The anchors-declared workload sparsity is p_zero = {declared_p:.2f} (marginal P(x=0) ~= "
-        f"{declared_marg:.3f}), motivated INDEPENDENTLY by typical ~50%-zero post-ReLU CNN activations -- NOT "
-        f"tuned to pass."
     )
     lines.append("")
     lines.append("## Energy breakdown (informational -- NOT gated)")
@@ -654,36 +658,37 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     lines.append(energy_table(m, anchors))
     lines.append("")
     lines.append(
-        "The read-path slices are pure physics (g_map, V_BLC, conduction windows -- all declared); "
-        "control + reference are the two ADOPTED Fig.18 seats. Paired-slice caliber: the paper splits one "
-        "series input branch at node V_CMD (drain of the DSWCT current-mirror input, Fig.9(a)) between DSWCT "
-        "and CABLC, and one series sink branch between SINWP-SC (its sink transistors) and PN-ISUB (switches "
-        "+ comparator + isub); the internal node voltages are unpublished, so only the pair sums "
+        "The read-path slices follow the explicit circuit model under declared assumptions; "
+        "control + reference are the two ADOPTED Fig.18 seats. Paired-slice caliber: the model bills one "
+        "series input branch across DSWCT and CABLC and one series sink branch across SINWP-SC and PN-ISUB; "
+        "the internal node voltages needed to reproduce Fig.18's separate block shares are unpublished, so only "
+        "the pair sums "
         "(cablc+dswct vs 26.4 %, sinwp_sc+pn_isub vs 11.4 %) are well-defined targets -- the member rows are "
-        "informational. Differences from Fig.18 x 32060 fJ are reported, not gated."
+        "informational. Differences from Fig.18 x target are reported, not gated."
     )
     lines.append("")
     lines.append("## Declared conventions")
     lines.append("")
-    lines.append(
-        f"- Hard gate: total energy per access within +-{tol * 100:.0f}% of {target} fJ at the declared p_zero."
-    )
+    lines.append(f"- Hard gate: total energy per access within +-{tol * 100:.0f}% of {target} fJ.")
     lines.append(
         "- Adopted seats (declared to reproduce a Fig.18 share, not fitted to the total): "
-        "control 29.2 % (pure per-op, 100 % dynamic), reference 23.7 % (100 % static)."
+        "control 29.2 % (70 % per-op dynamic, 30 % leakage at 50 ns), reference 23.7 % (100 % static)."
     )
     lines.append(
-        "- Read path (cablc, dswct, sinwp_sc, pn_isub, tmcsa): pure physics; static seats declared small/zero, "
-        "NEVER reverse-solved to fill the total. Fig.18 comparison at the paired-slice caliber "
+        "- Read path (cablc, dswct, sinwp_sc, pn_isub, tmcsa): explicit circuit model under declared "
+        "assumptions; static seats declared small/zero. Fig.18 comparison at the paired-slice caliber "
         "(cablc+dswct, sinwp_sc+pn_isub)."
     )
     lines.append(
-        f"- Data: weights value-uniform in {data['weight_range']}, inputs value-uniform in {data['input_range']} "
-        f"with an extra Bernoulli zeroing at p_zero (declared workload assumption); rows >= active_row_num zeroed."
+        f"- Data: P(w!=0) = {weight_nonzero_probability:.4f}; conditional nonzero weights have equiprobable "
+        f"sign and magnitude 1..{data['weight_range'][1]}. P(x!=0) = {input_nonzero_probability:.4f} among "
+        f"at most nine candidate rows; conditional nonzero inputs are uniform over "
+        f"1..{data['input_range'][1]}."
     )
     lines.append(
         f"- Energy basis: static/access = leakage_power * leakage window ({m.window__ns:.1f} ns = the 20 MHz "
-        f"measurement period, a duty-cycle property); dynamic/access = per-VMM dynamic / mux_factor; total/access "
+        f"simulated operating period, a duty-cycle property); dynamic/access = per-VMM dynamic / mux_factor; "
+        f"total/access "
         f"= their sum. The macro's access time ({m.access_latency__ns:.2f} ns) is the separate duration one read "
         f"chain settles over and integrates nothing."
     )
@@ -730,7 +735,6 @@ def main() -> None:
 
     with _ANCHORS_PATH.open("rb") as fh:
         anchors = tomllib.load(fh)
-    p_zero = float(anchors["data"]["p_zero"])
 
     device = resolve_device(args.device)
     macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device, solve_chunk_size=args.solve_chunk)
@@ -740,7 +744,6 @@ def main() -> None:
         n_w=args.n_w,
         n_x=args.n_x,
         repeat=args.repeat,
-        p_zero=p_zero,
         seed=args.seed,
     )
 

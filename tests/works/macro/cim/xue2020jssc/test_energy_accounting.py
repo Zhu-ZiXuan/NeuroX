@@ -28,15 +28,12 @@ Coverage:
     double-bill,
   * the array's capacitive row rides the shared core supply `vdd__V`,
   * the control channel fires once per access (`mux_factor` mux steps x batch),
-  * each read row is LINEAR in every window knob (`t_sample[k]`,
-    `t_settle`), the SC held-leg SUFFIX-SUM law (window
-    `sum_{j>=k} t_sample[j] + t_other`) holds while cablc / dswct use the
-    per-bit DIAGONAL window, and the live (K-1) bit conducts in `t_other`
-    regardless of the sampling windows,
-  * the `tmcsa` row is the scheme PHASE-BILLING module: it reduces to the
-    pure fixed-energy model `adc_bits x tmcsa e_fixed` per converted element
-    when both phase windows are all-zero, grows with `t_ph2` / `t_ph3`
-    once nonzero, and the kernel ADC is energy-SILENT
+  * each read row is linear in the input-phase and settle durations; SINWP-SC
+    uses suffix-hold windows while CABLC / DSWCT use per-bit diagonal windows,
+    and the live bit conducts in the tail regardless of the sampled phases,
+  * the `tmcsa` row is the scheme PHASE-BILLING module: it vanishes when both
+    phase durations are zero, scales with the calibrated conduction factor,
+    and the kernel ADC is energy-SILENT
     (`enable_energy_record=False`): no `adc` dynamic row exists and the
     kernel conduction knobs (`v_rail`, `t_conduct`, kernel `e_fixed`)
     move nothing.
@@ -77,8 +74,10 @@ class _AdcConfigUpdates(TypedDict, total=False):
 
 
 class _TmcsaConfigUpdates(TypedDict, total=False):
-    t_ph2_per_step__ns: tuple[float, ...]
-    t_ph3_per_step__ns: tuple[float, ...]
+    t_ph2__ns: float
+    t_ph3__ns: float
+    conduction_scale: float
+    e_per_step__fJ: float
 
 
 # Billed rows by slice name -> profiler energy-row key: the macro bills the two
@@ -138,9 +137,14 @@ def _channels(by_name: dict[str, float]) -> dict[str, float]:
 
 
 def _channel_energies(
-    config: Xue2020JsscCimMacroConfig, w: Tensor, x: Tensor, *, device: torch.device
+    config: Xue2020JsscCimMacroConfig,
+    w: Tensor,
+    x: Tensor,
+    *,
+    device: torch.device,
+    adc_bits: int = TINY_ADC_BITS,
 ) -> dict[str, float]:
-    prof, reporter = _run(config, w, x, device=device)
+    prof, reporter = _run(config, w, x, device=device, adc_bits=adc_bits)
     return _channels(reporter.by_name(prof))
 
 
@@ -165,15 +169,21 @@ def _with_adc(
 def _with_tmcsa(
     config: Xue2020JsscCimMacroConfig,
     *,
-    t_ph2: tuple[float, ...] | None = None,
-    t_ph3: tuple[float, ...] | None = None,
+    t_ph2__ns: float | None = None,
+    t_ph3__ns: float | None = None,
+    conduction_scale: float | None = None,
+    e_per_step__fJ: float | None = None,
 ) -> Xue2020JsscCimMacroConfig:
-    """Replace only the TMCSA phase windows (energy-path only; value windows untouched)."""
+    """Replace only TMCSA energy-model parameters."""
     kw: _TmcsaConfigUpdates = {}
-    if t_ph2 is not None:
-        kw["t_ph2_per_step__ns"] = t_ph2
-    if t_ph3 is not None:
-        kw["t_ph3_per_step__ns"] = t_ph3
+    if t_ph2__ns is not None:
+        kw["t_ph2__ns"] = t_ph2__ns
+    if t_ph3__ns is not None:
+        kw["t_ph3__ns"] = t_ph3__ns
+    if conduction_scale is not None:
+        kw["conduction_scale"] = conduction_scale
+    if e_per_step__fJ is not None:
+        kw["e_per_step__fJ"] = e_per_step__fJ
     return dataclasses.replace(config, tmcsa_config=dataclasses.replace(config.tmcsa_config, **kw))
 
 
@@ -199,7 +209,7 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     cfg = macro.config
     vdd__V = cfg.vdd__V
     x_long = x.long()
-    window = cfg.window_array__ns
+    window = cfg.array_windows__ns(TINY_ADC_BITS)
 
     phys_col_num = macro.array.weight_grid_shape[-2]
 
@@ -302,7 +312,7 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
     the read channels while the window-invariant control channel stands still.
     """
     w, x = _w_full(), _x_full(2)
-    base_cfg = build_config(t_sample__ns=(1.0,), t_settle__ns=2.0, t_cycle__ns=50.0)
+    base_cfg = build_config(t_sample__ns=1.0, t_settle__ns=2.0, t_cycle__ns=50.0)
 
     prof_base, rep_base = _run(base_cfg, w, x, device=device)
     dyn_base = rep_base.total_dynamic_energy__fJ(prof_base)
@@ -312,7 +322,7 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
     prof_2t, rep_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
     assert rep_2t.total_dynamic_energy__fJ(prof_2t) == pytest.approx(dyn_base)
 
-    # --- Double a conduction window (t_settle -> t_other): the read channels grow ---
+    # --- Double the settle part of the tail: the read channels grow ---
     prof_win, rep_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
     assert rep_win.total_dynamic_energy__fJ(prof_win) > dyn_base  # dynamic grows with the window
     # The control channel is window-invariant; the read channels moved.
@@ -321,6 +331,21 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
     assert ch_win["control"] == pytest.approx(ch_base["control"])
     for ch in _READ_ROWS:
         assert ch_win[ch] > ch_base[ch], f"read channel {ch} did not grow with t_settle"
+
+
+def test_runtime_adc_width_selects_every_sensing_window(device: torch.device) -> None:
+    """Dropping ADC steps shortens every tail-dependent readout row."""
+    config = build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
+    w, x = _w_full(), _x_full(3)
+    rows: list[dict[str, float]] = []
+    for bits in range(1, config.adc_config.bits + 1):
+        profiler, reporter = _run(config, w, x, device=device, adc_bits=bits)
+        rows.append(reporter.by_name(profiler))
+
+    for key in (".cablc", "dswct", "sinwp_sc", "pn_isub", "tmcsa"):
+        values = [row[key] for row in rows]
+        assert values[0] < values[1] < values[2], f"{key} did not follow runtime ADC width: {values}"
+    assert rows[0][".control"] == pytest.approx(rows[-1][".control"])
 
 
 # ---------------------------------------------------------------------------
@@ -425,27 +450,26 @@ def test_control_channel_count_mux_times_batch(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PN-ISUB module row: t_other conduction + per-op comparator decision
+# PN-ISUB module row: tail conduction + per-op comparator decision
 # ---------------------------------------------------------------------------
 
 
-def test_pn_isub_row_present_and_uses_t_other(device: torch.device) -> None:
-    """The `pn_isub` module row bills the three branches over `t_other` + the per-op decision.
+def test_pn_isub_row_present_and_uses_tail(device: torch.device) -> None:
+    """The `pn_isub` row bills three branches over the tail plus the per-op decision.
 
-    It rides `t_other` (via `t_settle`), so it grows with `t_settle` but is
-    invariant to the sampled-bit windows `t_sample` (the PN-ISUB conducts only
-    in the live/tail window).
+    It grows with `t_settle` but is invariant to the sampled-input phase because
+    PN-ISUB conducts only in the live-bit tail.
     """
     w, x = _w_full(), _x_full(3)
 
     def pnisub(cfg: Xue2020JsscCimMacroConfig) -> float:
         return _channel_energies(cfg, w, x, device=device)["pn_isub"]
 
-    base = pnisub(build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0))
-    more_settle = pnisub(build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=3.0))
-    more_sample = pnisub(build_config(input_bit_num=3, t_sample__ns=(5.0, 7.0), t_settle__ns=1.0))
+    base = pnisub(build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0))
+    more_settle = pnisub(build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=3.0))
+    more_sample = pnisub(build_config(input_bit_num=3, t_sample__ns=7.0, t_settle__ns=1.0))
     assert base > 0.0
-    assert more_settle > base, "pn_isub must grow with t_settle (rides t_other)"
+    assert more_settle > base, "pn_isub must grow with the tail"
     assert more_sample == pytest.approx(base), "pn_isub must be invariant to the sampled-bit windows"
 
 
@@ -455,20 +479,20 @@ def test_pn_isub_row_present_and_uses_t_other(device: torch.device) -> None:
 
 
 def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
-    """Each read channel is linear (collinear over 3 equally-spaced values) in `t_sample[0]`; control invariant."""
+    """Read channels are linear in the repeated input phase; control is invariant."""
     w, x = _w_full(), _x_full(3)
     energies = [
         _channel_energies(
-            build_config(input_bit_num=3, t_sample__ns=(ts, 3.0), t_settle__ns=1.0),
+            build_config(input_bit_num=3, t_sample__ns=ts, t_settle__ns=1.0),
             w,
             x,
             device=device,
         )
-        for ts in (2.0, 4.0, 6.0)  # equal spacing dt = 2
+        for ts in (2.0, 4.0, 6.0)
     ]
     for ch in _READ_ROWS:
         v = [e[ch] for e in energies]
-        assert v[0] < v[1] < v[2], f"{ch} not increasing in t_sample[0]: {v}"
+        assert v[0] < v[1] < v[2], f"{ch} not increasing in t_sample: {v}"
         # Equal spacing in the knob => equal spacing in energy (linear).
         assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
     ctrl = [e["control"] for e in energies]
@@ -477,11 +501,11 @@ def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
 
 
 def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
-    """Each read channel is linear in `t_settle` (via `t_other`); control invariant."""
+    """Each read channel is linear in `t_settle`; control is invariant."""
     w, x = _w_full(), _x_full(3)
     energies = [
         _channel_energies(
-            build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=ts),
+            build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=ts),
             w,
             x,
             device=device,
@@ -498,98 +522,86 @@ def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
 
 
 def test_sc_held_leg_suffix_sum_law(device: torch.device) -> None:
-    """The SINWP-SC held-leg window `sum_{j>=k} t_sample[j] + t_other` accumulates: later windows touch more legs.
-
-    With `window_sc[k] = sum_{j>=k} t_sample[j] + t_other` (K=3): `t_sample[0]`
-    rides only held leg 0, `t_sample[1]` rides legs 0 and 1, and `t_other`
-    (via `t_settle`) rides all three. So the SC sensitivity strictly grows
-    `d/dt_sample[0] < d/dt_sample[1] < d/dt_settle` (each step adds one more
-    non-negative held-leg current) — the suffix-sum signature.
-    """
+    """A sampled bit stays active through later phases; the live bit only uses the tail."""
     w, x = _w_full(), _x_full(3)
-
-    def sc(cfg: Xue2020JsscCimMacroConfig) -> float:
-        return _channel_energies(cfg, w, x, device=device)["sinwp_sc"]
-
-    base = sc(build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0))
-    d_ts0 = (sc(build_config(input_bit_num=3, t_sample__ns=(4.0, 3.0), t_settle__ns=1.0)) - base) / 2.0
-    d_ts1 = (sc(build_config(input_bit_num=3, t_sample__ns=(2.0, 5.0), t_settle__ns=1.0)) - base) / 2.0
-    d_settle = (sc(build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=3.0)) - base) / 2.0
-
-    # d_ts0 = S0, d_ts1 = S0 + S1, d_settle = S0 + S1 + S2 (all held-leg currents > 0).
-    assert 0.0 < d_ts0 < d_ts1 < d_settle, f"suffix-sum ordering violated: {(d_ts0, d_ts1, d_settle)}"
+    base_cfg = build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
+    wide_cfg = dataclasses.replace(base_cfg, t_sample__ns=4.0)
+    base = _channel_energies(base_cfg, w, x, device=device)["sinwp_sc"]
+    wide = _channel_energies(wide_cfg, w, x, device=device)["sinwp_sc"]
+    assert wide > base
+    tail = base_cfg.tail__ns(TINY_ADC_BITS)
+    assert base_cfg.sinwp_windows__ns(TINY_ADC_BITS) == (4.0 + tail, 2.0 + tail, tail)
 
 
 def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device) -> None:
-    """cablc / dswct use PER-BIT windows: an isolated bit rides only its own `t_sample` — not the held suffix.
+    """An isolated sampled bit reaches the tail only in SINWP-SC.
 
-    The array/CABLC/DSWCT conduction is billed per input bit with `window_array`
-    (sampled bit `k` -> `t_sample[k]`; live bit -> `t_other`), unlike the
-    SINWP-SC held legs whose window is the suffix sum `sum_{j>=k} t_sample[j] +
-    t_other`. Here only input bit 0 conducts (`x == 1`): its per-bit window is
-    `t_sample[0]` alone, so the cablc/dswct channels MOVE with `t_sample[0]`
-    yet are INVARIANT to `t_sample[1]` and `t_settle` — a diagonal signature
-    the suffix-held window (bit 0 riding `t_sample[1]` and `t_other` too)
-    breaks. The SINWP-SC channel is the positive control: its held bit-0 leg DOES
-    ride the later windows.
+    Array/CABLC/DSWCT conduction is billed per input bit: sampled bits use the
+    input-phase duration and the live bit uses the tail. SINWP-SC instead holds
+    sampled legs through all later phases. Here only input bit 0 conducts (`x == 1`): its per-bit window is
+    `t_sample` alone, so cablc/dswct are invariant to `t_settle`. The
+    SINWP-SC channel is the positive control because the sampled bit stays held
+    through the tail.
     """
     w = _w_full(input_num=TINY_INPUT_NUM)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long)  # bit 0 set, bits 1..K-1 zero
 
-    def read(t_sample: tuple[float, ...], t_settle: float) -> dict[str, float]:
+    def read(t_sample: float, t_settle: float) -> dict[str, float]:
         return _channel_energies(
-            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=t_settle), w, x, device=device
+            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=t_settle),
+            w,
+            x,
+            device=device,
         )
 
-    base = read((2.0, 3.0), 1.0)
-    bump_ts0 = read((4.0, 3.0), 1.0)  # later t_sample[0]
-    bump_ts1 = read((2.0, 5.0), 1.0)  # later t_sample[1] — no bit-1 conduction
-    bump_settle = read((2.0, 3.0), 3.0)  # later t_other — no live-bit conduction
+    base = read(2.0, 1.0)
+    bump_input = read(4.0, 1.0)
+    bump_settle = read(2.0, 3.0)
 
     for ch in ("cablc", "dswct"):
-        assert bump_ts0[ch] > base[ch], f"{ch} must ride the conducting bit 0's window t_sample[0]: {base[ch]}"
-        assert bump_ts1[ch] == pytest.approx(base[ch]), (
-            f"{ch} bit-0 conduction leaked into t_sample[1] (suffix-held regression): {base[ch]} -> {bump_ts1[ch]}"
-        )
+        assert bump_input[ch] > base[ch]
         assert bump_settle[ch] == pytest.approx(base[ch]), (
-            f"{ch} bit-0 conduction leaked into t_other/t_settle (suffix-held regression): "
-            f"{base[ch]} -> {bump_settle[ch]}"
+            f"{ch} bit-0 conduction leaked into the tail: {base[ch]} -> {bump_settle[ch]}"
         )
-    # Positive control: the SINWP-SC held bit-0 leg's window IS the suffix sum.
-    assert bump_ts1["sinwp_sc"] > base["sinwp_sc"], (
-        f"held bit-0 leg must ride the suffix window t_sample[1]: {base['sinwp_sc']} -> {bump_ts1['sinwp_sc']}"
-    )
+    assert bump_settle["sinwp_sc"] > base["sinwp_sc"]
 
 
-def test_live_bit_conducts_in_t_other_independent_of_sampling(device: torch.device) -> None:
-    """The live (K-1) bit has no sample phase — its conduction window is `t_other` regardless of `t_sample`.
+def test_live_bit_conducts_in_tail_independent_of_sampling(device: torch.device) -> None:
+    """The live bit has no sample phase, so its branch is independent of input-phase duration.
 
-    Config-level: the last entry of both window vectors equals `t_other`. The
+    Config-level: the last entry of both window vectors equals the tail. The
     array/CABLC legs are independent per bit, so the `t_settle` sensitivity of a
     read channel is exactly the live-bit leg — and, because that leg's current is
     a DC solve of the live plane (window-independent), the slope is INVARIANT to
     the sampled-bit windows.
     """
-    cfg = build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0)
-    assert cfg.window_array__ns[-1] == cfg.t_other__ns
-    assert cfg.window_sc__ns[-1] == cfg.t_other__ns
+    cfg = build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
+    tail = cfg.tail__ns(TINY_ADC_BITS)
+    assert cfg.array_windows__ns(TINY_ADC_BITS)[-1] == tail
+    assert cfg.sinwp_windows__ns(TINY_ADC_BITS)[-1] == tail
 
     w, x = _w_full(), _x_full(3)
 
-    def cablc_settle_slope(t_sample: tuple[float, ...]) -> float:
+    def cablc_settle_slope(t_sample: float) -> float:
         lo = _channel_energies(
-            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=1.0), w, x, device=device
+            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=1.0),
+            w,
+            x,
+            device=device,
         )["cablc"]
         hi = _channel_energies(
-            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=3.0), w, x, device=device
+            build_config(input_bit_num=3, t_sample__ns=t_sample, t_settle__ns=3.0),
+            w,
+            x,
+            device=device,
         )["cablc"]
         return (hi - lo) / 2.0
 
-    slope_a = cablc_settle_slope((2.0, 3.0))
-    slope_b = cablc_settle_slope((7.0, 5.0))  # very different sampling windows
-    assert slope_a > 0.0, "the live bit must conduct in t_other"
+    slope_a = cablc_settle_slope(2.0)
+    slope_b = cablc_settle_slope(7.0)
+    assert slope_a > 0.0, "the live bit must conduct in the tail"
     assert slope_a == pytest.approx(slope_b, rel=1e-9, abs=1e-9), (
-        f"live-bit t_other leg leaked into sampling: {(slope_a, slope_b)}"
+        f"live-bit tail leaked into sampling: {(slope_a, slope_b)}"
     )
 
 
@@ -598,26 +610,19 @@ def test_live_bit_conducts_in_t_other_independent_of_sampling(device: torch.devi
 # ---------------------------------------------------------------------------
 
 
-def test_tmcsa_is_pure_fixed_when_phase_windows_zero(device: torch.device) -> None:
-    """All-zero PH2/PH3 windows reduce the `tmcsa` row to `adc_bits * e_fixed` per converted element.
-
-    The fixed constant is the TMCSA MODULE's `e_fixed_per_op__fJ` — the
-    kernel `adc_config` constant is deliberately a DIFFERENT witness value,
-    so a billing-duty regression (the kernel ADC billing again) is caught.
-    """
+def test_tmcsa_fixed_step_energy_remains_when_phase_windows_are_zero(device: torch.device) -> None:
+    """With PH2 and PH3 absent, only the per-step TMCSA switching energy remains."""
     base = build_config()
-    cfg = _with_tmcsa(base, t_ph2=(0.0, 0.0, 0.0), t_ph3=(0.0, 0.0, 0.0))
-    assert cfg.tmcsa_config.e_fixed_per_op__fJ != cfg.adc_config.e_fixed_per_op__fJ
+    cfg = _with_tmcsa(base, t_ph2__ns=0.0, t_ph3__ns=0.0)
+    cfg_no_fixed = _with_tmcsa(cfg, e_per_step__fJ=0.0)
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)  # single access (no batch axis)
     prof, reporter = _run(cfg, w, x, device=device)
-    e_tmcsa = reporter.by_name(prof)["tmcsa"]
+    e_fixed = reporter.by_name(prof)["tmcsa"]
+    prof_no_fixed, reporter_no_fixed = _run(cfg_no_fixed, w, x, device=device)
 
-    adc_bits = cfg.adc_config.bits
-    e_fixed = cfg.tmcsa_config.e_fixed_per_op__fJ
-    # One converted element per (mux slot, io lane): i_sub is [gs, gn] with no batch axis.
-    count = cfg.mux_factor * (TINY_OUTPUT_NUM // cfg.mux_factor)
-    assert e_tmcsa == pytest.approx(adc_bits * e_fixed * count)
+    assert e_fixed > 0.0
+    assert reporter_no_fixed.by_name(prof_no_fixed)["tmcsa"] == pytest.approx(0.0)
 
 
 def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) -> None:
@@ -629,7 +634,7 @@ def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) 
     """
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)
-    base = build_config()  # witness phases: t_ph2 = 0.2 * step, t_ph3 = 0.3 * step
+    base = build_config()  # witness phases: t_ph2 = 0.2 ns, t_ph3 = 0.3 ns
 
     def tmcsa(cfg: Xue2020JsscCimMacroConfig) -> float:
         prof, reporter = _run(cfg, w, x, device=device)
@@ -637,16 +642,12 @@ def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) 
         assert "adc" not in by_name, "kernel ADC must be energy-silent"
         return by_name["tmcsa"]
 
-    base_t_ph2 = base.tmcsa_config.t_ph2_per_step__ns
-    base_t_ph3 = base.tmcsa_config.t_ph3_per_step__ns
-    e_fixed_only = tmcsa(_with_tmcsa(base, t_ph2=(0.0, 0.0, 0.0), t_ph3=(0.0, 0.0, 0.0)))
+    e_zero = tmcsa(_with_tmcsa(base, t_ph2__ns=0.0, t_ph3__ns=0.0))
     e_base = tmcsa(base)
-    e_more_ph2 = tmcsa(_with_tmcsa(base, t_ph2=tuple(2.0 * t for t in base_t_ph2)))
-    e_more_ph3 = tmcsa(_with_tmcsa(base, t_ph3=tuple(2.0 * t for t in base_t_ph3)))
+    e_more_scale = tmcsa(_with_tmcsa(base, conduction_scale=2.0 * base.tmcsa_config.conduction_scale))
 
-    assert e_base > e_fixed_only, "phase conduction must add on top of the fixed model"
-    assert e_more_ph2 > e_base, "energy must grow with t_ph2"
-    assert e_more_ph3 > e_base, "energy must grow with t_ph3"
+    assert e_base > e_zero
+    assert e_more_scale == pytest.approx(2.0 * e_base - e_zero)
 
     # Kernel-knob deadness: scaling the kernel conduction knobs changes nothing.
     e_kernel_scaled = tmcsa(_with_adc(base, t_conduct=(9.0, 9.0, 9.0), v_rail=5.0, e_fixed=123.0))

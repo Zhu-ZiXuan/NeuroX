@@ -49,7 +49,7 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `e_fixed_per_op__fJ` ($E_{\mathrm{fixed}}$) | data-independent per-step energy constant | fJ | $\geq 0$ | Design |
 | `v_rail__V` ($V_{\mathrm{rail}}$) | rail the input and selected reference conduct across per step | V | $\geq 0$ | Design |
 | `t_conduct_per_step__ns` ($t_{\mathrm{cond},s}$) | per-step conduction window; all-zero ⇒ pure fixed energy | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
-| `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $= b_{\max}$, $\geq 0$ | Design |
+| `latency_per_step__ns` | decision latency of one search step | ns | $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |

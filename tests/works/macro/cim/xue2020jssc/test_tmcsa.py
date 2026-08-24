@@ -3,8 +3,8 @@
 Hand-built tiny witness, eager, CPU. Five laws:
 
   * SHAPE LAW: `inst_count` derives from the `(gn,)` fabrication shape and
-    the static PPA seats scale with it; `max_bits` derives from the
-    phase-window list length; forward is billing-only (returns `None`, value
+    the static PPA seats scale with it; `max_bits` is injected by the owner;
+    forward is billing-only (returns `None`, value
     untouched).
   * LUT CONSISTENCY LAW (mandatory): the structural code -> reference-tap LUT
     equals the kernel SarIadc's ACTUAL `_select_ref` binary-search sequence,
@@ -13,15 +13,13 @@ Hand-built tiny witness, eager, CPU. Five laws:
     round-trip both reconcile.
   * PHASE-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
     the hand-computed per-step formula on a tiny witness —
-    `sum_s vdd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
-    + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits` per
+    `alpha * sum_s vdd * (3 * (i_sub + i_ref_path[s]) * t_ph2
+    + 2 * (i_sub + i_ref_path[s]) * t_ph3) + bits * e_per_step` per
     converted element, with `i_ref_path[s]` looked up from the final code.
   * LOWERED-BIT LAW: a `b`-bit conversion truncates the max-bits search after
-    `b` levels, so it bills the LEADING `b` phase windows at the up-shifted
-    code — checked against the max-bits call with the trailing windows zeroed,
-    not against a restated formula.
-  * GUARDS: mismatched phase-window list lengths and negative entries are
-    rejected at config time; a code/input shape mismatch, a wrong ladder tap
+    `b` levels and bills those leading decisions at the up-shifted code.
+  * GUARDS: invalid phase durations and scale are rejected at config time; a
+    code/input shape mismatch, a wrong ladder tap
     count, and a `bits` outside `[1, max_bits]` are rejected at call time.
 """
 
@@ -43,9 +41,10 @@ _BITS = 3
 
 # --- Witness physics knobs (small explicit values, no code defaults) ---
 _VDD__V = 1.2  # non-unity so a dropped rail factor is caught
-_T_PH2__NS = (0.5, 0.4, 0.3)
-_T_PH3__NS = (0.9, 0.8, 0.7)
-_E_FIXED__fJ = 1.25
+_T_PH2__NS = 0.4
+_T_PH3__NS = 0.6
+_CONDUCTION_SCALE = 1.25
+_E_PER_STEP__fJ = 7.0
 _AREA_PER_INST__um2 = 2.0
 _LEAKAGE_PER_INST__uW = 3.0
 
@@ -56,13 +55,16 @@ _LADDER = tuple(float(k + 1) for k in range((1 << _BITS) - 1))
 
 def _config(
     *,
-    t_ph2__ns: tuple[float, ...] = _T_PH2__NS,
-    t_ph3__ns: tuple[float, ...] = _T_PH3__NS,
+    t_ph2__ns: float = _T_PH2__NS,
+    t_ph3__ns: float = _T_PH3__NS,
+    conduction_scale: float = _CONDUCTION_SCALE,
+    e_per_step__fJ: float = _E_PER_STEP__fJ,
 ) -> TmcsaConfig:
     return TmcsaConfig(
-        t_ph2_per_step__ns=t_ph2__ns,
-        t_ph3_per_step__ns=t_ph3__ns,
-        e_fixed_per_op__fJ=_E_FIXED__fJ,
+        t_ph2__ns=t_ph2__ns,
+        t_ph3__ns=t_ph3__ns,
+        conduction_scale=conduction_scale,
+        e_per_step__fJ=e_per_step__fJ,
         area_per_inst__um2=_AREA_PER_INST__um2,
         leakage_per_inst__uW=_LEAKAGE_PER_INST__uW,
     )
@@ -73,6 +75,7 @@ def _build(*, gn: int = _GN) -> Tmcsa:
         config=_config(),
         policy=TmcsaPolicy(),
         inst_shape=(gn,),
+        max_bits=_BITS,
         vdd__V=_VDD__V,
         dtype=_DTYPE,
     )
@@ -91,7 +94,7 @@ def _build_kernel_adc() -> SarIadc:
             e_fixed_per_op__fJ=0.0,
             v_rail__V=0.0,
             t_conduct_per_step__ns=(0.0,) * _BITS,
-            step_latency__ns=(1.0,) * _BITS,
+            latency_per_step__ns=1.0,
             comparator_offset_sigma__uA=0.0,
             coupling_mismatch_sigma__uA=0.0,
             area_per_inst__um2=0.0,
@@ -113,7 +116,7 @@ def _build_kernel_adc() -> SarIadc:
 
 
 def test_shape_law() -> None:
-    """inst_count = gn; bits = phase-window length; static PPA scales with inst_count."""
+    """inst_count = gn; max bits is owner-injected; static PPA scales with inst_count."""
     module = _build()
     assert module.inst_shape == (_GN,)
     assert module.inst_count == _GN
@@ -200,11 +203,12 @@ def test_phase_billing_law_hand_computed() -> None:
 
     expected = 0.0
     for i_val, c_val in zip(i_sub.flatten().tolist(), code.flatten().tolist(), strict=True):
+        expected += _BITS * _E_PER_STEP__fJ
         for s in range(_BITS):
             i_ref = _LADDER[int(module._ref_tap_lut[c_val, s])]
             i_ph2 = 3.0 * (i_val + i_ref)  # PH2: inputs (1x each) + internal P3/P4 (2x each)
             i_ph3 = 2.0 * (i_val + i_ref)  # PH3: internal only; 2x splits into two 1x sinks
-            expected += _VDD__V * (i_ph2 * _T_PH2__NS[s] + i_ph3 * _T_PH3__NS[s]) + _E_FIXED__fJ
+            expected += _CONDUCTION_SCALE * _VDD__V * (i_ph2 * _T_PH2__NS + i_ph3 * _T_PH3__NS)
 
     reporter = Reporter(module)
     assert reporter.total_dynamic_energy__fJ(prof) == pytest.approx(expected, rel=1e-12)
@@ -226,11 +230,7 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
 
     Bits `b` truncates the max-bits search after `b` levels over the same
     full ladder, so it runs the leading `b` steps of the max-bits search and
-    lands on the max-bits code shifted down by `B - b`. Cross-checked against the
-    max-bits call itself rather than a restated formula: run the up-shifted code
-    at max bits with the trailing phase windows zeroed — that isolates the same
-    leading steps — and discount the `e_fixed` of the steps a `b`-bit
-    conversion never runs.
+    lands on the max-bits code shifted down by `B - b`.
     """
     bits = _BITS - 1
     shift = _BITS - bits
@@ -239,24 +239,19 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
     code = torch.tensor([[[0, 1], [2, 3]]], dtype=torch.long)  # b-bit codes
     refs = torch.tensor(_LADDER, dtype=_DTYPE)  # always the FULL max-bits ladder
 
-    lowered = _bill(_build(), i_sub, code, refs, bits=bits)
+    module = _build()
+    lowered = _bill(module, i_sub, code, refs, bits=bits)
 
-    leading_only = Tmcsa(
-        config=_config(
-            t_ph2__ns=_T_PH2__NS[:bits] + (0.0,) * shift,
-            t_ph3__ns=_T_PH3__NS[:bits] + (0.0,) * shift,
-        ),
-        policy=TmcsaPolicy(),
-        inst_shape=(_GN,),
-        vdd__V=_VDD__V,
-        dtype=_DTYPE,
-    )
-    leading_only.eval()
-    leading_only.fabricate()
-    stamp_names(leading_only)
-    full_width = _bill(leading_only, i_sub, code << shift, refs, bits=_BITS)
+    expected = 0.0
+    full_code = code << shift
+    for i_val, c_val in zip(i_sub.flatten().tolist(), full_code.flatten().tolist(), strict=True):
+        expected += bits * _E_PER_STEP__fJ
+        for s in range(bits):
+            i_ref = _LADDER[int(module._ref_tap_lut[c_val, s])]
+            i_common = i_val + i_ref
+            expected += _CONDUCTION_SCALE * _VDD__V * (3.0 * i_common * _T_PH2__NS + 2.0 * i_common * _T_PH3__NS)
 
-    assert lowered == pytest.approx(full_width - _E_FIXED__fJ * shift * i_sub.numel(), rel=1e-12)
+    assert lowered == pytest.approx(expected, rel=1e-12)
 
 
 def test_forward_rejects_bits_outside_the_phase_windows() -> None:
@@ -283,14 +278,16 @@ def test_billing_outside_profiler_is_silent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_config_rejects_mismatched_or_negative_phase_windows() -> None:
-    """Phase-window lists must be same-length, non-empty, and non-negative."""
-    with pytest.raises(ValueError, match="t_ph3_per_step__ns"):
-        _config(t_ph2__ns=(0.5, 0.4, 0.3), t_ph3__ns=(0.9, 0.8))
-    with pytest.raises(ValueError, match="t_ph2_per_step__ns"):
-        _config(t_ph2__ns=(), t_ph3__ns=())
-    with pytest.raises(ValueError, match="t_ph2_per_step__ns"):
-        _config(t_ph2__ns=(0.5, -0.4, 0.3), t_ph3__ns=(0.9, 0.8, 0.7))
+def test_config_rejects_invalid_energy_parameters() -> None:
+    """Phase durations are nonnegative, scale is positive, and fixed energy is nonnegative."""
+    with pytest.raises(ValueError, match="t_ph2__ns"):
+        _config(t_ph2__ns=-0.1)
+    with pytest.raises(ValueError, match="t_ph3__ns"):
+        _config(t_ph3__ns=-0.1)
+    with pytest.raises(ValueError, match="conduction_scale"):
+        _config(conduction_scale=0.0)
+    with pytest.raises(ValueError, match="e_per_step__fJ"):
+        _config(e_per_step__fJ=-1.0)
 
 
 def test_forward_rejects_shape_and_tap_mismatches() -> None:

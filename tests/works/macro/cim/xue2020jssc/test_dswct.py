@@ -5,15 +5,14 @@ tiny hand-built witness config (no macro, no solve):
 
   * shape law — `inst_count` derives from the `(gn, 2)` fabrication shape
     (one bank per (IO, polarity)) and the static area / leakage seats scale
-    with it; the forward output drops exactly the `w_digit` axis,
+    with it; the forward output preserves the `w_digit` axis,
   * value law — the forward output equals the same computation done inline:
-    LSB-first digit-ratio weighting then sum over `w_digit`; no profiler
+    LSB-first digit-ratio weighting; no profiler
     required and no events emitted outside one,
   * billing law — the recorded dynamic energy equals the hand-computed formula
     on a tiny witness: rail `VDD * |I_WDL leg| * window` summed over every
     (plane, slot, lane, digit) leg — the per-bit DIAGONAL window rides the
-    leading batch — plus the `c_load * VDD**2` cap event per (slot x plane)
-    per bank; negative leg currents bill by `|I|`,
+    leading batch; negative leg currents bill by `|I|`,
   * construction / call guards — a polarity axis that is not 2, a non-1-D
     ratio buffer, and a trailing shape mismatch all raise.
 
@@ -41,22 +40,20 @@ _VDD__V = 1.2  # non-unity so a dropped rail factor is caught
 _DIGIT_RATIOS = (0.25, 0.5)  # LSB-first (MSB anchor 0.5, radix 2)
 
 
-def _build_config(*, c_load__fF: float = 0.0) -> DswctConfig:
+def _build_config() -> DswctConfig:
     return DswctConfig(
         area_per_inst__um2=2.0,
         leakage_per_inst__uW=3.0,
-        c_load__fF=c_load__fF,
     )
 
 
 def _build_dswct(
     *,
-    c_load__fF: float = 0.0,
     inst_shape: tuple[int, ...] = (_GN, _POL),
     digit_ratios: tuple[float, ...] = _DIGIT_RATIOS,
 ) -> Dswct:
     dswct = Dswct(
-        config=_build_config(c_load__fF=c_load__fF),
+        config=_build_config(),
         policy=DswctPolicy(),
         inst_shape=inst_shape,
         digit_ratios=torch.tensor(digit_ratios, dtype=_DTYPE),
@@ -75,9 +72,9 @@ def _i_dl(*leading: int) -> Tensor:
 
 
 def _inline_i_wdl(i_dl__uA: Tensor, digit_ratios: tuple[float, ...] = _DIGIT_RATIOS) -> Tensor:
-    """The forward computation done inline: digit-ratio weighting + digit sum."""
+    """The forward computation done inline: digit-ratio weighting."""
     ratios = torch.tensor(digit_ratios, dtype=i_dl__uA.dtype)
-    return (i_dl__uA * ratios).sum(dim=-1)
+    return i_dl__uA * ratios
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +93,13 @@ def test_inst_count_and_static_seats_derive_from_config() -> None:
     assert dswct.leakage__uW == pytest.approx(config.leakage_per_inst__uW * _GN * _POL)
 
 
-def test_forward_drops_exactly_the_digit_axis() -> None:
-    """Output shape is the input shape with the trailing `w_digit` axis reduced."""
+def test_forward_preserves_the_digit_axis() -> None:
+    """Output shape matches the input shape."""
     dswct = _build_dswct()
     for leading in ((), (4,), (2, 3)):
         i_dl = _i_dl(*leading)
         out = dswct(i_dl, window__ns=1.0)
-        assert tuple(out.shape) == (*leading, _SERIAL, _GN, _POL)
+        assert tuple(out.shape) == (*leading, _SERIAL, _GN, _POL, _W_DIGIT)
 
 
 def test_fabrication_prefix_rides_inst_shape() -> None:
@@ -117,7 +114,7 @@ def test_fabrication_prefix_rides_inst_shape() -> None:
 
 
 def test_forward_equals_inline_computation() -> None:
-    """Forward == LSB-first digit-ratio weighting + sum over w_digit, exactly."""
+    """Forward equals LSB-first digit-ratio weighting exactly."""
     dswct = _build_dswct()
     i_dl = _i_dl(2)
     out = dswct(i_dl, window__ns=1.0)
@@ -166,33 +163,6 @@ def test_per_bit_diagonal_window_rides_the_leading_batch() -> None:
     assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 
-def test_cap_event_per_slot_plane_bank() -> None:
-    """c_load * VDD**2 fires once per (slot x plane) per bank on top of the rail term."""
-    c_load__fF = 0.5
-    dswct = _build_dswct(c_load__fF=c_load__fF)
-    plane_num = 2
-    i_dl = _i_dl(plane_num)
-    window__ns = 4.0
-    with Profiler() as prof:
-        dswct(i_dl, window__ns=window__ns)
-    ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
-    rail__fJ = float(_VDD__V * (i_dl * ratios).abs().sum() * window__ns)
-    cap__fJ = c_load__fF * _VDD__V**2 * (plane_num * _SERIAL * _GN * _POL)
-    assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(rail__fJ + cap__fJ, rel=1e-12)
-
-
-def test_zero_c_load_bills_rail_only() -> None:
-    """The shipped c_load = 0.0 leaves the billed energy exactly the rail term."""
-    i_dl = _i_dl(2)
-    window__ns = 3.0
-    dswct = _build_dswct(c_load__fF=0.0)
-    with Profiler() as prof_zero:
-        dswct(i_dl, window__ns=window__ns)
-    ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
-    expect__fJ = float(_VDD__V * (i_dl * ratios).abs().sum() * window__ns)
-    assert Reporter(dswct).total_dynamic_energy__fJ(prof_zero) == pytest.approx(expect__fJ, rel=1e-12)
-
-
 # ---------------------------------------------------------------------------
 # Guards
 # ---------------------------------------------------------------------------
@@ -211,8 +181,6 @@ def test_construction_guards() -> None:
             digit_ratios=torch.ones((2, 2), dtype=_DTYPE),  # not 1-D
             vdd__V=_VDD__V,
         )
-    with pytest.raises(ValueError, match="c_load__fF"):
-        _build_config(c_load__fF=-1.0)
 
 
 def test_forward_trailing_shape_guards() -> None:

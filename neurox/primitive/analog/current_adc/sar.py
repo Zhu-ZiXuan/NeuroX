@@ -35,10 +35,8 @@ class SarIadcConfig(IadcConfig):
     >= `bits`; a longer tuple is tolerated and only the first `bits` entries
     are drawn). All-zero reduces to the pure fixed-energy model."""
 
-    step_latency__ns: tuple[float, ...]
-    """Per-step decision latency, exactly `bits` entries — the search tree has
-    no step beyond the physical resolution, and an owner reads the whole tuple
-    as the full-resolution sensing duration."""
+    latency_per_step__ns: float
+    """Decision latency of one binary-search step."""
 
     comparator_offset_sigma__uA: float
     """Input-referred SA offset σ, as a current-domain margin perturbation."""
@@ -62,11 +60,7 @@ class SarIadcConfig(IadcConfig):
         for step, t in enumerate(self.t_conduct_per_step__ns):
             self._require_non_neg(t, f"t_conduct_per_step__ns[{step}]")
 
-        # Exactly one entry per search step: a trailing entry the search never
-        # executes would inflate every window derived from the tuple.
-        self._require_len(self.step_latency__ns, "step_latency__ns", self.bits)
-        for step, latency in enumerate(self.step_latency__ns):
-            self._require_non_neg(latency, f"step_latency__ns[{step}]")
+        self._require_non_neg(self.latency_per_step__ns, "latency_per_step__ns")
 
         # --- Nonidealities ---
 
@@ -144,7 +138,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         a call at `bits` executes the first `bits` of them.
         """
         self._check_bits(bits)
-        return sum(self.config.step_latency__ns[:bits])
+        return bits * self.config.latency_per_step__ns
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         self.register_buffer("_nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)

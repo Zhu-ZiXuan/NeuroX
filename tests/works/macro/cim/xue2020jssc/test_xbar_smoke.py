@@ -118,16 +118,16 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     # belongs to the converter that owns the search-step axis. mux_factor is the
     # macro's only time axis.
     cfg = macro.config
-    chain__ns = sum(cfg.t_sample__ns) + cfg.t_settle__ns
     for bits in range(1, TINY_ADC_BITS + 1):
-        expected__ns = (chain__ns + macro.adc.latency__ns(bits=bits)) * cfg.mux_factor
+        expected__ns = cfg.access_latency__ns(bits) * cfg.mux_factor
         assert macro.latency__ns(adc_bits=bits) == pytest.approx(expected__ns)
         assert macro.initiation_interval__ns(adc_bits=bits) == pytest.approx(cfg.t_cycle__ns * cfg.mux_factor)
         assert macro.initiation_interval__ns(adc_bits=bits) >= macro.latency__ns(adc_bits=bits)
     # A lowered resolution shortens the access by exactly the steps it drops.
     assert macro.latency__ns(adc_bits=TINY_ADC_BITS - 1) < macro.latency__ns(adc_bits=TINY_ADC_BITS)
-    # At full resolution the access is the whole conduction span.
-    assert macro.latency__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(cfg.conduction_span__ns * cfg.mux_factor)
+    assert macro.latency__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(
+        cfg.access_latency__ns(TINY_ADC_BITS) * cfg.mux_factor
+    )
 
 
 def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:

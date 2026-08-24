@@ -1,14 +1,7 @@
-"""SINWP-SC input-radix combine — one switched-capacitor unit per (CIM-IO, polarity) lane.
-
-The K per-input-bit DSWCT output currents are weighted by the LSB-first
-input-radix combine ratios `s_k` and summed over the bit axis into the per-lane
-pre-subtraction current `I_DL_PN`. A reporter leaf: it self-bills its held/live
-mirror-leg conduction and hold-cap cycling.
-"""
+"""SINWP-SC input- and weight-radix combine."""
 
 from __future__ import annotations
 
-import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
@@ -17,13 +10,10 @@ _POLARITY_NUM = 2  # P (PWG), N (NWG) lane per CIM-IO
 
 
 class SinwpScConfig(ConfigBase):
-    c_hold__fF: float
-    """Sample-and-hold capacitance per combine leg, cycled once per instance per (slot, bit) event."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self._require_non_neg(self.c_hold__fF, "c_hold__fF")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -89,9 +79,10 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         """Combine the per-bit currents over the input-radix ratios.
 
         Args:
-            i__uA: Per-input-bit lane currents, bit axis at dim -4 and LSB first.
+            i__uA: Per-input-bit, per-weight-digit lane currents. Both radix
+                axes are LSB first; the input-bit axis is at dim -5.
                 Every leading axis is anonymous broadcast batch.
-                Shape: `[..., x_bits, serial, gn, polarity]`.
+                Shape: `[..., x_bits, serial, gn, polarity, w_digit]`.
             window_per_bit__ns: Per-input-bit conduction window — the
                 sample-and-hold suffix-sum window the macro injects per call.
                 Shape: `[x_bits]`.
@@ -101,17 +92,18 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
             Shape: `[..., serial, gn, polarity]`.
         """
         n_bits = self.input_bit_num
-        if i__uA.ndim < 4:
+        if i__uA.ndim < 5:
             raise ValueError(
-                f"forward() expects i__uA with >= 4 dims [..., x_bits, serial, gn, {_POLARITY_NUM}]; got {i__uA.ndim}"
+                f"forward() expects i__uA with >= 5 dims "
+                f"[..., x_bits, serial, gn, {_POLARITY_NUM}, w_digit]; got {i__uA.ndim}"
             )
-        if tuple(i__uA.shape[-2:]) != self.inst_shape[-2:]:
+        if tuple(i__uA.shape[-3:-1]) != self.inst_shape[-2:]:
             raise ValueError(
                 f"forward() expects i__uA trailing (gn, {_POLARITY_NUM}) {self.inst_shape[-2:]}; "
-                f"got {tuple(i__uA.shape[-2:])}"
+                f"got {tuple(i__uA.shape[-3:-1])}"
             )
-        if i__uA.shape[-4] != n_bits:
-            raise ValueError(f"forward() expects x_bits ({n_bits}) at dim -4; got {i__uA.shape[-4]}")
+        if i__uA.shape[-5] != n_bits:
+            raise ValueError(f"forward() expects x_bits ({n_bits}) at dim -5; got {i__uA.shape[-5]}")
         if tuple(window_per_bit__ns.shape) != (n_bits,):
             raise ValueError(
                 f"forward() expects window_per_bit__ns.shape ({(n_bits,)}); got {tuple(window_per_bit__ns.shape)}"
@@ -120,9 +112,9 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         # Branch-tensor law: materialize the per-leg sink currents FIRST —
         # each mirror leg carries the s_k-scaled copy, not the interface
         # current — then value AND energy consume the same tensor.
-        # Shape: [x_bits, serial=1, gn=1, polarity=1]
-        bit_ratios = self._bit_ratios.view(n_bits, 1, 1, 1)
-        # Shape: [..., x_bits, serial, gn, polarity]
+        # Shape: [x_bits, serial=1, gn=1, polarity=1, w_digit=1]
+        bit_ratios = self._bit_ratios.view(n_bits, 1, 1, 1, 1)
+        # Shape: [..., x_bits, serial, gn, polarity, w_digit]
         i_leg__uA = i__uA * bit_ratios
 
         if self._is_dynamic_energy_profile_active():
@@ -130,21 +122,13 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
             # slot and (gn, polarity) lane axes past the caller's leading dims.
             # Rail conduction: signed per-bit LEG current (not |I|) over the
             # suffix-sum hold window.
-            # Shape: [x_bits] -> [x_bits, serial=1, gn=1, polarity=1]
-            window_view__ns = window_per_bit__ns.view(n_bits, 1, 1, 1)
-            # Shape: [..., x_bits, serial, gn, polarity]
+            # Shape: [x_bits] -> [x_bits, serial=1, gn=1, polarity=1, w_digit=1]
+            window_view__ns = window_per_bit__ns.view(n_bits, 1, 1, 1, 1)
+            # Shape: [..., x_bits, serial, gn, polarity, w_digit]
             e_conduction = (self._vdd__V * window_view__ns) * i_leg__uA
             self._record_dynamic_energy(e_conduction)
-            # Hold-cap cycling: one c_hold * vdd**2 event per (slot x bit) per
-            # (IO, polarity) lane — a constant, so the expanded view holds no
-            # storage and only the caller's leading dims are materialized.
-            # Shape: [] -> [..., x_bits, serial, gn, polarity]
-            e_hold__fJ = torch.full(
-                (), self.config.c_hold__fF * self._vdd__V**2, dtype=torch.float32, device=i__uA.device
-            )
-            self._record_dynamic_energy(e_hold__fJ.expand(i__uA.shape))
 
-        # Temporal weighted sum over bits (input radix), LSB first — the sum
-        # of the SAME materialized legs the billing consumed.
-        # Shape: [..., x_bits, serial, gn, polarity] -> [..., serial, gn, polarity]
-        return i_leg__uA.sum(dim=-4)
+        # Sum input-bit and weight-digit place values into one lane current.
+        # Shape: [..., x_bits, serial, gn, polarity, w_digit]
+        #     -> [..., serial, gn, polarity]
+        return i_leg__uA.sum(dim=(-5, -1))

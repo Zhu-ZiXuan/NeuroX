@@ -2,18 +2,13 @@
 #
 # GENUINE: the runtime macro (../params.toml) composes the kernel XbarArray1t1r directly --
 # no scheme-local array class -- in wl_in_bl_scan over the full physical column grid, one
-# solve per plane, with the parallel BL/SL solver over a positive wire ladder (BL/SL first
-# 20 Ohm, segment 5 Ohm). The solver iteration counts (n_outer, n_inner) are therefore really
+# solve per plane, with the parallel BL/SL solver over a positive 5-Ohm-per-segment
+# wire ladder. The solver iteration counts (n_outer, n_inner) are therefore really
 # used: the wire IR drop couples BL/SL and the DC solve is non-trivial. This run-config
-# targets the Detail SOURCE model (params_detail.toml), a config-complete macro tree whose wire
-# ladder MIRRORS the runtime array, so the calibrated (n_outer, n_inner) transfer to
-# ../params.toml. It also:
-#   - reactivates tests/tools/test_calibrate_solver.py::TestShippedRunConfig (the three
-#     shipped-config tests: schema parse, solver_section resolution in the macro dict,
-#     active_rows == max_active_num);
-#   - documents the solver knobs for the physical Detail model calibrate_cell extracts from.
+# targets the shipped fixed Linear-cell macro directly, so the calibrated
+# (n_outer, n_inner) apply to the exact runtime array.
 #
-# Run (on the Detail source model):
+# Run:
 #   python -m neurox.tools.calibrate_solver.col_bl_col_sl \
 #       --config validations/xue2020jssc/tools/calibrate_solver.toml --device cpu
 
@@ -22,16 +17,16 @@ input_num = 256
 output_num = 128
 config_files = ["../params.toml"]            # the shipped Linear-cell macro (the config the scheme actually runs)
 config_section = "cim_macro"
-policy_file = "../policy.toml"                # all-off (loaded only by an actual sweep, not the tests)
+policy_file = "../policy.toml"                # all-off calibration policy
 policy_section = "policy"
 solver_section = "array_config.solver_config" # dotted path to the ColBlColSlSolverConfig table
 
 [workload]
-inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis
+inst_shape = [2]                  # bound to [batch_w]; the parallel weight-program axis
 active_rows = 9                   # == the macro's max_active_num (production-faithful row block)
-weight_samples = 4
-input_samples_per_weight = 8
-batch_w = 4
+weight_samples = 2                # one complete two-program batch at the full array geometry
+input_samples_per_weight = 2      # two inputs, each serialized over all 256 rows
+batch_w = 2
 
 [sweep]
 outer_candidates = [1, 2, 3, 4, 5, 6]

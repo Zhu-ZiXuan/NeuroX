@@ -40,7 +40,7 @@ _neurox_class = "GeneralVdacPolicy"
 drive_thermal = false
 
 
-# --- CABLC BL-clamp seat (ideal Thevenin VoltageDriver) ---
+# --- CABLC BL-clamp seat ---
 [policy.cablc_policy]
 offset = false
 thermal = false

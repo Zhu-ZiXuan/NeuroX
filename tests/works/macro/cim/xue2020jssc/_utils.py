@@ -20,8 +20,8 @@ bit-exactly.
 The geometry mirrors the paper design in miniature: `output_num = 4`
 (`mux_factor = 2` -> `io_num = 2`), `input_num = max_active_num = 4`,
 `input_bit_num = 2` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude.
-The ADC step latency is the honest per-step SAR sensing durations (feeding the
-read-chain window `t_other`); the static-energy time base is `t_cycle` alone.
+The ADC uses one fixed SAR decision period; the static-energy time base is
+`t_cycle` alone.
 `build_config` is parameterised by geometry and window knobs so other test
 files reuse it.
 
@@ -99,11 +99,11 @@ class _BuildConfigKwargs(TypedDict, total=False):
     w_digit_radix: int
     input_bit_num: int
     adc_bits: int
-    t_sample__ns: tuple[float, ...] | None
+    t_sample__ns: float
     t_settle__ns: float
     t_cycle__ns: float
     t_conduct_per_step__ns: tuple[float, ...] | None
-    step_latency__ns: tuple[float, ...] | None
+    latency_per_step__ns: float
     ref_levels__uA: tuple[float, ...] | None
 
 
@@ -169,11 +169,11 @@ def build_config(
     w_digit_radix: int = 2,
     input_bit_num: int = TINY_K,
     adc_bits: int = TINY_ADC_BITS,
-    t_sample__ns: tuple[float, ...] | None = None,
+    t_sample__ns: float = 1.0,
     t_settle__ns: float = 2.0,
     t_cycle__ns: float = 50.0,
     t_conduct_per_step__ns: tuple[float, ...] | None = None,
-    step_latency__ns: tuple[float, ...] | None = None,
+    latency_per_step__ns: float = 1.0,
     ref_levels__uA: tuple[float, ...] | None = None,
 ) -> Xue2020JsscCimMacroConfig:
     """Hand-built near-ideal witness config, parameterised by geometry / windows.
@@ -192,23 +192,16 @@ def build_config(
         input_bit_num: Activation bit width K (K serial WL sub-phases, LSB first).
         adc_bits: TMCSA magnitude resolution; the reference carries
             `2**adc_bits - 1` taps.
-        t_sample__ns: Sample windows, one per sampled bit (defaults to all-1.0,
-            length `input_bit_num - 1`).
+        t_sample__ns: Duration of each sampled input-bit phase.
         t_settle__ns: Tail settle window.
         t_cycle__ns: Declared operating period (the static-energy time base).
         t_conduct_per_step__ns: TMCSA per-step conduction window (defaults to
             all-0.1, length `adc_bits`). Energy-path only.
-        step_latency__ns: TMCSA per-step SAR sensing durations (defaults to
-            `(1.0, 2.0, ...)`, length `adc_bits`). Feeds the read-chain window
-            `t_other`, which sits inside the macro's own access window.
+        latency_per_step__ns: Duration of one TMCSA decision step.
         ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
     """
-    if t_sample__ns is None:
-        t_sample__ns = tuple(1.0 for _ in range(input_bit_num - 1))
     if t_conduct_per_step__ns is None:
         t_conduct_per_step__ns = tuple(0.1 for _ in range(adc_bits))
-    if step_latency__ns is None:
-        step_latency__ns = tuple(float(k + 1) for k in range(adc_bits))
     if ref_levels__uA is None:
         ref_levels__uA = _default_ref_levels(adc_bits)
 
@@ -228,17 +221,14 @@ def build_config(
         vdd__V=1.0,
         e_control_per_op__fJ=5.0,
         control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
-        dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0, c_load__fF=0.0),
-        sinwp_sc_config=SinwpScConfig(c_hold__fF=0.0, area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
+        dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
+        sinwp_sc_config=SinwpScConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
         pn_isub_config=PnIsubConfig(e_per_op__fJ=1.0, area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
-        # PH2/PH3 phase windows derived from the honest step latencies so every
-        # parameterisation fits t_ph2 + t_ph3 <= step_latency per step; e_fixed
-        # deliberately differs from the inert kernel adc_config constant so a
-        # billing-duty regression is caught.
         tmcsa_config=TmcsaConfig(
-            t_ph2_per_step__ns=tuple(0.2 * t for t in step_latency__ns),
-            t_ph3_per_step__ns=tuple(0.3 * t for t in step_latency__ns),
-            e_fixed_per_op__fJ=1.5,
+            t_ph2__ns=0.2,
+            t_ph3__ns=0.3,
+            conduction_scale=1.5,
+            e_per_step__fJ=0.75,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=2.5,
         ),
@@ -278,7 +268,7 @@ def build_config(
             e_fixed_per_op__fJ=2.0,
             v_rail__V=1.0,
             t_conduct_per_step__ns=t_conduct_per_step__ns,
-            step_latency__ns=step_latency__ns,  # honest sensing; feeds the macro's t_other
+            latency_per_step__ns=latency_per_step__ns,
             comparator_offset_sigma__uA=0.0,
             coupling_mismatch_sigma__uA=0.0,
             area_per_inst__um2=0.0,

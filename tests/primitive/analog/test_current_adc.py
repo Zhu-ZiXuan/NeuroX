@@ -11,8 +11,8 @@ truncates the max-bits binary search after `bits` levels. These tests pin:
 - per-instance broadcast: distinct ladders across the leading digitize their own
   inputs (any leading rank is accepted);
 - `bits` validation: a request outside `[1, max_bits]` is rejected;
-- config-time energy-knob validation: negative rail / window and a window /
-  step-latency list shorter than `bits`;
+- config-time energy-knob validation: negative rail, window, or step latency,
+  and a conduction-window list shorter than `bits`;
 - conversion correctness: unit-step ladder codes = the count of taps the input
   exceeds; the truncated search starts at the max-bits mid tap and its code at
   `b` is the max-bits code right-shifted by `max_bits - b`;
@@ -49,7 +49,7 @@ def _config(
     adc_bits: int = 3,
     v_rail__V: float = 0.0,
     t_conduct_per_step__ns: tuple[float, ...] = (0.0, 0.0, 0.0),
-    step_latency__ns: tuple[float, ...] = (3.0, 3.0, 3.0),
+    latency_per_step__ns: float = 3.0,
     e_fixed_per_op__fJ: float = 7.0,
 ) -> SarIadcConfig:
     return SarIadcConfig(
@@ -60,7 +60,7 @@ def _config(
         e_fixed_per_op__fJ=e_fixed_per_op__fJ,
         v_rail__V=v_rail__V,
         t_conduct_per_step__ns=t_conduct_per_step__ns,
-        step_latency__ns=step_latency__ns,
+        latency_per_step__ns=latency_per_step__ns,
         comparator_offset_sigma__uA=0.0,
         coupling_mismatch_sigma__uA=0.0,
     )
@@ -107,16 +107,13 @@ def _convert_energy(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor, adc_bi
 
 
 def test_config_rejects_bad_energy_knobs() -> None:
-    """Negative rail / window entry and mis-sized window / latency lists are rejected."""
+    """Negative rail, conduction window, and step latency are rejected."""
     for bad, match in (
         ({"v_rail__V": -0.1}, r"require: v_rail__V \(-0\.1\) >= 0"),
         ({"t_conduct_per_step__ns": (0.1, -0.1, 0.1)}, r"require: t_conduct_per_step__ns\[1\] \(-0\.1\) >= 0"),
         # Shorter than bits (3).
         ({"t_conduct_per_step__ns": (0.1, 0.1)}, r"require: len\(t_conduct_per_step__ns\) \(2\) >= 3"),
-        ({"step_latency__ns": (3.0, 3.0)}, r"require: len\(step_latency__ns\) \(2\) == 3"),
-        # A step the search never runs still sums into the owner's sensing
-        # duration, so the latency list carries no spare entry.
-        ({"step_latency__ns": (3.0, 3.0, 3.0, 3.0)}, r"require: len\(step_latency__ns\) \(4\) == 3"),
+        ({"latency_per_step__ns": -0.1}, r"require: latency_per_step__ns \(-0\.1\) >= 0"),
     ):
         with pytest.raises(ValueError, match=match):
             _config(**bad)
@@ -173,7 +170,7 @@ def test_lowered_bits_equal_the_max_bits_code_shifted(device: torch.device, max_
     """
     steps = (0.0,) * max_bits
     adc = _build(
-        _config(adc_bits=max_bits, t_conduct_per_step__ns=steps, step_latency__ns=steps),
+        _config(adc_bits=max_bits, t_conduct_per_step__ns=steps, latency_per_step__ns=0.0),
         device,
     )
     ladder = tuple(float(k + 1) for k in range((1 << max_bits) - 1))
@@ -247,16 +244,12 @@ def test_energy_linear_in_window_and_rail(device: torch.device) -> None:
     assert (e_2v - e_floor) == pytest.approx(2.0 * conduction)  # linear in the rail
 
 
-def test_reported_latency_sums_the_executed_step_windows(device: torch.device) -> None:
-    """`latency__ns` answers for the search-step axis this converter owns.
+def test_reported_latency_scales_with_executed_steps(device: torch.device) -> None:
+    """`latency__ns` is the fixed step period times the executed bit count."""
+    adc = _build(_config(adc_bits=3, latency_per_step__ns=3.0), device)
 
-    One conversion is one binary search: the executed steps run in sequence and
-    may differ in duration, and the executed bit count is the whole question.
-    """
-    adc = _build(_config(adc_bits=3, step_latency__ns=(3.0, 5.0, 7.0)), device)
-
-    assert adc.latency__ns(bits=3) == pytest.approx(3.0 + 5.0 + 7.0)
-    assert adc.latency__ns(bits=2) == pytest.approx(3.0 + 5.0)
+    assert adc.latency__ns(bits=3) == pytest.approx(9.0)
+    assert adc.latency__ns(bits=2) == pytest.approx(6.0)
     assert adc.latency__ns(bits=1) == pytest.approx(3.0)
     # No window outside the physical resolution.
     for bits in (0, 4):
@@ -285,7 +278,7 @@ def test_enable_energy_record_false_suppresses_only_energy(device: torch.device)
         adc_bits=3,
         v_rail__V=1.0,
         t_conduct_per_step__ns=(0.5, 0.5, 0.5),
-        step_latency__ns=(3.0, 5.0, 7.0),
+        latency_per_step__ns=3.0,
         e_fixed_per_op__fJ=7.0,
     )
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)

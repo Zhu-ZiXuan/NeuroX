@@ -60,7 +60,9 @@ _VALIDATIONS_DIR = Path(__file__).resolve().parents[3] / "validations" / "xue202
 _SLICE_NAMES = ("control", "reference", "cablc", "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 
 # The sanctioned provenance vocabulary; its legend lives in docs/validation/campaigns.md.
-_TAG_PATTERN = re.compile(r"\[(measured|derived|transcribed|assumed|bound-derived|calibrated)\b[^\]]*\]")
+_TAG_PATTERN = re.compile(
+    r"\[(reported|simulated|measured|derived|transcribed|assumed|bound-derived|calibrated)\b[^\]]*\]"
+)
 # The retired scheme-local vocabulary; no shipped artifact may still speak it.
 _LEGACY_TAG_PATTERN = re.compile(r"\[(sourced|declared|adopted|uncertain)\b[^\]]*\]")
 
@@ -113,18 +115,13 @@ def test_params_config_parses_and_builds() -> None:
     assert isinstance(config.dswct_config, DswctConfig)
     assert isinstance(config.sinwp_sc_config, SinwpScConfig)
     assert isinstance(config.pn_isub_config, PnIsubConfig)
-    # The TMCSA phase-billing module: one PH2/PH3 window pair per ADC step,
-    # each pair fitting inside its step latency (PH1/PH4 occupy the rest).
+    # The TMCSA phase-billing module uses fixed absolute windows and switching energy per ADC step.
     assert isinstance(config.tmcsa_config, TmcsaConfig)
-    assert len(config.tmcsa_config.t_ph2_per_step__ns) == config.adc_config.bits
-    assert len(config.tmcsa_config.t_ph3_per_step__ns) == config.adc_config.bits
-    for s in range(config.adc_config.bits):
-        assert (
-            config.tmcsa_config.t_ph2_per_step__ns[s] + config.tmcsa_config.t_ph3_per_step__ns[s]
-            <= config.adc_config.step_latency__ns[s]
-        )
-    # Control caliber law: pure per-op (100 % dynamic) — the static seat is zero.
-    assert config.control_config.leakage_per_inst__uW == 0.0
+    assert config.tmcsa_config.t_ph2__ns + config.tmcsa_config.t_ph3__ns <= config.adc_config.latency_per_step__ns
+    assert config.tmcsa_config.e_per_step__fJ == pytest.approx(50.0)
+    # Control caliber law: 70 % per-op dynamic plus 30 % leakage at the 50 ns campaign period.
+    assert config.e_control_per_op__fJ == pytest.approx(6553.6)
+    assert config.control_config.leakage_per_inst__uW == pytest.approx(56.174)
     # One declared quantization mode per threshold ladder row; each window is
     # canonical (CimMacroMode validates that on construction) and the shipped
     # sign-magnitude readout declares a mid-zero window.
@@ -173,9 +170,9 @@ def test_anchors_parses_with_required_convention_keys() -> None:
     """`anchors.toml` carries the hard-gate target, Fig.18 shares, and workload convention keys."""
     anchors = dict_from_file(_VALIDATIONS_DIR / "anchors.toml")
 
-    # Hard-gate target: the one gated number is derived from the sourced macro
-    # power, sub-array count, and access rate (5.13 mW / 8 / 20 MHz = 32.06 pJ
-    # = 32060 fJ).
+    # Hard-gate target: the one gated number is derived from the paper's simulated
+    # macro power, sub-array count, and access rate
+    # (5.13 mW / 8 / 20 MHz = 32.0625 pJ = 32062.5 fJ).
     target = anchors["target"]
     derived_per_access__fJ = target["total_macro__mW"] * 1e6 / target["sub_array_num"] / target["op_frequency__MHz"]
     assert target["per_access__fJ"] == pytest.approx(derived_per_access__fJ, rel=1e-3)
@@ -197,7 +194,10 @@ def test_anchors_parses_with_required_convention_keys() -> None:
     data = anchors["data"]
     assert data["weight_range"] == [-3, 3]
     assert data["input_range"] == [0, 3]
-    assert "p_zero" in data
+    assert data["weight_distribution"] == "zero_inflated_sign_magnitude_uniform_nonzero"
+    assert data["input_distribution"] == "zero_inflated_unsigned_uniform_nonzero"
+    assert data["weight_nonzero_probability"] == pytest.approx(1.0)
+    assert data["input_nonzero_probability"] == pytest.approx(0.2935)
 
 
 def _comment_text(path: Path) -> str:
@@ -213,7 +213,16 @@ def test_every_provenance_tag_is_from_the_authoritative_legend(name: str) -> Non
     assert legacy == [], f"{name} still uses the retired provenance tags {legacy}"
     tags = {match.group(1) for match in _TAG_PATTERN.finditer(comments)}
     assert tags, f"{name} carries no provenance tag at all"
-    assert tags <= {"measured", "derived", "transcribed", "assumed", "bound-derived", "calibrated"}
+    assert tags <= {
+        "reported",
+        "simulated",
+        "measured",
+        "derived",
+        "transcribed",
+        "assumed",
+        "bound-derived",
+        "calibrated",
+    }
 
 
 def _load_validate_module():
@@ -236,8 +245,8 @@ def test_validate_harness_is_self_contained() -> None:
     The harness resolves `params.toml` / `policy.toml` / `anchors.toml`
     relative to itself, so a campaign run always reads the shipped design point;
     its whole CLI surface is the round-sampling run knobs, so neither a config
-    artifact nor the declared workload `p_zero` can be injected at the command
-    line; and it emits everything through `logging` — no bare `print`.
+    artifact nor a workload distribution can be injected at the command line;
+    and it emits everything through `logging` — no bare `print`.
     """
     validate = _load_validate_module()
 
@@ -257,19 +266,39 @@ def test_validate_harness_is_self_contained() -> None:
     assert "print(" not in source, "validate.py must report through logging, not print"
 
 
+def test_validate_samples_at_most_nine_arbitrary_active_rows_per_input() -> None:
+    """Nine rows are candidates, not nine unconditionally active rows."""
+    validate = _load_validate_module()
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    x = validate._draw_input(
+        gen,
+        batch=16,
+        input_num=32,
+        max_active_num=9,
+        lo=1,
+        hi=1,
+        nonzero_probability=0.5,
+    )
+    selected = x != 0
+    assert torch.all(selected.sum(dim=1) <= 9)
+    assert torch.any(selected.sum(dim=1) < 9)
+    assert selected[:, 9:].any()
+    assert torch.unique(selected, dim=0).shape[0] > 1
+
+
 def test_validate_pair_slice_aggregation_law() -> None:
     """Paired-slice caliber: each pair row sums its members' energy and its members' Fig.18 shares.
 
     On a hand-built witness slice list, `paired_slices` must return
     `cablc+dswct` and `sinwp_sc+pn_isub` rows whose dynamic / static
     energy is the member sum and whose target is `(share_a + share_b) / 100 *
-    target_total`; member slices carry no per-member target in the measured
+    target_total`; member slices carry no per-member target in the simulated
     breakdown (the pair sum is the only well-defined comparison).
     """
     validate = _load_validate_module()
 
     shares = {"cablc": 14.9, "dswct": 11.5, "sinwp_sc": 8.0, "pn_isub": 3.4}
-    target_total = 32060.0
+    target_total = 32062.5
     slices = (
         validate.SliceEnergy(name="cablc", dynamic__fJ=3000.0, static__fJ=500.0, target__fJ=0.0),
         validate.SliceEnergy(name="dswct", dynamic__fJ=2000.0, static__fJ=250.0, target__fJ=0.0),

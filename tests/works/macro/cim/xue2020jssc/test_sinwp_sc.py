@@ -10,9 +10,8 @@ Hand-built tiny witness, eager, CPU. Three laws:
     window[k]` with the per-leg currents `i_leg[k] = bit_ratios[k] * i[k]`
     (the mirror legs carry the `s_k`-scaled copies, NOT the raw interface
     current — non-unity ratios make an interface-current bill fail) and the
-    SIGNED per-leg sum (a mixed-sign witness pins the no-`|I|` semantics) —
-    plus the `c_hold * vdd**2` per-(slot x bit) per-instance cap event. The
-    value output is the sum of the SAME legs the billing consumed.
+    SIGNED per-leg sum (a mixed-sign witness pins the no-`|I|` semantics). The
+    value output sums the same legs over both radix axes.
 """
 
 from __future__ import annotations
@@ -30,17 +29,16 @@ _GN = 3
 _POLARITY_NUM = 2
 _SERIAL = 2
 _X_BITS = 2
+_W_DIGIT = 2
 _VDD__V = 1.0
-_C_HOLD__fF = 0.7
 # LSB-first input-radix combine ratios (paper law s_k = msb * 2**(k - (K-1))).
 _BIT_RATIOS = (0.25, 0.5)
 _WINDOW__NS = (7.0, 4.0)
 
 
-def _build_sinwp_sc(*, c_hold__fF: float = _C_HOLD__fF) -> SinwpSc:
+def _build_sinwp_sc() -> SinwpSc:
     module = SinwpSc(
         config=SinwpScConfig(
-            c_hold__fF=c_hold__fF,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
@@ -57,7 +55,7 @@ def _build_sinwp_sc(*, c_hold__fF: float = _C_HOLD__fF) -> SinwpSc:
 def _witness_currents() -> torch.Tensor:
     """Mixed-sign lane currents [uA] at batch 1."""
     torch.manual_seed(0)
-    return torch.randn(1, _X_BITS, _SERIAL, _GN, _POLARITY_NUM, dtype=_DTYPE)
+    return torch.randn(1, _X_BITS, _SERIAL, _GN, _POLARITY_NUM, _W_DIGIT, dtype=_DTYPE)
 
 
 def test_shape_law() -> None:
@@ -77,13 +75,13 @@ def test_value_law() -> None:
     i__uA = _witness_currents()
     out = module(i__uA, window_per_bit__ns=torch.tensor(_WINDOW__NS, dtype=_DTYPE))
 
-    ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1)
-    expected = (i__uA * ratios).sum(dim=-4)
+    ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1, 1)
+    expected = (i__uA * ratios).sum(dim=(-5, -1))
     assert torch.equal(out, expected)
 
 
 def test_leg_billing_law() -> None:
-    """Recorded energy == materialized-leg formula (signed leg sum) + cap events.
+    """Recorded energy equals the materialized-leg conduction formula.
 
     The bit ratios are non-unity (0.25, 0.5), so a bill of the raw interface
     currents (the pre-fix bug: `vdd * sum_lanes(i[k]) * window[k]`) differs
@@ -101,20 +99,19 @@ def test_leg_billing_law() -> None:
 
     # Branch-tensor law: the billed branches are the materialized legs
     # i_leg[k] = s_k * i[k], not the interface currents.
-    ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1)
+    ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1, 1)
     i_leg = i__uA * ratios
     # The SIGNED leg sum.
-    # Shape: [1, x_bits, serial, gn, 2] -> [1, x_bits]
-    i_leg_per_bit = i_leg.sum(dim=(-3, -2, -1))
+    # Shape: [1, x_bits, serial, gn, 2, w_digit] -> [1, x_bits]
+    i_leg_per_bit = i_leg.sum(dim=(-4, -3, -2, -1))
     # Shape: [1, x_bits] -> []
     e_conduction__fJ = (_VDD__V * (i_leg_per_bit * window).sum(dim=-1)).sum()
     e_conduction = float(e_conduction__fJ)
-    e_cap = _C_HOLD__fF * _VDD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
-    assert Reporter(module).total_dynamic_energy__fJ(prof) == pytest.approx(e_conduction + e_cap)
+    assert Reporter(module).total_dynamic_energy__fJ(prof) == pytest.approx(e_conduction)
 
     # The interface-current bill (the pre-fix scaling placement) is a
     # DIFFERENT number on this witness — the law discriminates.
-    i_iface_per_bit = i__uA.sum(dim=(-3, -2, -1))
+    i_iface_per_bit = i__uA.sum(dim=(-4, -3, -2, -1))
     # Shape: [1, x_bits] -> []
     e_iface__fJ = (_VDD__V * (i_iface_per_bit * window).sum(dim=-1)).sum()
     e_iface = float(e_iface__fJ)

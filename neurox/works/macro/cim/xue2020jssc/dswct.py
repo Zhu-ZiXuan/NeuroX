@@ -1,11 +1,4 @@
-"""DSWCT place-value weighting stage — one digit-weighted current-mirror bank.
-
-The bank mirrors each of its `w_digit` per-digit BL leg currents at the LSB-first
-place-value ratio and sums the weighted legs into the output current `I_WDL`. The
-`w_digit` legs are internal structure of one bank, not instances, so the fabricated
-`inst_shape` trailing is `(gn, polarity)`. A reporter leaf: it self-bills its rail
-conduction and cap events at the production site.
-"""
+"""DSWCT place-value weighting stage."""
 
 from __future__ import annotations
 
@@ -17,13 +10,10 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 class DswctConfig(ConfigBase):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-    c_load__fF: float
-    """Output-leg load capacitance, switched once per bank per (mux slot, WL bit plane)."""
 
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_non_neg(self.c_load__fF, "c_load__fF")
 
 
 class DswctPolicy(PolicyBase):
@@ -76,7 +66,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         return int(self._digit_ratios.shape[0])
 
     def forward(self, i_dl__uA: Tensor, *, window__ns: Tensor | float) -> Tensor:
-        """Weight the per-digit BL currents by place value and sum over digits.
+        """Weight the per-digit BL currents by place value.
 
         The leading batch carries the WL bit-plane axis (and any data batch), so
         each leading element is one plane's conduction.
@@ -91,8 +81,8 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
                 Shape: `[...]`.
 
         Returns:
-            Digit-combined output current `I_WDL`.
-            Shape: `[..., serial, gn, polarity]`.
+            Per-digit weighted current `I_WDL`.
+            Shape: `[..., serial, gn, polarity, w_digit]`.
         """
         if i_dl__uA.ndim < 4:
             raise ValueError(f"forward() expects [..., serial, gn, 2, w_digit]; got shape {tuple(i_dl__uA.shape)}")
@@ -114,9 +104,6 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             # Rail: VDD * |I_WDL| * window over every (slot, lane, digit) leg.
             # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
             i_wdl_bank__uA = i_wdl__uA.abs().sum(dim=-1)
-            # Cap: c_load * VDD**2 once per (slot x plane) per bank — one event
-            # per energy-tensor entry, since a bank IS one (gn, polarity) instance.
-            e__fJ = self._vdd__V * window_view__ns * i_wdl_bank__uA + self.config.c_load__fF * self._vdd__V**2
+            e__fJ = self._vdd__V * window_view__ns * i_wdl_bank__uA
             self._record_dynamic_energy(e__fJ)
-        # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
-        return i_wdl__uA.sum(dim=-1)
+        return i_wdl__uA

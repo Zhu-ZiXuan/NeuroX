@@ -4,7 +4,8 @@ The VALUE conversion stays in the kernel
 `neurox.primitive.analog.current_adc.SarIadc`, which the macro builds
 energy-silent; this reporter leaf bills the conversion energy from the magnitude
 current, the raw unsigned codes and the reference ladder after `convert` returns,
-resolving each binary-search step into the paper's PH2/PH3 conduction phases. The
+resolving each binary-search step into the paper's PH2/PH3 conduction phases plus
+one data-independent switching event. The
 per-step reference path is recovered from the final code through a structural tap
 LUT built at init; the ladder itself is passed per call.
 """
@@ -18,28 +19,22 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class TmcsaConfig(ConfigBase):
-    t_ph2_per_step__ns: tuple[float, ...]
-    """PH2 conduction window per binary-search step; its length is the conversion bit count B."""
-    t_ph3_per_step__ns: tuple[float, ...]
-    """PH3 conduction window per binary-search step, one entry per PH2 entry."""
-    e_fixed_per_op__fJ: float
-    """Data-independent per-STEP energy — the PH4 latch and coupling-cap events plus the folded-in PH1 bias."""
+    t_ph2__ns: float
+    """PH2 conduction duration of one decision step."""
+    t_ph3__ns: float
+    """PH3 conduction duration of one decision step."""
+    conduction_scale: float
+    """Dimensionless calibration scale applied to PH2/PH3 conduction energy."""
+    e_per_step__fJ: float
+    """Data-independent switching energy of one sensing step, per TMCSA instance."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self._require_non_empty(self.t_ph2_per_step__ns, "t_ph2_per_step__ns")
-        self._require_same_len(
-            self.t_ph3_per_step__ns,
-            "t_ph3_per_step__ns",
-            self.t_ph2_per_step__ns,
-            "t_ph2_per_step__ns",
-        )
-        for s, t in enumerate(self.t_ph2_per_step__ns):
-            self._require_non_neg(t, f"t_ph2_per_step__ns[{s}]")
-        for s, t in enumerate(self.t_ph3_per_step__ns):
-            self._require_non_neg(t, f"t_ph3_per_step__ns[{s}]")
-        self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
+        self._require_non_neg(self.t_ph2__ns, "t_ph2__ns")
+        self._require_non_neg(self.t_ph3__ns, "t_ph3__ns")
+        self._require_pos(self.conduction_scale, "conduction_scale")
+        self._require_non_neg(self.e_per_step__fJ, "e_per_step__fJ")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -66,8 +61,8 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
 
     # === Circuit constant buffers ===
 
-    _t_ph2__ns: Tensor  # Shape: [max_bits]
-    _t_ph3__ns: Tensor  # Shape: [max_bits]
+    _t_ph2__ns: Tensor  # Shape: []
+    _t_ph3__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -75,15 +70,19 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         config: TmcsaConfig,
         policy: TmcsaPolicy,
         inst_shape: tuple[int, ...],
+        max_bits: int,
         vdd__V: float,
         dtype: torch.dtype,
     ) -> None:
+        if max_bits < 1:
+            raise ValueError(f"require: max_bits ({max_bits}) >= 1")
         if not (vdd__V >= 0.0):
             raise ValueError(f"require: vdd__V ({vdd__V}) >= 0")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+        self._max_bits = max_bits
         self._vdd__V = vdd__V
-        self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2_per_step__ns, dtype=dtype), persistent=False)
-        self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3_per_step__ns, dtype=dtype), persistent=False)
+        self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2__ns, dtype=dtype), persistent=False)
+        self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3__ns, dtype=dtype), persistent=False)
         self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits), persistent=False)
 
     @property
@@ -113,11 +112,11 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
 
     @property
     def max_bits(self) -> int:
-        """Maximum conversion step count B — the phase-window list length."""
-        return len(self.config.t_ph2_per_step__ns)
+        """Maximum conversion step count B."""
+        return self._max_bits
 
     def forward(self, i_sub__uA: Tensor, code: Tensor, adc_refs_mode__uA: Tensor, *, bits: int) -> None:
-        """Bill the phase-resolved conversion energy of one completed conversion.
+        """Bill phase conduction and fixed switching for one completed conversion.
 
         Args:
             i_sub__uA: Converted magnitude current — the ISUB output copy the
@@ -175,10 +174,12 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         i_ph2__uA = 3.0 * i_common__uA  # PH2: inputs (1x each) + internal P3/P4 (2x each)
         i_ph3__uA = 2.0 * i_common__uA  # PH3: internal only; the 2x splits into two 1x sinks
         # Shape: [..., serial, gn, bits] -> [..., serial, gn]
-        e__fJ = (
-            self._vdd__V * (i_ph2__uA * self._t_ph2__ns[:bits] + i_ph3__uA * self._t_ph3__ns[:bits]).sum(dim=-1)
-            + self.config.e_fixed_per_op__fJ * bits
+        e_conduction__fJ = (
+            self.config.conduction_scale
+            * self._vdd__V
+            * (i_ph2__uA * self._t_ph2__ns + i_ph3__uA * self._t_ph3__ns).sum(dim=-1)
         )
+        e__fJ = e_conduction__fJ + bits * self.config.e_per_step__fJ
         # The SAR step axis is already summed above; the collector sums the slot
         # and CIM-IO axes past the caller's leading dims.
         self._record_dynamic_energy(e__fJ)

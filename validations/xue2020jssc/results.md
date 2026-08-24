@@ -1,36 +1,30 @@
-# xue2020jssc validation -- total energy per access
+# xue2020jssc validation — total energy per access
 
-> **PENDING RECALIBRATION.** Every number below predates the array unification: the scheme-local serial-column array is gone, the macro now runs one `XbarArray1t1r` solve per WL plane over all physical columns, and the capacitive billing moved from the full-cycle `C*V^2` form to the supply-draw law `E = V_rail * C * |dv|` against the shared core supply `vdd__V`. The array/cell capacitance is now stated as one per-node total per line (`bl_node_c__fF`, `x_node_c__fF`, `sl_node_c__fF`, `wl_node_c__fF`), and the boundary driver reaches the first cell across one standard cell pitch. The cap-bearing `[calibrated]` seats in `params.toml` were fitted to the replaced form, so this gate is expected to run RED until the recalibration campaign re-derives them. Codes and currents are unaffected -- the flattening is bit-exact (see the twin test) -- so only the energy rows move.
+Energy-basis profiler holdout run for `params.toml` + `policy.toml` on CPU. Calibration used seed 0; this report uses 4 weight draws × 32 inputs × 4 rounds = 512 draws (16,384 accesses), seed 100. The calibrated activity point is P(x≠0) = 0.2935 among at most nine candidate rows and P(w≠0) = 1.0; conditional nonzero magnitudes remain uniform. The relative standard deviation of the four round totals is 2.63%.
 
-Energy-basis profiler run for `params.toml` + `policy.toml` on cuda:1. n_w = 64 weight draws x n_x = 256 inputs x 8 rounds = 131072 draws (4194304 accesses), seed 0, run p_zero = 0.348 (marginal P(x=0) = 0.511); anchors-declared workload p_zero = 0.35. Pooled over 8 rounds (relative std of the round totals = 0.22 %).
+## Hard gate — total energy per access
 
-## Hard gate -- total energy per access
+The target is 32,062.5 fJ/access (= 32.0625 pJ = simulated 5.13 mW / 8 / 20 MHz), with ±5% tolerance. The holdout result is **31,959.824 fJ/access = 0.997× target**, an error of **−0.3%**, so the hard gate **passes**.
 
-Target 32.06 pJ/access (= 5.13 mW / 8 / 20 MHz); +-5%. At this run's p_zero = 0.348 (marginal P(x=0) = 0.511): result **32.127 pJ/access = 1.002x** +- 0.22 % (round-total relative std over 8 rounds) (err +0.2%), within +-5%: yes.
+## Energy breakdown
 
-The anchors-declared workload sparsity is p_zero = 0.35 (marginal P(x=0) ~= 0.511), motivated INDEPENDENTLY by typical ~50%-zero post-ReLU CNN activations -- NOT tuned to pass.
+| Slice | Energy [fJ/access] | Dynamic | Static | Fig.18 × target [fJ] | Pred/ref | Basis |
+|---|---:|---:|---:|---:|---:|---|
+| Control | 9,362.301 | 6,553.601 | 2,808.700 | 9,362.250 | 1.00× | adopted |
+| Reference | 7,599.000 | 0.000 | 7,599.000 | 7,598.812 | 1.00× | adopted |
+| CABLC+DSWCT | 8,524.708 | 8,524.708 | 0.000 | 8,464.500 | 1.01× | modeled pair |
+| SINWP-SC+PN-ISUB | 3,527.859 | 3,527.859 | 0.000 | 3,655.125 | 0.97× | modeled pair |
+| TMCSA | 2,945.956 | 2,945.956 | 0.000 | 2,981.813 | 0.99× | modeled |
+| CABLC | 6,200.292 | 6,200.292 | 0.000 | — | — | pair member |
+| DSWCT | 2,324.416 | 2,324.416 | 0.000 | — | — | pair member |
+| SINWP-SC | 1,503.192 | 1,503.192 | 0.000 | — | — | pair member |
+| PN-ISUB | 2,024.666 | 2,024.666 | 0.000 | — | — | pair member |
+| **TOTAL (gated)** | **31,959.824** | **21,552.124** | **10,407.700** | **32,062.500** | **0.997×** | **PASS** |
 
-## Energy breakdown (informational -- NOT gated)
+Control and Reference are adopted Fig.18 seats. Control is split into 70% per-access dynamic energy and 30% leakage integrated over the reported 50 ns period; Reference is entirely static. The modeled comparison uses paired slices because CABLC/DSWCT share one series input branch and SINWP-SC/PN-ISUB share one series sink branch, while the paper does not publish the internal node voltages needed to reproduce each member split. The individual member rows therefore show model ownership only and have no separate paper target.
 
-| Slice | Energy [pJ/acc] | dyn | static | Fig.18 x 32.06 [pJ] | pred/ref | basis |
-|---|--:|--:|--:|--:|--:|:--|
-| control |    9.362 |   9.362 |  0.000 |    9.362 |  1.00x | adopted |
-| reference |    7.599 |   0.000 |  7.599 |    7.598 |  1.00x | adopted |
-| cablc+dswct |    8.510 |   8.510 |  0.000 |    8.464 |  1.01x | physics pair |
-| sinwp_sc+pn_isub |    3.671 |   3.671 |  0.000 |    3.655 |  1.00x | physics pair |
-| tmcsa |    2.985 |   2.985 |  0.000 |    2.982 |  1.00x | physics |
-| cablc |    6.258 |   6.258 |  0.000 |     -    |   -    | pair member |
-| dswct |    2.251 |   2.251 |  0.000 |     -    |   -    | pair member |
-| sinwp_sc |    1.718 |   1.718 |  0.000 |     -    |   -    | pair member |
-| pn_isub |    1.954 |   1.954 |  0.000 |     -    |   -    | pair member |
-| **TOTAL (gated)** | **  32.127** |  24.528 |  7.599 | **  32.060** | **1.002x** | PASS (+-5%, err +0.2%) |
+CABLC+DSWCT contains array node-capacitor energy, the complete BL input-branch conduction energy, and DSWCT mirror conduction. The paper-reproduction preset declares the array node capacitances zero because the explicit conduction model already consumes the paired target; this is not a physical extraction. SINWP-SC+PN-ISUB contains SINWP-SC held/live mirror conduction, the three PN-ISUB internal branches, and 47.665 fJ per sign decision and CIM-IO for its three inverters and latch. TMCSA contains its PH2/PH3 branch conduction plus 50 fJ per sensing step and CIM-IO for its internal latch, reset nodes, and local switching. At three bits and four CIM-IOs, that fixed TMCSA term is 600 fJ/access; an external DOUT register is not included.
 
-The read-path slices are pure physics (g_map, V_BLC, conduction windows -- all declared); control + reference are the two ADOPTED Fig.18 seats. Paired-slice caliber: the paper splits one series input branch at node V_CMD (drain of the DSWCT current-mirror input, Fig.9(a)) between DSWCT and CABLC, and one series sink branch between SINWP-SC (its sink transistors) and PN-ISUB (switches + comparator + isub); the internal node voltages are unpublished, so only the pair sums (cablc+dswct vs 26.4 %, sinwp_sc+pn_isub vs 11.4 %) are well-defined targets -- the member rows are informational. Differences from Fig.18 x 32.06 pJ are reported, not gated.
+Static energy integrates leakage over the complete 50 ns period. Dynamic energy is normalized from one VMM over 32 column-MUX accesses. The modeled circuit latency is 14.60 ns and is not used as the static integration window.
 
-## Declared conventions
-
-- Hard gate: total energy per access within +-5% of 32.06 pJ at the declared p_zero.
-- Adopted seats (declared to reproduce a Fig.18 share, not fitted to the total): control 29.2 % (pure per-op, 100 % dynamic), reference 23.7 % (100 % static).
-- Read path (cablc, dswct, sinwp_sc, pn_isub, tmcsa): pure physics; static seats declared small/zero, NEVER reverse-solved to fill the total. Fig.18 comparison at the paired-slice caliber (cablc+dswct, sinwp_sc+pn_isub).
-- Data: weights value-uniform in [-3, 3], inputs value-uniform in [0, 3] with an extra Bernoulli zeroing at p_zero (declared workload assumption); rows >= active_row_num zeroed.
-- Energy basis: static/access = leakage_power * t_cycle (50 ns); dynamic/access = per-VMM dynamic / mux_factor; total/access = their sum.
+The activity probabilities, PN-ISUB event energy, and TMCSA conduction scale were inferred from the same Fig.18 breakdown used here. This result therefore demonstrates internal consistency and holdout-sample stability, not an independent prediction of the published energy.

@@ -71,7 +71,7 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
             i_n__uA: Combined NWG lane current.
                 Shape: `[..., serial, gn]`.
             window__ns: Conduction window of the three rail branches — the
-                macro-injected tail window `t_other`.
+                macro-injected live-bit tail.
 
         Returns:
             The single-ended magnitude `|I_P - I_N|` and the boolean sign, `True`

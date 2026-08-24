@@ -11,17 +11,15 @@ config (`_utils.build_config`):
   * the derived-geometry laws (never stored): `phys_col_num = output_num *
     w_digit_num * 2` and `io_num = output_num // mux_factor`, computed from the
     witness config's own values,
-  * the derived DSWCT / SINWP-SC ratio anchors and the conduction-window laws
-    (`t_other`, `window_array`, `window_sc`) as laws — checked over two
-    distinct window parameterisations,
+  * the derived DSWCT / SINWP-SC ratio anchors and the runtime-resolution
+    conduction-window laws,
   * the logical value-domain contract and the quantization surface: the
     published windows, the mode-index guard, the `r_b = r_B * 2**(B - b)`
     rescale law with its lossless-oracle sentinel, the magnitude input-code
     map, and the one-bit-wider ideal twin,
   * config validation rejects the exact-reshape `output_num % mux_factor`
-    violation, a `w_digit_radix < 2` weight structure, a `t_sample__ns`
-    length that is not `input_bit_num - 1`, and a mode count that does not
-    match the reference ladder rows,
+    violation, a `w_digit_radix < 2` weight structure, a negative input-phase
+    duration, and a mode count that does not match the reference ladder rows,
   * the GENERALIZED weight / input geometry — no fixed `w_digit_num` or
     `w_digit_radix` is imposed: `w_digit_num = 1` (a single polarity digit,
     ratios degenerate to the MSB anchor), `w_digit_num = 3`, and
@@ -129,7 +127,7 @@ def test_derived_ratios_degenerate_to_anchor_at_size_one() -> None:
     """
     d1 = build_config(w_digit_num=1)
     assert d1.digit_ratios == (0.5,)  # MSB anchor alone, no cross-digit combine
-    k1 = build_config(input_bit_num=1, t_sample__ns=())
+    k1 = build_config(input_bit_num=1)
     assert k1.x_bit_ratios == (0.5,)  # MSB anchor alone, hold leg off
 
 
@@ -139,41 +137,45 @@ def test_derived_ratios_degenerate_to_anchor_at_size_one() -> None:
 
 
 def test_window_laws_default() -> None:
-    """K=2 windows: `t_other` = settle + sum(step latency); array / SC suffix sums.
-
-    The witness sets a nonzero `step_latency__ns` (the honest per-step SAR
-    sensing durations feed `t_other`), so `t_other` strictly exceeds
-    `t_settle` — the sensing is included in the read window while `t_settle`
-    stays the pure non-sensing settle.
-    """
-    config = build_config(t_sample__ns=(1.0,), t_settle__ns=2.0)
-    assert config.t_other__ns == 2.0 + sum(config.adc_config.step_latency__ns)
-    assert config.t_other__ns > config.t_settle__ns  # sensing widens the read window
-    assert config.window_array__ns == (1.0, config.t_other__ns)
-    # SC leg k window = sum(t_sample[k:]) + t_other.
-    assert config.window_sc__ns == (1.0 + config.t_other__ns, config.t_other__ns)
+    """K=2 windows include the runtime ADC width in the live-bit tail."""
+    config = build_config(t_sample__ns=1.0, t_settle__ns=2.0, latency_per_step__ns=3.0)
+    for bits in (1, 3):
+        tail = 2.0 + bits * 3.0
+        assert config.tail__ns(bits) == tail
+        assert config.array_windows__ns(bits) == (1.0, tail)
+        assert config.sinwp_windows__ns(bits) == (1.0 + tail, tail)
 
 
 def test_window_laws_three_bit() -> None:
-    """The same window laws hold at K=3 with distinct sample windows (law, not number)."""
-    config = build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0)
-    t_other = 1.0 + sum(config.adc_config.step_latency__ns)  # settle + sum(step_latency)
-    assert config.t_other__ns == t_other
-    # window_array: sampled bits use their own window; the live bit uses t_other.
-    assert config.window_array__ns == (2.0, 3.0, t_other)
-    # window_sc: suffix sums of the sample windows plus the tail.
-    assert config.window_sc__ns == (2.0 + 3.0 + t_other, 3.0 + t_other, t_other)
+    """K=3 repeats one physical input phase and forms SINWP suffix windows."""
+    config = build_config(
+        input_bit_num=3,
+        t_sample__ns=2.0,
+        t_settle__ns=1.0,
+        latency_per_step__ns=3.0,
+    )
+    tail = 1.0 + 3 * 3.0
+    assert config.array_windows__ns(3) == (2.0, 2.0, tail)
+    assert config.sinwp_windows__ns(3) == (4.0 + tail, 2.0 + tail, tail)
 
 
-def test_t_cycle_at_least_conduction_span() -> None:
-    """`t_cycle__ns` is the static time base and must contain the whole conduction span."""
-    config = build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0)
-    # conduction_span = sum(t_sample) + t_other.
-    assert config.conduction_span__ns == sum(config.t_sample__ns) + config.t_other__ns
-    assert config.t_cycle__ns >= config.conduction_span__ns
-    # A t_cycle shorter than the conduction span is rejected.
+def test_t_cycle_contains_the_max_resolution_access() -> None:
+    """The scheduled period contains the maximum-resolution circuit latency."""
+    config = build_config(input_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
+    access__ns = config.access_latency__ns(config.adc_config.bits)
+    assert config.t_cycle__ns >= access__ns
     with pytest.raises(ValueError, match="t_cycle__ns"):
-        dataclasses.replace(config, t_cycle__ns=config.conduction_span__ns - 1.0)
+        dataclasses.replace(config, t_cycle__ns=access__ns - 1.0)
+
+
+def test_tmcsa_phases_fit_one_adc_decision_step() -> None:
+    """The macro schedule must contain both explicit TMCSA conduction phases."""
+    config = build_config(latency_per_step__ns=1.0)
+    with pytest.raises(ValueError, match=r"tmcsa_config\.t_ph2__ns \+ tmcsa_config\.t_ph3__ns"):
+        dataclasses.replace(
+            config,
+            tmcsa_config=dataclasses.replace(config.tmcsa_config, t_ph2__ns=0.8, t_ph3__ns=0.3),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +280,11 @@ def test_validate_rejects_sub_binary_radix() -> None:
         dataclasses.replace(config, w_digit_radix=1)
 
 
-def test_validate_rejects_bad_t_sample_length() -> None:
-    """One sample window per SAMPLED bit: `len(t_sample__ns) == input_bit_num - 1`."""
-    config = build_config(input_bit_num=2, t_sample__ns=(1.0,))
-    # K=2 wants exactly one sample window; two is rejected.
+def test_validate_rejects_negative_input_phase_duration() -> None:
+    """The repeated input phase duration cannot be negative."""
+    config = build_config()
     with pytest.raises(ValueError, match="t_sample__ns"):
-        dataclasses.replace(config, t_sample__ns=(1.0, 2.0))
+        dataclasses.replace(config, t_sample__ns=-1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +295,8 @@ def test_validate_rejects_bad_t_sample_length() -> None:
 def test_generalized_w_digit_num_accepted() -> None:
     """One and three magnitude digits both validate and build.
 
-    The DSWCT digit sum is a plain `.sum(-1)` that degenerates to identity at a
-    single digit, so a general `w_digit_num` needs no special case. A single polarity
+    The SINWP-SC digit sum degenerates to identity at a single digit, so a
+    general `w_digit_num` needs no special case. A single polarity
     digit (`w_digit_num = 1`, weights in `{-1, 0, 1}`) and three digits both
     construct without raising and expose the right per-weight geometry.
     """
@@ -320,16 +321,12 @@ def test_generalized_w_digit_radix_accepted() -> None:
 
 
 def test_input_bit_num_one_accepted() -> None:
-    """A single input bit (`input_bit_num = 1`) validates: no sample window, live bit alone.
-
-    K = 1 runs the live bit alone (the sample-and-hold leg off): `t_sample__ns`
-    is empty and both window vectors collapse to the single `t_other` entry.
-    """
-    config = build_config(input_bit_num=1, t_sample__ns=())
+    """At K=1 the live bit alone occupies the tail window."""
+    config = build_config(input_bit_num=1)
     assert config.input_bit_num == 1
-    assert config.t_sample__ns == ()  # one window per sampled bit; none are sampled
-    assert config.window_array__ns == (config.t_other__ns,)
-    assert config.window_sc__ns == (config.t_other__ns,)
+    tail = config.tail__ns(config.adc_config.bits)
+    assert config.array_windows__ns(config.adc_config.bits) == (tail,)
+    assert config.sinwp_windows__ns(config.adc_config.bits) == (tail,)
     macro = build_macro(config)
     assert macro.x_value_range == (0, 1)  # single input bit
 
