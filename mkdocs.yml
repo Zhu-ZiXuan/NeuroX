@@ -62,7 +62,8 @@ nav:
     - Workflow: guides/algorithm_engineer/workflow.md
   - Calibration:
     - Overview: guides/calibration/README.md
-    - ADC calibration: guides/calibration/calibrate_adc.md
+    - ADC input characterization: guides/calibration/calibrate_adc.md
+    - Macro calibration: guides/calibration/calibrate_macro.md
     - Solver iteration counts: guides/calibration/solver_iteration_counts.md
     - Tool conventions: guides/calibration/tool_conventions.md
 - Reference:

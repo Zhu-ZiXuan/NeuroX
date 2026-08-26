@@ -62,7 +62,7 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     sl_driver_config: VoltageDriverConfig
     """Per-column SL grounded clamp."""
 
-    # === Flat peripheral seats (static PPA only) ===
+    # === Unmodeled peripheral blocks ===
 
     mux_driver_config: UnmodeledBlockConfig
     timing_ctrl_config: UnmodeledBlockConfig
@@ -86,13 +86,6 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     vdd__V: float
     """Core analog supply behind array-node charging, BL/TBL conduction, and
     the readout; it must equal `adc_config.v_rail__V`."""
-
-    # === Flat peripheral per-op energies ===
-
-    e_mux_driver_per_op__fJ: float
-    """Billed once per output access."""
-    e_timing_ctrl_per_op__fJ: float
-    """Billed once per output access."""
 
     # === Quantization operating points ===
 
@@ -126,8 +119,6 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         self._require_non_neg(self.v_tbl__V, "v_tbl__V")
         self._require_non_neg(self.v_sl__V, "v_sl__V")
         self._require_non_neg(self.vdd__V, "vdd__V")
-        self._require_non_neg(self.e_mux_driver_per_op__fJ, "e_mux_driver_per_op__fJ")
-        self._require_non_neg(self.e_timing_ctrl_per_op__fJ, "e_timing_ctrl_per_op__fJ")
 
         # --- Readout reference ---
 
@@ -168,7 +159,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     Owns the dedicated WH-2T1R array, the word-line and BL input converter
     banks, the per-column BL and SL clamps, one RS-CSA with its reference
-    source, and two static-PPA peripheral seats. It hands the readout its
+    source, and two lumped-PPA peripheral blocks. It hands the readout its
     configured static compensation current at construction.
 
     Args:
@@ -333,7 +324,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             T__K=T__K,
         )
 
-        # --- Flat peripheral seats (static PPA; dynamic billed by the macro) ---
+        # --- Unmodeled peripheral blocks ---
 
         self.mux_driver = UnmodeledBlock(
             config=config.mux_driver_config,
@@ -413,6 +404,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         mode = self.config.modes[self._check_mode(quantization_mode)]
         mapped, _ = map_zero_point_input_code(code, code_range=mode.quantization_input_range)
         return mapped, mode.adc_input_code_range
+
+    def restore_adc_layout(self, value: Tensor) -> Tensor:
+        """Move the output-serial axis behind the fabricated instance axes."""
+        return value.movedim(-(len(self.inst_shape) + 1), -1)
 
     def _check_mode(self, quantization_mode: int) -> int:
         """Return `quantization_mode` after bounding it against the declared modes."""
@@ -635,17 +630,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # Shape: [..., out, *inst_shape]
         code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)
 
-        # --- 6: flat peripheral energy (per output access) ---
+        # --- 6: unmodeled peripheral energy (per output access) ---
 
-        # A flat per-op lump over the accesses `code` carries — a constant, so the
-        # expanded view holds no storage and no energy tensor is materialized, and the
-        # energy dtype is the constant's rather than the integer code's; outside
-        # a profiler the call is already a no-op, hence no `record` guard.
-        # Shape: [] -> [..., out, *inst_shape]
-        e_mux__fJ = torch.full((), config.e_mux_driver_per_op__fJ, dtype=torch.float32, device=code.device)
-        e_timing__fJ = torch.full((), config.e_timing_ctrl_per_op__fJ, dtype=torch.float32, device=code.device)
-        self._record_dynamic_energy(e_mux__fJ.expand(code.shape), channel="mux_driver")
-        self._record_dynamic_energy(e_timing__fJ.expand(code.shape), channel="timing_ctrl")
+        self.mux_driver.execute(code.shape)
+        self.timing_ctrl.execute(code.shape)
 
         # Shape: [..., out, *inst_shape] -> [..., *inst_shape, out]
-        return code.movedim(-(n_inst + 1), -1)
+        return self.restore_adc_layout(code)

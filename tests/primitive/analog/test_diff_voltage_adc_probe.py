@@ -1,10 +1,9 @@
 """Voltage-ADC family template method: probe-off equivalence + probe capture.
 
-`DiffVadc.convert` delegates to `_convert_impl` and emits the
-call on `DiffVadcProber`. Without an active prober the
-template must be bit-identical to the leaf conversion body; with one, the
-record must carry the conversion event alone — the call's inputs, code and
-bits. The injected reference is a calibrated constant, not a measured
+`DiffVadc.convert` delegates to `_convert_impl` and emits its input on the
+shared `AdcProber`. Without an active prober the template remains bit-identical
+to the leaf conversion body; with one, the record carries only the input
+terminals. The injected reference is calibrated design data, not a measured
 quantity, so it is not recorded.
 """
 
@@ -12,8 +11,8 @@ from __future__ import annotations
 
 import torch
 
+from neurox.primitive.analog import AdcProber
 from neurox.primitive.analog.diff_voltage_adc import (
-    DiffVadcProber,
     GeneralDiffVadc,
     GeneralDiffVadcConfig,
     GeneralDiffVadcPolicy,
@@ -63,7 +62,7 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     expected = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
     # The record stays where it was recorded, which is where the call's own
     # tensors it is compared against live.
-    with DiffVadcProber() as prober:
+    with AdcProber() as prober:
         out = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
 
     assert torch.equal(out, expected)
@@ -72,8 +71,10 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     record = records[0]
     assert torch.equal(record.v_pos__V, v_pos)
     assert torch.equal(record.v_neg__V, v_neg)
-    assert torch.equal(record.code, out)
-    assert record.bits == 4
+    assert record.input_name() == "v_diff__V"
+    assert torch.equal(record.input_value(), v_pos - v_neg)
+    assert not hasattr(record, "code")
+    assert not hasattr(record, "bits")
     # A reference is calibrated design data, not part of the conversion event.
     assert not hasattr(record, "v_ref__V")
     assert not hasattr(record, "v_refs__V")
@@ -83,7 +84,7 @@ def test_no_record_without_prober(device: torch.device) -> None:
     adc = _build_general_adc(device)
     v_pos, v_neg = _inputs(device)
 
-    with DiffVadcProber() as outer:
+    with AdcProber() as outer:
         pass  # closed before the call: nothing may be recorded
     adc.convert(v_pos, v_neg, v_refs__V=_taps(device), bits=4)
     assert outer.records == ()

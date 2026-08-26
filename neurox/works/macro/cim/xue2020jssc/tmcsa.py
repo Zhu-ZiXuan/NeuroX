@@ -23,8 +23,6 @@ class TmcsaConfig(ConfigBase):
     """PH2 conduction duration of one decision step."""
     t_ph3__ns: float
     """PH3 conduction duration of one decision step."""
-    conduction_scale: float
-    """Dimensionless calibration scale applied to PH2/PH3 conduction energy."""
     e_per_step__fJ: float
     """Data-independent switching energy of one sensing step, per TMCSA instance."""
     area_per_inst__um2: float
@@ -33,7 +31,6 @@ class TmcsaConfig(ConfigBase):
     def validate(self) -> None:
         self._require_non_neg(self.t_ph2__ns, "t_ph2__ns")
         self._require_non_neg(self.t_ph3__ns, "t_ph3__ns")
-        self._require_pos(self.conduction_scale, "conduction_scale")
         self._require_non_neg(self.e_per_step__fJ, "e_per_step__fJ")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
@@ -174,11 +171,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         i_ph2__uA = 3.0 * i_common__uA  # PH2: inputs (1x each) + internal P3/P4 (2x each)
         i_ph3__uA = 2.0 * i_common__uA  # PH3: internal only; the 2x splits into two 1x sinks
         # Shape: [..., serial, gn, bits] -> [..., serial, gn]
-        e_conduction__fJ = (
-            self.config.conduction_scale
-            * self._vdd__V
-            * (i_ph2__uA * self._t_ph2__ns + i_ph3__uA * self._t_ph3__ns).sum(dim=-1)
-        )
+        e_conduction__fJ = self._vdd__V * (i_ph2__uA * self._t_ph2__ns + i_ph3__uA * self._t_ph3__ns).sum(dim=-1)
         e__fJ = e_conduction__fJ + bits * self.config.e_per_step__fJ
         # The SAR step axis is already summed above; the collector sums the slot
         # and CIM-IO axes past the caller's leading dims.

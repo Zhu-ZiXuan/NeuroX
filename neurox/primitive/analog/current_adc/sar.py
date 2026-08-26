@@ -30,10 +30,9 @@ class SarIadcConfig(IadcConfig):
     v_rail__V: float
     """Supply rail the input and selected reference conduct across during each
     comparison step."""
-    t_conduct_per_step__ns: tuple[float, ...]
-    """Per-step conduction window, one entry per binary-search step (length
-    >= `bits`; a longer tuple is tolerated and only the first `bits` entries
-    are drawn). All-zero reduces to the pure fixed-energy model."""
+    t_conduct_per_step__ns: float
+    """Conduction window of every binary-search step. Zero reduces to the
+    pure fixed-energy model."""
 
     latency_per_step__ns: float
     """Decision latency of one binary-search step."""
@@ -56,9 +55,7 @@ class SarIadcConfig(IadcConfig):
 
         self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
         self._require_non_neg(self.v_rail__V, "v_rail__V")
-        self._require_min_len(self.t_conduct_per_step__ns, "t_conduct_per_step__ns", self.bits)
-        for step, t in enumerate(self.t_conduct_per_step__ns):
-            self._require_non_neg(t, f"t_conduct_per_step__ns[{step}]")
+        self._require_non_neg(self.t_conduct_per_step__ns, "t_conduct_per_step__ns")
 
         self._require_non_neg(self.latency_per_step__ns, "latency_per_step__ns")
 
@@ -232,7 +229,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
                 e_dyn__fJ = (
                     e_dyn__fJ
                     + e_fixed
-                    + v_rail * (i_in__uA + i_ref__uA) * t_conduct[step]
+                    + v_rail * (i_in__uA + i_ref__uA) * t_conduct
                     + self._compute_input_dynamic_energy__fJ(i_in__uA, i_ref__uA)
                 )
 

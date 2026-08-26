@@ -44,17 +44,16 @@ from torch import Tensor
 
 from neurox import stamp_names
 from neurox.primitive.analog import (
+    AdcProber,
     IrefConfig,
     IrefPolicy,
     UnmodeledBlockConfig,
-    UnmodeledBlockPolicy,
     VoltageDriverConfig,
     VoltageDriverPolicy,
     VrefConfig,
     VrefPolicy,
 )
 from neurox.primitive.analog.current_adc import (
-    IadcProber,
     SarIadcConfig,
     SarIadcPolicy,
 )
@@ -68,10 +67,8 @@ from neurox.works.macro.cim.xue2020jssc import (
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,
 )
-from neurox.works.macro.cim.xue2020jssc.dswct import DswctConfig, DswctPolicy
-from neurox.works.macro.cim.xue2020jssc.pn_isub import PnIsubConfig, PnIsubPolicy
-from neurox.works.macro.cim.xue2020jssc.sinwp_sc import SinwpScConfig, SinwpScPolicy
-from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig, TmcsaPolicy
+from neurox.works.macro.cim.xue2020jssc.pn_isub import PnIsubConfig
+from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig
 
 # --- Tiny witness geometry ---
 TINY_OUTPUT_NUM = 4
@@ -102,7 +99,7 @@ class _BuildConfigKwargs(TypedDict, total=False):
     t_sample__ns: float
     t_settle__ns: float
     t_cycle__ns: float
-    t_conduct_per_step__ns: tuple[float, ...] | None
+    t_conduct_per_step__ns: float
     latency_per_step__ns: float
     ref_levels__uA: tuple[float, ...] | None
 
@@ -172,7 +169,7 @@ def build_config(
     t_sample__ns: float = 1.0,
     t_settle__ns: float = 2.0,
     t_cycle__ns: float = 50.0,
-    t_conduct_per_step__ns: tuple[float, ...] | None = None,
+    t_conduct_per_step__ns: float = 0.1,
     latency_per_step__ns: float = 1.0,
     ref_levels__uA: tuple[float, ...] | None = None,
 ) -> Xue2020JsscCimMacroConfig:
@@ -195,13 +192,11 @@ def build_config(
         t_sample__ns: Duration of each sampled input-bit phase.
         t_settle__ns: Tail settle window.
         t_cycle__ns: Declared operating period (the static-energy time base).
-        t_conduct_per_step__ns: TMCSA per-step conduction window (defaults to
-            all-0.1, length `adc_bits`). Energy-path only.
+        t_conduct_per_step__ns: Kernel ADC conduction window shared by every
+            decision step. Energy-path only.
         latency_per_step__ns: Duration of one TMCSA decision step.
         ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
     """
-    if t_conduct_per_step__ns is None:
-        t_conduct_per_step__ns = tuple(0.1 for _ in range(adc_bits))
     if ref_levels__uA is None:
         ref_levels__uA = _default_ref_levels(adc_bits)
 
@@ -219,15 +214,15 @@ def build_config(
         t_settle__ns=t_settle__ns,
         t_cycle__ns=t_cycle__ns,
         vdd__V=1.0,
-        e_control_per_op__fJ=5.0,
-        control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
-        dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
-        sinwp_sc_config=SinwpScConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
-        pn_isub_config=PnIsubConfig(e_per_op__fJ=1.0, area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
+        control_config=UnmodeledBlockConfig(
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=6.0,
+            energy_per_op__fJ=5.0,
+        ),
+        pn_isub_config=PnIsubConfig(e_per_op__fJ=1.0),
         tmcsa_config=TmcsaConfig(
             t_ph2__ns=0.2,
             t_ph3__ns=0.3,
-            conduction_scale=1.5,
             e_per_step__fJ=0.75,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=2.5,
@@ -244,7 +239,7 @@ def build_config(
             r_out__MOhm=0.0,  # ideal flat clamp (V_BL = V_BLC at the port); static leakage seat only
             offset_sigma__V=0.0,
             thermal_sigma__V=0.0,
-            energy_per_op__fJ=0.0,  # CMD precharge folded into the control channel
+            energy_per_op__fJ=0.0,  # CMD precharge belongs to the control block
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=2.0,
         ),
@@ -297,11 +292,6 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
             coupling_mismatch=False,
         ),
         reference_policy=IrefPolicy(tolerance=False),
-        control_policy=UnmodeledBlockPolicy(),
-        dswct_policy=DswctPolicy(),
-        sinwp_sc_policy=SinwpScPolicy(),
-        pn_isub_policy=PnIsubPolicy(),
-        tmcsa_policy=TmcsaPolicy(),
     )
 
 
@@ -356,7 +346,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     sum equals `M` (greedy fill, per-row value in `x_value_range`); column 0 lives
     at mux slot 0 of IO 0, so the grid rides `i_sub[m, 0, 0]`. The pre-ADC
     magnitude `I_SUB` is captured through the ADC's own
-    `IadcProber` (`i_in__uA` per convert). All-off makes
+    `AdcProber` (`i_in__uA` per convert). All-off makes
     the probe deterministic. NOTE: reprograms the macro.
     """
     device = macro_device(macro)
@@ -377,11 +367,11 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
             remaining -= v
         assert remaining == 0, f"cannot reach MAC {m} with {row_num} rows of max {x_max}"
 
-    with IadcProber() as probe, torch.no_grad():
+    with AdcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     # One convert per vec_mat_mul; i_in__uA is the pre-ADC magnitude I_SUB.
     # Shape: [m_max + 1, group_size, group_num]
-    i_sub = probe.records[-1].i_in__uA
+    i_sub = probe.records[-1].input_value()
     return [float(v) for v in i_sub[:, 0, 0].cpu()]
 
 

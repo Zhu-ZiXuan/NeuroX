@@ -1,41 +1,28 @@
-# Run-config for neurox.tools.calibrate_solver.col_bl_col_sl on the xue2020jssc array solver.
-#
-# GENUINE: the runtime macro (../params.toml) composes the kernel XbarArray1t1r directly --
-# no scheme-local array class -- in wl_in_bl_scan over the full physical column grid, one
-# solve per plane, with the parallel BL/SL solver over a positive 5-Ohm-per-segment
-# wire ladder. The solver iteration counts (n_outer, n_inner) are therefore really
-# used: the wire IR drop couples BL/SL and the DC solve is non-trivial. This run-config
-# targets the shipped fixed Linear-cell macro directly, so the calibrated
-# (n_outer, n_inner) apply to the exact runtime array.
-#
-# Run:
-#   python -m neurox.tools.calibrate_solver.col_bl_col_sl \
-#       --config validations/xue2020jssc/tools/calibrate_solver.toml --device cpu
+# Xue2020 JSSC array-solver calibration.
 
 [macro]
 input_num = 256
 output_num = 128
-config_files = ["../params.toml"]            # the shipped Linear-cell macro (the config the scheme actually runs)
+config_files = ["../params.toml"]
 config_section = "cim_macro"
-policy_file = "../policy.toml"                # all-off calibration policy
+policy_file = "../policy.toml"
 policy_section = "policy"
-solver_section = "array_config.solver_config" # dotted path to the ColBlColSlSolverConfig table
+solver_section = "array_config.solver_config"
 
 [workload]
-inst_shape = [2]                  # bound to [batch_w]; the parallel weight-program axis
-active_rows = 9                   # == the macro's max_active_num (production-faithful row block)
-weight_samples = 2                # one complete two-program batch at the full array geometry
-input_samples_per_weight = 2      # two inputs, each serialized over all 256 rows
+active_rows = 9
+weight_samples = 2
+input_samples_per_weight = 2
 batch_w = 2
 
 [sweep]
 outer_candidates = [1, 2, 3, 4, 5, 6]
 inner_candidates = [1, 2, 3, 4]
-inner_ref = 4                     # generous n_inner while sweeping n_outer (stage A)
+inner_ref = 4
 ratio_threshold = 0.5
 reltol = 1e-2
-outer_margin = 1                  # +1 on n_outer
-inner_margin = 0                  # n_inner taken at its plateau
+outer_margin = 1
+inner_margin = 0
 
 [runtime]
 dtype = "float32"

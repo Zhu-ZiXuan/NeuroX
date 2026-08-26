@@ -1,6 +1,6 @@
 """Derive the quantization mode set from a per-layer range mapping file.
 
-CLI: `python -m neurox.tools.calibrate_adc.mode_derive --config <run.toml>
+CLI: `python -m neurox.tools.calibrate_macro.mode_derive --config <run.toml>
 [--output <modes.toml>] [--plot-dir <dir>] [--log-dir <dir>]
 [--log-level INFO]`
 
@@ -18,7 +18,7 @@ CPU-only by design: the derivation touches a handful of scalars, so the tool
 opts out of `--device`.
 
 See Also:
-    docs/guides/calibration/calibrate_adc.md
+    docs/guides/calibration/calibrate_macro.md
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ from pathlib import Path
 
 from neurox.common import ConfigBase
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
+from neurox.tools._logging import add_file_logging
 
 from ._math import ValueCluster, cluster_values
-from ._modes import AdcMode, LayerRange, ModeSet, canonical_window, dump_mode_set, load_layer_ranges
-from ._testbench import add_file_logging
+from .modes import LayerRange, MacroMode, ModeSet, canonical_window, dump_mode_set, load_layer_ranges
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def _build_mode_set(modes: list[DerivedMode], layer_to_mode: dict[str, int]) -> 
     """Assemble the validated mode set from the derivation result."""
     return ModeSet(
         modes=tuple(
-            AdcMode(
+            MacroMode(
                 quantization_mode=m.quantization_mode,
                 quantization_input_range=m.quantization_input_range,
                 layer_num=len(m.cluster.member_idx),

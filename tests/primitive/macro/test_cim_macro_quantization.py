@@ -185,6 +185,9 @@ class _StubMacro(CimMacro[_StubMacroConfig, _StubMacroPolicy]):
         mapped, _ = map_magnitude_input_code(code, code_range=mode.quantization_input_range)
         return mapped, mode.adc_input_code_range
 
+    def restore_adc_layout(self, value: Tensor) -> Tensor:
+        return value
+
     def program(self, w: Tensor) -> None:
         raise NotImplementedError
 

@@ -169,21 +169,12 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Rail every channelled branch is billed across, including the whole input branch on
     the `cablc` channel and every array-node capacitance."""
 
-    # === Per-op dynamic constants ===
-
-    e_control_per_op__fJ: float
-    """Control per-conversion dynamic energy (address decode, CMD precharge, timing)
-    billed on the `control` channel; it covers the CMD precharge, so no CMD capacitance
-    is modeled."""
-
-    # === Static-PPA seat (control) ===
+    # === Unmodeled control block ===
 
     control_config: UnmodeledBlockConfig
 
     # === Scheme-local readout modules ===
 
-    dswct_config: DswctConfig
-    sinwp_sc_config: SinwpScConfig
     pn_isub_config: PnIsubConfig
     tmcsa_config: TmcsaConfig
 
@@ -283,8 +274,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             "tmcsa_config.t_ph2__ns + tmcsa_config.t_ph3__ns",
             self.adc_config.latency_per_step__ns,
         )
-        self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
-
         self._require_non_neg(self.vdd__V, "vdd__V")
         # The CABLC consumes exactly one reference tap and holds it across every
         # mode, so its dedicated source is the degenerate single-row single-tap
@@ -328,11 +317,6 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     sl_driver_policy: VoltageDriverPolicy
     adc_policy: SarIadcPolicy
     reference_policy: IrefPolicy
-    control_policy: UnmodeledBlockPolicy
-    dswct_policy: DswctPolicy
-    sinwp_sc_policy: SinwpScPolicy
-    pn_isub_policy: PnIsubPolicy
-    tmcsa_policy: TmcsaPolicy
 
 
 @CimMacro.register_neurox_module(
@@ -523,22 +507,22 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # The ratio buffers are config-derived and injected here; the conduction
         # windows are injected per call in vec_mat_mul.
         self.dswct = Dswct(
-            config=config.dswct_config,
-            policy=policy.dswct_policy,
+            config=DswctConfig(),
+            policy=DswctPolicy(),
             inst_shape=(*self.inst_shape, gn, _POLARITY_NUM),
             digit_ratios=torch.tensor(config.digit_ratios, dtype=dtype),
             vdd__V=config.vdd__V,
         )
         self.sinwp_sc = SinwpSc(
-            config=config.sinwp_sc_config,
-            policy=policy.sinwp_sc_policy,
+            config=SinwpScConfig(),
+            policy=SinwpScPolicy(),
             inst_shape=(*self.inst_shape, gn, _POLARITY_NUM),
             bit_ratios=torch.tensor(config.x_bit_ratios, dtype=dtype),
             vdd__V=config.vdd__V,
         )
         self.pn_isub = PnIsub(
             config=config.pn_isub_config,
-            policy=policy.pn_isub_policy,
+            policy=PnIsubPolicy(),
             inst_shape=(*self.inst_shape, gn),
             vdd__V=config.vdd__V,
         )
@@ -558,7 +542,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
         self.tmcsa = Tmcsa(
             config=config.tmcsa_config,
-            policy=policy.tmcsa_policy,
+            policy=TmcsaPolicy(),
             inst_shape=(*self.inst_shape, gn),
             max_bits=config.adc_config.bits,
             vdd__V=config.vdd__V,
@@ -575,14 +559,12 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             T__K=T__K,
         )
 
-        # --- Control static-PPA seat (dynamic billed on the control channel) ---
+        # --- Unmodeled control block ---
 
-        # One control block per parallel sub-array copy, so its static PPA
-        # scales with the fabrication prefix in step with the macro-billed
-        # dynamic energy.
+        # One control block per parallel sub-array copy.
         self.control = UnmodeledBlock(
             config=config.control_config,
-            policy=policy.control_policy,
+            policy=UnmodeledBlockPolicy(),
             inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -681,6 +663,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         mode = self._mode(quantization_mode)
         magnitude, _ = map_magnitude_input_code(code, code_range=mode.quantization_input_range)
         return magnitude, mode.adc_input_code_range
+
+    def restore_adc_layout(self, value: Tensor) -> Tensor:
+        """Arrange the TMCSA call layout onto logical output columns."""
+        inst_num = len(self.inst_shape)
+        batch_num = value.ndim - inst_num - 2
+        value = _move_axis_block(value, src=batch_num + 1, dst=batch_num, num=inst_num)
+        return value.transpose(-2, -1).flatten(-2)
 
     def to_ideal(self) -> IdealCimMacro:
         """Return an ideal twin one bit wider than the TMCSA.
@@ -1027,13 +1016,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # in parallel, so the lane axis is neither billed per lane nor serialized.
         # Shape: [..., gs, gn] -> [..., gs]
         accesses = signed[..., 0]
-        # The control fires once per conversion cycle, shared across the CIM-IOs.
-        # The expanded constant holds no storage, so no energy tensor is
-        # materialized and the energy dtype is the constant's, not the code's.
-        # Outside a profiler the call is already a no-op, hence no activity guard.
-        # Shape: [] -> [..., *inst_shape, gs]
-        e_control__fJ = torch.full((), config.e_control_per_op__fJ, dtype=torch.float32, device=accesses.device)
-        self._record_dynamic_energy(e_control__fJ.expand(accesses.shape), channel="control")
+        self.control.execute(accesses.shape)
 
         # col = io * mux_factor + slot
         # Shape: [..., gs, gn] -> [..., col_num]

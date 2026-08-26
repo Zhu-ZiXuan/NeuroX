@@ -47,7 +47,7 @@ from ._utils import (
     ideal_mac,
 )
 
-_CHANNEL_KEYS = (".cablc", ".control")
+_CHANNEL_KEYS = (".cablc", "control")
 # The array, readout modules, and TMCSA billing module self-bill dynamic
 # energy; the kernel ADC (`adc`) is energy-silent.
 _MODULE_ROWS = ("array", "dswct", "sinwp_sc", "pn_isub", "tmcsa")

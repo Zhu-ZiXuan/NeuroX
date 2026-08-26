@@ -1,4 +1,4 @@
-"""Synthetic-workload sampling backend for the solver calibration tools.
+"""Synthetic logical-workload sampling shared by calibration tools.
 
 Scheme-agnostic: value ranges come from the `CimMacro` base surface, while
 logical dimensions are explicit tool inputs.
@@ -169,7 +169,7 @@ def sample_w(
     of `batch_w`.
 
     Yields:
-        Weight tensor; the leading axis is present only when `batch_w > 1`.
+        Weight tensor.
         Shape: `[batch_w, input_num, output_num]`.
 
     Raises:
@@ -183,8 +183,7 @@ def sample_w(
             f"sample_w: n ({n}) must be a multiple of batch_w ({batch_w}); "
             "partial final batches would break the macro's fixed inst_shape contract"
         )
-    leading = () if batch_w == 1 else (batch_w,)
-    shape_per = (*leading, input_num, output_num)
+    shape_per = (batch_w, input_num, output_num)
     n_per = math.prod(shape_per)
     num_yields = n // batch_w
     for _ in range(num_yields):

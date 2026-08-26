@@ -11,23 +11,21 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import RecordBase, RecorderBase, RegistryMixin
+from neurox.common import RegistryMixin
+from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class IadcRecord(RecordBase):
+class IadcRecord(AdcRecord):
     i_in__uA: Tensor
     """Input magnitude current the call was handed.
     Shape: `[...]`."""
-    code: Tensor
-    """Unsigned integer code the call returned.
-    Shape: `[...]`."""
-    bits: int
-    """Resolution the conversion executed."""
 
+    def input_name(self) -> str:
+        return "i_in__uA"
 
-class IadcProber(RecorderBase[IadcRecord]):
-    """Capture current-ADC conversion records."""
+    def input_value(self) -> Tensor:
+        return self.i_in__uA
 
 
 class IadcConfig(AnalogConfig, ABC):
@@ -159,14 +157,8 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         """
         self._check_bits(bits)
         code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
-        if IadcProber.active():
-            IadcProber.submit(
-                IadcRecord(
-                    i_in__uA=i_in__uA,
-                    code=code,
-                    bits=bits,
-                ),
-            )
+        if AdcProber.active():
+            AdcProber.submit(IadcRecord(i_in__uA=i_in__uA))
         return code
 
     @abstractmethod

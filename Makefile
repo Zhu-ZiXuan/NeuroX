@@ -132,7 +132,7 @@ eval-bert: ## Evaluate a BERT-small QAT checkpoint on SST-2
 
 .PHONY: validate_xue2020jssc
 validate_xue2020jssc: ## Run the xue2020jssc SINWP 1T1R CIM sub-array validation campaign
-	TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py
+	TORCH_COMPILE_DISABLE=1 uv run --extra calib python validations/xue2020jssc/validate.py
 
 .PHONY: validate_ye2023jssc
 validate_ye2023jssc: ## Run the ye2023jssc WH-2T1R CIM macro validation campaign

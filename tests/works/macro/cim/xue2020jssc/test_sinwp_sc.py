@@ -38,10 +38,7 @@ _WINDOW__NS = (7.0, 4.0)
 
 def _build_sinwp_sc() -> SinwpSc:
     module = SinwpSc(
-        config=SinwpScConfig(
-            area_per_inst__um2=0.0,
-            leakage_per_inst__uW=0.0,
-        ),
+        config=SinwpScConfig(),
         policy=SinwpScPolicy(),
         inst_shape=(_GN, _POLARITY_NUM),
         bit_ratios=torch.tensor(_BIT_RATIOS, dtype=_DTYPE),

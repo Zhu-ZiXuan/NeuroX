@@ -160,6 +160,10 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         """
         return map_zero_point_input_code(code, code_range=self._window(quantization_mode))
 
+    def restore_adc_layout(self, value: Tensor) -> Tensor:
+        """Return the already-logical ideal output layout."""
+        return value
+
     def program(self, w: Tensor) -> None:
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:

@@ -85,15 +85,15 @@ _CALIBERS: dict[str, dict[str, tuple[str, ...]]] = {
     "Y": {
         "Array": ("array", "wl_dac", "bl_dac", ".bl_cond", "bl_driver", "sl_driver"),
         "RS-CSA": ("rscsa",),
-        "Mux&Driver": (".mux_driver",),
-        "Timing&Ctrl": (".timing_ctrl",),
+        "Mux&Driver": ("mux_driver",),
+        "Timing&Ctrl": ("timing_ctrl",),
         _OFF_PIN: (".dl_cond",),
     },
     "X": {
         "Array": ("array", "wl_dac", ".dl_cond", "sl_driver"),
         "RS-CSA": ("rscsa",),
-        "Mux&Driver": (".mux_driver",),
-        "Timing&Ctrl": (".timing_ctrl",),
+        "Mux&Driver": ("mux_driver",),
+        "Timing&Ctrl": ("timing_ctrl",),
         _OFF_PIN: ("bl_dac", ".bl_cond", "bl_driver"),
     },
 }
@@ -125,8 +125,8 @@ _CHANNELS: tuple[tuple[str, str], ...] = (
     (".bl_cond", "macro, PER ACCESS: BL-rail input-branch conduction over T_AC"),
     (".dl_cond", "macro, PER ACCESS: core-rail row branch (raw I_TBL) over T_AC"),
     ("rscsa", "RS-CSA, PER CONVERSION: E_fixed + per-phase E_code"),
-    (".mux_driver", "macro seat, no per-op dynamic share"),
-    (".timing_ctrl", "macro seat, no per-op dynamic share"),
+    ("mux_driver", "unmodeled block, configured flat per-operation energy"),
+    ("timing_ctrl", "unmodeled block, configured flat per-operation energy"),
     ("bl_driver", "ideal BL source; the macro bills the whole input branch"),
     ("sl_driver", "ideal SL ground clamp; no billed branch"),
 )

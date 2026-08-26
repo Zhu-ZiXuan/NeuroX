@@ -44,8 +44,6 @@ vdd__V = 0.8                      # [measured p6 Table II] core supply
 # [derived] Structural zeros: both seats are billed as PURE STATIC leakage (their
 # transcribed block powers are flat across the two Fig.19 points), so no per-op
 # dynamic share exists.
-e_mux_driver_per_op__fJ = 0.0
-e_timing_ctrl_per_op__fJ = 0.0
 
 # --- Macro-owned static PPA lump (every seat carries its own) ---
 # [derived] Structural zeros: the macro declares no static PPA of its own.
@@ -258,6 +256,7 @@ leakage_per_inst__uW = 0.0
 # --- Mux & Driver -- flat seat, billed as pure static leakage ---
 [cim_macro.mux_driver_config]
 area_per_inst__um2 = 0.0          # [derived] the seat carries no area model
+energy_per_op__fJ = 0.0           # [derived] the adopted seat is purely static
 # [transcribed] Fig.19 Mux & Driver block power, flat across both sparsity points:
 # 17.6% of 31.96 uW = 5.625 at 87.5%, 6.8% of 82.94 uW = 5.640 at 50%.
 leakage_per_inst__uW = 5.63
@@ -266,6 +265,7 @@ leakage_per_inst__uW = 5.63
 # --- Timing & Mode Ctrl -- flat seat, billed as pure static leakage ---
 [cim_macro.timing_ctrl_config]
 area_per_inst__um2 = 0.0          # [derived] the seat carries no area model
+energy_per_op__fJ = 0.0           # [derived] the adopted seat is purely static
 # [transcribed] Fig.19 Timing & Mode Ctrl block power, flat across both sparsity
 # points: 43.9% of 31.96 uW = 14.030 at 87.5%, 16.9% of 82.94 uW = 14.017 at 50%.
 leakage_per_inst__uW = 14.03

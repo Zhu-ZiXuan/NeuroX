@@ -55,9 +55,9 @@ offset = false
 thermal = false
 
 
-# --- Mux & Driver flat static seat (UnmodeledBlock; source-free marker) ---
+# --- Mux & Driver lumped PPA seat (UnmodeledBlock; source-free marker) ---
 [policy.mux_driver_policy]
 
 
-# --- Timing & Mode Ctrl flat static seat (UnmodeledBlock; source-free marker) ---
+# --- Timing & Mode Ctrl lumped PPA seat (UnmodeledBlock; source-free marker) ---
 [policy.timing_ctrl_policy]

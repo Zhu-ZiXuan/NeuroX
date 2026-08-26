@@ -11,7 +11,7 @@ TORCH_COMPILE_DISABLE=1 uv run python -m neurox.tools.calibrate_solver.col_bl_co
     --config validations/ye2023jssc/tools/calibrate_solver.toml --device cuda:N
 ```
 
-The run sweeps `n_outer` (Stage A, `n_inner` pinned at `inner_ref`) then `n_inner` (Stage B) via step-ratio plateau detection with a relative-residual guard, and prints the recommended TOML fragment for `[cim_macro.array_config.solver_config]`. `active_rows = 32 == row_num` is the faithful input-parallel operating point (validated `1 <= active_rows <= row_num`); `inst_shape = [batch_w]` is the parallel weight-program axis.
+The run sweeps `n_outer` (Stage A, `n_inner` pinned at `inner_ref`) then `n_inner` (Stage B) via step-ratio plateau detection with a relative-residual guard, and prints the recommended TOML fragment for `[cim_macro.array_config.solver_config]`. `active_rows = 32 == row_num` is the faithful input-parallel operating point (validated `1 <= active_rows <= row_num`); the parallel weight-program instance shape is derived as `(batch_w,)`.
 
 ## No cell calibration
 

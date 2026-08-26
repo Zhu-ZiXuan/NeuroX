@@ -3,8 +3,8 @@
 Hand-built tiny witness, eager, CPU. Three laws:
 
   * SHAPE LAW: the module fabricates at the config-derived CIM-IO count
-    `gn = output_num // mux_factor` (no magic numbers) and its static
-    area / leakage totals scale with `inst_count`.
+    `gn = output_num // mux_factor` (no magic numbers) and reports structural
+    zero static PPA.
   * VALUE LAW: `forward` equals the inline subtraction — magnitude
     `|I_P - I_N|` and sign `I_N > I_P` (a tie is non-negative) —
     and is billing-independent (identical with and without a profiler).
@@ -32,15 +32,11 @@ _MUX_FACTOR = 2  # serial slot count; gn = output_num // mux_factor = 2
 _VDD__V = 0.9
 _WINDOW__ns = 3.5
 _E_PER_OP__fJ = 1.25
-_AREA_PER_INST__um2 = 2.0
-_LEAKAGE_PER_INST__uW = 3.0
 
 
 def _config(*, e_per_op__fJ: float = _E_PER_OP__fJ) -> PnIsubConfig:
     return PnIsubConfig(
         e_per_op__fJ=e_per_op__fJ,
-        area_per_inst__um2=_AREA_PER_INST__um2,
-        leakage_per_inst__uW=_LEAKAGE_PER_INST__uW,
     )
 
 
@@ -71,13 +67,13 @@ def _lane_currents(gn: int) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def test_inst_count_derived_from_config_geometry() -> None:
-    """inst_shape = (gn,) with gn = output_num // mux_factor; static PPA scales with inst_count."""
+    """inst_shape fixes circuit multiplicity; static PPA is structurally zero."""
     gn = _OUTPUT_NUM // _MUX_FACTOR
     module = _build(gn=gn)
     assert module.inst_shape == (gn,)
     assert module.inst_count == _OUTPUT_NUM // _MUX_FACTOR
-    assert module.area__um2 == pytest.approx(_AREA_PER_INST__um2 * gn)
-    assert module.leakage__uW == pytest.approx(_LEAKAGE_PER_INST__uW * gn)
+    assert module.area__um2 == 0.0
+    assert module.leakage__uW == 0.0
 
 
 # ---------------------------------------------------------------------------

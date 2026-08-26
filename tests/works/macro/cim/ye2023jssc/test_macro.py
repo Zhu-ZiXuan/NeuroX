@@ -431,7 +431,7 @@ def test_energy_channels(device: torch.device) -> None:
     # Array block: self-billed per-access caps ("array") + the two converter
     # banks' own drive rows + the macro-billed conduction channels; then the
     # readout and the flat seats.
-    for key in ("array", "wl_dac", "bl_dac", ".bl_cond", ".dl_cond", "rscsa", ".mux_driver", ".timing_ctrl"):
+    for key in ("array", "wl_dac", "bl_dac", ".bl_cond", ".dl_cond", "rscsa", "mux_driver", "timing_ctrl"):
         assert key in by_name, f"missing energy block {key!r}; have {sorted(by_name)}"
         assert by_name[key] > 0.0, f"non-positive energy block {key!r}: {by_name[key]}"
 

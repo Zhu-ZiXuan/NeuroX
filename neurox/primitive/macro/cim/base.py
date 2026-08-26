@@ -277,6 +277,20 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         raise NotImplementedError
 
     @abstractmethod
+    def restore_adc_layout(self, value: Tensor) -> Tensor:
+        """Restore a converter-aligned tensor to the logical output layout.
+
+        Args:
+            value: One value per physical conversion position, in the layout
+                used by the concrete macro's converter call.
+
+        Returns:
+            The same values arranged like `vec_mat_mul` output.
+                Shape: `[..., *inst_shape, output_num]`.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
         """Scheduled interval occupied by one `vec_mat_mul` call [ns].
 

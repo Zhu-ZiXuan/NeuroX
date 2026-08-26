@@ -1,267 +1,113 @@
-# Paper-design params for the Xue et al. (JSSC 2020) SINWP 1T1R CIM sub-array —
-# ONE 256x512 sub-array of the 1-Mb macro. Scheme:
-# neurox/works/macro/cim/xue2020jssc; validation status: results.md.
-#
-# 3-bit sign-magnitude weights (sign + 2 radix-2 magnitude digits) on polarity cell
-# pairs, 2-bit input (K=2, two serial single-bit WL sub-phases LSB first), 3-bit
-# unsigned-magnitude ADC output.
-#
-# Every value that names a physical quantity carries a provenance tag, inline or in
-# the comment block directly above it; the legend is in docs/validation/campaigns.md.
-# Page numbers in provenance tags are the printed JSSC page numbers. The paper's
-# stated design, simulation, and silicon measurement are kept distinct as
-# [reported], [simulated], and [measured]. [assumed] marks every modeling
-# convention the campaign owns -- a known-unknown given a value, never presented
-# as paper data.
-#
-# CALIBRATION STATUS: the fixed cell and 100-Ohm CABLC feed a freshly derived ADC
-# ladder and a freshly verified solver recommendation. The read-path workload
-# probabilities live in anchors.toml and are calibrated at the Fig.18 accounting
-# caliber. Scheme-local energy values below follow that declared workload.
-#
-# ENERGY-BASIS accounting: the profiler reports energy. Static energy per access =
-# leakage_power * t_cycle; dynamic energy per access = per-VMM dynamic / mux_factor. The per-access target
-# is 32.0625 pJ = 5.13 mW / 8 independent sub-arrays / 20 MHz. Two peripheral
-# seats adopt the [simulated p210] Fig.18
-# shares (Control 29.2 %, Reference 23.7 %); the read path (array /
-# cablc / dswct / sinwp_sc / pn_isub / tmcsa) follows the explicit circuit model, its
-# static seats are declared small/zero, and its capacitive / per-op remainders are
-# [calibrated] to the paired-slice residuals inside declared plausibility bounds.
-# See anchors.toml for the target, shares (informational), and declared
-# conventions.
-#
-# Pull this fragment from a user config with:
-#   [cim_macro]
-#   _neurox_use = "params.toml:cim_macro"   # (path relative to your file)
+# Xue2020 JSSC SINWP 1T1R CIM 256x512 sub-array: 3-bit sign-magnitude weights,
+# 2-bit serial input, and 3-bit unsigned-magnitude ADC output. Provenance tags
+# follow docs/validation/campaigns.md; page numbers are the printed JSSC pages.
 
 [cim_macro]
 _neurox_class = "Xue2020JsscCimMacroConfig"
 
-# --- Activation limit (one 256-input x 128-output macro) ---
-# The owner supplies input_num=256 and output_num=128 at construction. Internally,
-# row_num=256 and col_num=128, yielding 512 physical columns and 4 CIM-IOs.
-# [reported p206] 3x3-kernel row-block size activated per conversion ("a maximum of
-# nine WLs were turned on in this article"); the engine (not the macro) serializes
-# across row blocks. Instantaneous conducting rows are data-driven (WL on iff that
-# input bit = 1).
-max_active_num = 9
+# Macro
 
-# --- Weight / input geometry (fixed by the DSWCT MSB/LSB two-leg structure) ---
+max_active_num = 9                # [reported p206] Maximum active rows for a 3x3 kernel block.
+
 w_digit_num = 2                   # [reported p206] 2 magnitude digits (MSB/LSB two-mirror)
 w_digit_radix = 2                 # [reported p206] single-bit magnitude cell (LRS/HRS)
 input_bit_num = 2                 # [reported p206] K=2 input bits -> 2 serial WL sub-phases, LSB first
 mux_factor = 32                   # [reported p207] 32:1 column MUX; io_num = col_num // mux_factor = 4
 
-# --- DSWCT / SINWP-SC ratio anchors (per-digit / per-bit ratios DERIVED downward) ---
-# Per-digit DSWCT mirror ratio r_d = dswct_ratio_msb * radix^(d-(D-1)), LSB-first
-# d=0..1 -> [0.25, 0.5]; per-input-bit SINWP-SC leg ratio s_k = sc_ratio_msb *
-# 2^(k-(K-1)) -> [0.25, 0.5]. Composite BL->I_SUB coeff r_d*s_k over (digit, bit) =
-# (1/16, 1/8, 1/8, 1/4), the paper's Fig.7 net transfer.
 dswct_ratio_msb = 0.5             # [derived] [reported p206 Fig.6(a)] 2/k at k = 4
 sc_ratio_msb = 0.5                # [derived] [reported p206 Fig.7] normalized live-leg ratio
 
-# --- Conduction windows [ns] (dynamic-energy only) + static time base ---
-# [assumed] Timing decomposition: the measured 2-bit and 1-bit access latencies
-# differ only by one input phase:
-# 14.60 - 11.75 = 2.85 ns. The remaining 1-bit latency after three 3.11 ns
-# model decisions is 2.42 ns. The paper's simulated decisions are 3.16, 3.07,
-# and 3.11 ns (9.34 ns total); using one uniform 3.11 ns decision period is an
-# [assumed] timing abstraction.
+# [assumed] One uniform 3.11 ns ADC decision period represents the simulated 3.16/3.07/3.11 ns steps.
 t_sample__ns = 2.85               # [derived] [measured p211] 14.60 - 11.75 ns
 t_settle__ns = 2.42               # [derived] 11.75 - 3 * 3.11 ns under the uniform-step assumption
-# [derived] 50 ns simulated operating period = 1 / 20 MHz. [assumed] Static
-# energy integrates over that complete period rather than only the active span.
-# Leakage integrates over the whole period, so static energy per access =
-# leakage_power * t_cycle. Must be >= the conduction span (14.6 ns).
-t_cycle__ns = 50.0
-
-# --- Core analog supply ---
-# Every channelled branch and array-node excursion draws from this supply. The
-# 0.9 V WL level is a node voltage, not an independent supply.
+t_cycle__ns = 50.0                # [derived] [simulated p210] 1 / 20 MHz; [assumed] static-energy time base
 vdd__V = 1.0                      # [reported p209] simulation supply; [measured p211] nominal test supply
 
-# --- Adopted per-op dynamic constant ---
-# [derived] The [simulated p210 Fig.18] Control seat is 29.2 % * 32.0625
-# pJ/access = 9362.25 fJ/access. The [assumed] 70 % dynamic / 30 % static split
-# at the reported 50 ns period assigns 6553.575 fJ to the per-access event,
-# rounded to five significant digits below.
-# Control covers address decode, CMD precharge, and timing; e_control fires once
-# per access; the remaining 30 % is carried by the control leakage seat below.
-e_control_per_op__fJ = 6553.6
+area_per_inst__um2 = 0.0          # [assumed] unextracted
+leakage_per_inst__uW = 0.0        # [assumed] unmodeled macro remainder
 
-# --- PPA: the macro-owned lump ---
-# The DSWCT / SINWP-SC / PN-ISUB static seats live in their own module configs
-# below; this lump carries only the un-attributed macro remainder. Area
-# un-extracted. [assumed] Both unmodeled seats are held at zero.
-area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0
-
-
-# --- Quantization modes (macro-level; one entry per reference ladder row) ---
-# The TMCSA is a 3-bit unsigned-magnitude quantizer behind a sign bit, so the
-# attainable signed output is +-7 and the canonical mid-zero window that holds it
-# is [-8, 7] (the -8 level is a phantom the sign-magnitude encoding never emits).
-# The converter itself discriminates magnitudes over its seven taps, so the ADC
-# input code range is [0, 7]. Single operating point (reference mode_num = 1).
-# [derived] The ranges follow the reported sign-plus-three-data-bit output, and
-# rescale 1.0 follows from placing the thresholds so code is the integer MAC
-# magnitude.
+# [derived] Magnitude map: [0,9] -> 0, [10,19] -> 1, ..., [70,+inf] -> 7.
 [[cim_macro.modes]]
-quantization_input_range = [-8, 7]
-adc_input_code_range = [0, 7]
-max_bits_rescale_factor = 1.0
+quantization_input_range = [-80, 79]
+adc_input_code_range = [0, 81]
+max_bits_rescale_factor = 10.000
 
 
-# ===========================================================================
-# Array (kernel XbarArray1t1r) -- IR-drop 1T1R pure array: cells + wire + solver
-# ===========================================================================
-# Each WL sub-phase is one DC solve at the position-dependent wire IR drop,
-# returning the per-column BL port current I_DL. The array is a REPORTER: it bills
-# ONLY its wire / cell capacitive cycling on its own module row; the macro bills
-# the whole input branch VDD*I_DL on the cablc channel (the array caps row + that
-# channel fold into the cablc+dswct pair slice).
+# Array
 [cim_macro.array_config]
 
-# --- Layout pitch [um] ---
-# [assumed] Square-equivalent pitch constrained by the [reported p211 Fig.20(c)]
-# 1T1R cell size: sqrt(0.2025 um2) = 0.45 um. The paper gives the area but not the
-# two directional pitches. The boundary driver reaches the first cell across one
-# standard pitch; there is no separate first-segment length.
+# [assumed] Square 0.45 um pitch derived from the [reported p211 Fig.20(c)] 0.2025 um2 cell area.
 row_cell_space__um = 0.45
 col_cell_space__um = 0.45
 
-# --- BL / SL wire segment resistance [MOhm] ---
-# [assumed] The paper gives NO wire resistance: the solver uses g = 1/R so R MUST
-# be > 0 (a true zero is nan; a small positive value is the correct "near-ideal"
-# path, NEVER a code hardcode). Cell-to-cell R = 5 Ohm = 5.0e-6 MOhm. The solver
-# computes the position-dependent IR drop; the Linear cell + wire R is a linear
-# system (fast, near-exact).
-bl_segment_r__MOhm = 5.0e-6
-sl_segment_r__MOhm = 5.0e-6
+# [assumed] paper provides no wire extraction.
+bl_segment_r__MOhm = 5e-7
+sl_segment_r__MOhm = 5e-7
 
-# --- Per-node capacitance [fF] (dynamic-energy only) ---
-# [assumed] The paper publishes neither extracted array parasitics nor a separate
-# array-capacitance power seat. At the calibrated activity point, explicit
-# CABLC+DSWCT conduction already occupies the Fig.18 pair within 5%, leaving no
-# defensible positive extraction. This paper-reproduction preset therefore keeps
-# all four caps at zero rather than presenting an attofarad residual as physical;
-# the array model itself retains the configurable node-capacitance mechanism for
-# later layout-informed exploration.
+# [assumed] The paper provides no array parasitic extraction; the calibrated CABLC+DSWCT seat leaves no positive capacitance residual.
 bl_node_c__fF = 0.0
 x_node_c__fF = 0.0
 sl_node_c__fF = 0.0
 wl_node_c__fF = 0.0
 
-
-# ---------------------------------------------------------------------------
-# Empirical linear 1T1R cell (XbarCell1t1rLinear) -- the programmable weights
-# ---------------------------------------------------------------------------
-# The cell tables encode the g_map (chord conductance per weight state / WL level)
-# plus the BL-side drop fraction the solver uses for the internal V_X node.
+# Linear 1T1R cell
 [cim_macro.array_config.cell_config]
 _neurox_class = "XbarCell1t1rLinearConfig"
 
-# --- Chord conductance tables [uS], indexed by weight-state (0 = HRS, 1 = LRS) ---
-# [reported p204] An inactive WL produces no cell current in the paper's read
-# abstraction, so both WL-off branches are exactly open.
-# [derived p210 Fig.14, p211 Fig.21] Reading the reported current coordinates
-# together with the CABLC operating voltages gives about 42.0 kOhm for HRS and
-# 7.2 kOhm for LRS. Their rounded chord conductances are used directly. These
-# are effective complete-1T1R read chords, not intrinsic ReRAM conductances.
+# [reported p204] Inactive WL branches are open.
+# [derived p210 Fig.14, p211 Fig.21] Effective complete-1T1R read chords: HRS about 42.0 kOhm and LRS about 7.2 kOhm.
 g_cell_off_table__uS = [1e-3, 1e-3]
 g_cell_on_table__uS = [23.8, 138.9]
 
-# --- BL-side drop fractions vx_ratio = (V_BL - V_X) / (V_BL - V_SL) ---
-# [derived] With the WL off, the open access transistor leaves V_X at V_BL, so
-# vx_ratio = 0. With the WL on, the [assumed] 800-Ohm access resistance is used
-# ONLY to place V_X inside the already-fitted total branch:
-# vx_ratio = 1 - R_access_on * g_cell. It is not added to the chord again.
+# [derived] vx_ratio = 0 with WL off; with WL on, vx_ratio = 1 - 800 Ohm * g_cell using the [assumed] access resistance.
 vx_ratio_off_table = [0.0, 0.0]
 vx_ratio_on_table = [0.98, 0.89]
 
-# --- Analog WL level above which the access device counts as on ---
 # [derived] Midpoint of the declared 0.0/0.9 V WL levels.
 v_wl_on_threshold__V = 0.45
 
-
-# ---------------------------------------------------------------------------
-# Parallel BL/SL array DC solver -- outer V_clamp / inner wire Newton
-# ---------------------------------------------------------------------------
-# The Linear cell + wire R is a linear system, so the solve is fast + near-exact;
-# the nested iteration counts are genuinely used all the same (the wire IR drop
-# couples BL/SL). [calibrated] calibrate_solver.col_bl_col_sl, all-off,
-# active_rows=9, full 256x512 physical array, two parallel weight programs x two
-# inputs, seed 0: plateau at (n_outer=3, n_inner=3), residual guard passed;
-# recommendation adds one outer margin. Normalized BL/SL KCL residuals were
-# 2.875e-4/7.081e-5 and BL/SL clamp residuals were 2.589e-6/0.
+# Solver
+# [calibrated] Full 256x512 all-off-policy sweep with nine active rows: plateau at (3,2), plus one outer-step margin.
 [cim_macro.array_config.solver_config]
 _neurox_class = "ColBlColSlSolverConfig"
-n_outer = 4                       # [calibrated] outer clamp-voltage Newton steps (plateau 3 + margin 1)
-n_inner = 3                       # [calibrated] inner wire/cell coupled Newton steps (plateau 3)
+n_outer = 4                       # [calibrated]
+n_inner = 2                       # [calibrated]
 
 
-# ===========================================================================
-# WL DAC -- 1-bit ON/OFF word-line driver (K serial single-bit sub-phases)
-# ===========================================================================
+# WL DAC
 [cim_macro.wl_dac_config]
 _neurox_class = "GeneralVdacConfig"
-# [reported p206] binary WL drive: OFF -> 0 V, ON -> V_WL. [assumed] V_WL 0.9 V (the
-# paper does not give the WL on-voltage).
+# [reported p206] Binary WL drive. [assumed] 0.9 V ON level.
 code_to_signal = [0.0, 0.9]
 drive_thermal__V = 0.0            # [assumed] ideal all-off nonideality point
-# [assumed] per-op dynamic energy indexed by code, parallel to code_to_signal:
-# both entries are held at zero pending extraction.
+# [assumed] Unextracted PPA.
 code_to_per_op_energy__fJ = [0.0, 0.0]
 area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
-
-# ===========================================================================
-# CABLC BL clamp -- 100-Ohm Thevenin VoltageDriver, the array bl_driver
-# ===========================================================================
+# CABLC BL clamp
 [cim_macro.cablc_config]
-# [assumed] Column-MUX time-shared: instantiated at inst_shape (n_io, 2, 2) = 16
-# devices per
-# sub-array (4 per CIM-IO: polarity x MSB/LSB). [derived p210 Fig.14] A fixed
-# 100-Ohm output resistance represents the approximately 30-a.u. operating region
-# of the Fig.14 CABLC curve. Array-wire IR drop remains in
-# the ARRAY and is separate from this clamp drop. The whole input-branch conduction
-# VDD*I_DL is billed by the macro cablc channel, so energy_per_op MUST be 0
-# (the CMD precharge is under the control channel).
+# [derived p210 Fig.14] 100 Ohm Thevenin resistance around the 30-a.u. operating region.
 r_out__MOhm = 0.0001
+
 offset_sigma__V = 0.0
 thermal_sigma__V = 0.0
+
 energy_per_op__fJ = 0.0
 area_per_inst__um2 = 0.0
-# [assumed] Read-path static seat = 0: read-path static is declared small/zero,
-# NEVER solved to fill the total. The CABLC slice is dynamic-dominated.
 leakage_per_inst__uW = 0.0
 
-
-# ===========================================================================
-# CABLC reference source -- dedicated single-tap Vref (the BL clamp reference)
-# ===========================================================================
-# The macro's own reference source: its sole tap is read per solve and fed to
-# the array's bl_driver as its Thevenin reference. The SL has no reference
-# source -- it is a direct ground tie (a plain 0 V tensor in code).
+# CABLC reference
 [cim_macro.cablc_vref_config]
-# [simulated p210 Fig.14] Target V_BLC = 0.30 V. The per-cell V_BL droops
-# below it by the wire IR drop the solver computes. The bank is 2-D [mode][tap];
-# this clamp is the degenerate one-row one-tap case.
+# [simulated p210 Fig.14] 0.30 V CABLC target.
 v_refs__V = [[0.30]]
-# [assumed] Ideal reference accuracy, zero unextracted area, and zero separately
-# billed static power. The adopted shared reference seat is reference_config.
+# [assumed] Ideal accuracy and unextracted PPA.
 tolerance_sigma_relative = 0.0
 area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0        # [assumed] read-path static seat = 0
+leakage_per_inst__uW = 0.0
 
-
-# ===========================================================================
-# SL driver -- ideal ground clamp (VoltageDriver held at 0 V), the array sl_driver
-# ===========================================================================
+# SL ground clamp
 [cim_macro.sl_driver_config]
-# [assumed] Ideal per-group SL clamp (inst_shape mirrors cablc), driven at V_SL = 0 in the solve
-# (paper topology: BL -> RRAM -> SL(GND); the 0 V reference is a plain tensor).
 r_out__MOhm = 0.0
 offset_sigma__V = 0.0
 thermal_sigma__V = 0.0
@@ -269,143 +115,58 @@ energy_per_op__fJ = 0.0
 area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
-
-# ===========================================================================
-# Kernel SAR ADC -- value converter only (SarIadc; energy-silent in this scheme)
-# ===========================================================================
-# The macro builds this ADC with enable_energy_record=false: it converts values
-# only. The conversion energy is billed phase-resolved by the scheme tmcsa_config
-# module below, so the kernel energy knobs (v_rail, t_conduct, e_fixed) are inert
-# for this scheme.
+# SAR ADC
 [cim_macro.adc_config]
-# [assumed] Area and nonideality sigmas are held at zero because the campaign
-# does not extract them from layout or silicon statistics.
+# [assumed] Unextracted PPA; TMCSA owns conversion energy.
 area_per_inst__um2 = 0.0
-# [assumed] Read-path static seat = 0. The conversion dynamic energy is billed
-# on the scheme tmcsa module row.
 leakage_per_inst__uW = 0.0
 
 bits = 3                          # [reported p209] 3-b sensing, seven references I_REF[6:0]
 margin_gain = 3.0                 # [reported p208] PH3 circuit gives 3x signal margin
 
-# [derived] Kernel conduction knobs, INERT here (enable_energy_record=false); the
-# scheme tmcsa module owns the conversion billing.
+# [derived] Inert energy parameters because TMCSA owns conversion billing.
 v_rail__V = 1.0
-t_conduct_per_step__ns = [3.11, 3.11, 3.11]
-# [assumed] The [simulated p209] 3.16/3.07/3.11 ns step latencies are represented
-# by one uniform physical decision period; 3.11 ns is their rounded mean.
-latency_per_step__ns = 3.11
-
-# [derived] Kernel per-step constant, INERT here: the billing duty for this
-# generic converter constant is unused because the scheme-local TMCSA bills energy.
+t_conduct_per_step__ns = 3.1100
+# [assumed] Uniform period representing the [simulated p209] 3.16/3.07/3.11 ns steps.
+latency_per_step__ns = 3.1100
 e_fixed_per_op__fJ = 0.0
 
-# --- Nonideality sigmas (gated by policy; all-off here) ---
-# [assumed] No silicon variation statistics are available for these model knobs.
+# [assumed] No reported variation statistics.
 comparator_offset_sigma__uA = 0.0
 coupling_mismatch_sigma__uA = 0.0
 
 
-# ===========================================================================
-# TMCSA -- phase-resolved conversion-billing module (one unit per CIM-IO)
-# ===========================================================================
-# Bills the conversion energy from (i_sub, raw codes, reference ladder) after
-# the kernel ADC returns: per step s, the materialized phase branches
-# i_ph2 = 3*(i_sub + i_ref_path[s]) over PH2 and i_ph3 = 2*(i_sub +
-# i_ref_path[s]) over PH3. The per-step reference
-# path is recovered from the final code through the structural tap LUT.
+# TMCSA
 [cim_macro.tmcsa_config]
-# [assumed] Fig.10(b) establishes phase order but gives no time scale. These
-# absolute windows preserve the former 0.18 * 3.11 ns and 0.30 * 3.11 ns
-# assumptions; they are not values read from the drawing.
-t_ph2__ns = 0.5598
-t_ph3__ns = 0.9330
-# [assumed] Fixed PH4 latch, reset-node, and local switching energy for each
-# sensing step and CIM-IO. The external DOUT register is not included.
-e_per_step__fJ = 50.000
-# [calibrated] Common multiplier on the explicit PH2/PH3 branch-conduction
-# law, fitted to the residual of the [simulated p210 Fig.18] TMCSA share after
-# subtracting bits * CIM-IO * e_per_step. The unpublished PH2/PH3 durations
-# remain declared assumptions.
-conduction_scale = 3.2510
+# [calibrated] Absolute PH2/PH3 windows fitted to the [simulated p210 Fig.18] TMCSA share while preserving the [assumed] 0.18:0.30 ratio from Fig.10(b).
+t_ph2__ns = 0.6
+t_ph3__ns = 1.0
+# [assumed] PH4 latch, reset-node, and local switching energy per sensing step and CIM-IO.
+e_per_step__fJ = 50.0
 area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [assumed] Read-path static seat = 0: declared small/zero, not solved.
-leakage_per_inst__uW = 0.0
+leakage_per_inst__uW = 0.0        # [assumed] read-path static seat
 
-
-# ===========================================================================
-# Reference -- shared static current-reference source (Iref)
-# ===========================================================================
-# The 7 mid-point ADC thresholds I_REF[6:0] are sourced by a static
-# Iref (PPA leakage only, no forward path), shared by the 4 TMCSAs, one
-# instance per sub-array. The [mode, tap] bank is sliced to a 1-D ladder per call;
-# tap_num MUST == 2**adc_config.bits - 1 = 7, mode_num = 1.
+# ADC reference
 [cim_macro.reference_config]
 area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [derived] Adopted Reference static seat: [simulated p210] 23.7 % share *
-# 5.13 mW / 8 = 151.97625 uW for each independent sub-array, rounded to five
-# significant digits below. The [assumed] accounting split treats the seat as
-# purely static. This is not a residual fit; calibrate.py only confirms the result.
+# [derived] [simulated p210 Fig.18] 23.7% * 5.13 mW / 8; [assumed] entirely static.
 leakage_per_inst__uW = 151.98
 
-# [derived] calibrate.py: 7 mid-point thresholds I_REF[j] =
-# 0.5*(I_SUB(MAC=j) + I_SUB(MAC=j+1)) at THIS geometry (fixed Linear cell,
-# 100-Ohm CABLC, solver n_outer=4/n_inner=3, active_row_num=9), re-derived by driving the
-# macro through the full array IR-drop solve and probing the pre-ADC i_sub
-# staircase. The ladder TRACKS the chord scale. Staircase monotonic; the ladder
-# verifies code == MAC magnitude (codes 0..7). The config enforces
-# strictly-increasing equal-length rows; length 7 pins against 2**bits-1.
-i_refs__uA = [[1.0598, 3.1795, 5.2992, 7.3805, 9.4235, 11.466, 13.470]]
+# [calibrated] Equal-tail p99/p01 midpoints at the 9/10, 19/20, ..., 69/70 magnitude boundaries with 0.5 Ohm wires and the all-off policy.
+i_refs__uA = [[17.719, 36.217, 53.754, 70.464, 86.626, 101.77, 116.20]]
 
-# --- Nonideality sigma (gated by policy; all-off here) ---
-# [assumed] No reference-tolerance distribution is extracted.
+# [assumed] No reported reference-tolerance distribution.
 tolerance_sigma_relative = 0.0
 
-
-# ===========================================================================
-# Control -- static-PPA seat for the (functionally unmodeled) control block
-# ===========================================================================
+# Control
 [cim_macro.control_config]
 area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [assumed] The paper publishes no Control dynamic/static split. At its reported
-# 50 ns period, 30 % of the 9362.25 fJ/access Control seat is assigned to
-# leakage: 0.30 * 9362.25 fJ / 50 ns = 56.1735 uW per sub-array, rounded to
-# five significant digits below.
+# [derived] [simulated p210 Fig.18] 29.2% of 32.0625 pJ/access, with the [assumed] 70% dynamic share.
+energy_per_op__fJ = 6553.6
+# [derived] Remaining [assumed] 30% static share over the 50 ns period.
 leakage_per_inst__uW = 56.174
 
-
-# ===========================================================================
-# DSWCT -- digit-weighted current-mirror bank module (one bank per (IO, polarity))
-# ===========================================================================
-# Self-bills its rail conduction VDD * |I_WDL| * window on its own module row;
-# the digit ratios derive from dswct_ratio_msb above.
-[cim_macro.dswct_config]
-area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [assumed] Read-path static seat = 0: declared small/zero, not solved.
-leakage_per_inst__uW = 0.0
-
-
-# ===========================================================================
-# SINWP-SC -- sample-and-hold combine module (one unit per (IO, polarity) lane)
-# ===========================================================================
-# Self-bills held/live leg conduction on its own module row; the bit ratios
-# derive from sc_ratio_msb above.
-[cim_macro.sinwp_sc_config]
-area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [assumed] Read-path static seat = 0: declared small/zero, not solved.
-leakage_per_inst__uW = 0.0
-
-
-# ===========================================================================
-# PN-ISUB -- polarity subtractor module (bias/icm rails + sign comparator)
-# ===========================================================================
-# Self-bills its 3-branch conduction over the tail plus the per-decision
-# comparator energy on its own module row.
+# PN-ISUB
 [cim_macro.pn_isub_config]
-# [calibrated] Data-independent three-inverter + sign-latch energy, billed once
-# per (column-MUX slot, CIM-IO). Rounded from the 47.665 fJ residual of the
-# [simulated p210 Fig.18] SINWP-SC+PN-ISUB pair at the declared workload.
+# [calibrated] Three-inverter and sign-latch event from the [simulated p210 Fig.18] SINWP-SC+PN-ISUB paired target.
 e_per_op__fJ = 47.665
-area_per_inst__um2 = 0.0          # [assumed] unextracted
-# [assumed] Read-path static seat = 0: declared small/zero, not solved.
-leakage_per_inst__uW = 0.0

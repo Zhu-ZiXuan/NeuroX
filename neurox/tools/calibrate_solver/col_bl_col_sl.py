@@ -51,9 +51,6 @@ from ._common import (
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
-    inst_shape: list[int]
-    """Fabricated per-instance shape — the rank-1 parallel weight-program axis,
-    bound to equal `[batch_w]`."""
     active_rows: int
     """Simultaneously active word lines per serialized sub-phase plane,
     `1 <= active_rows <= row_num`. The macro's `max_active_num` gives the
@@ -197,16 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_tool_config(CalibrateSolverColBlColSlConfig, args.config)
     log.info("loaded config from %s", args.config)
 
-    inst_shape = tuple(cfg.workload.inst_shape)
-    # inst_shape[0] is the macro's parallel weight-program axis; sample_w
-    # produces tensors with that exact leading dim. Any mismatch with
-    # batch_w trips macro.program(w)'s shape check immediately.
-    if len(inst_shape) != 1 or inst_shape[0] != cfg.workload.batch_w:
-        raise SystemExit(
-            f"[workload].inst_shape ({list(inst_shape)}) must be exactly "
-            f"[batch_w]={[cfg.workload.batch_w]} — the two axes are bound by the "
-            "macro's program(w) shape contract."
-        )
+    inst_shape = (cfg.workload.batch_w,)
     dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
     device = torch.device(args.device)
 

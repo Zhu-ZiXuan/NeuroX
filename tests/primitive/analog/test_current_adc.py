@@ -11,8 +11,7 @@ truncates the max-bits binary search after `bits` levels. These tests pin:
 - per-instance broadcast: distinct ladders across the leading digitize their own
   inputs (any leading rank is accepted);
 - `bits` validation: a request outside `[1, max_bits]` is rejected;
-- config-time energy-knob validation: negative rail, window, or step latency,
-  and a conduction-window list shorter than `bits`;
+- config-time energy-knob validation: negative rail, window, or step latency;
 - conversion correctness: unit-step ladder codes = the count of taps the input
   exceeds; the truncated search starts at the max-bits mid tap and its code at
   `b` is the max-bits code right-shifted by `max_bits - b`;
@@ -23,8 +22,7 @@ truncates the max-bits binary search after `bits` levels. These tests pin:
   ladder; `enable_energy_record=False` suppresses the dynamic-energy event
   while keeping the exact codes;
 - `Iadc.convert` template method: probe-off equivalence with
-  `_convert_impl` and `IadcProber` capture of input,
-  code, and resolution.
+  `_convert_impl` and `AdcProber` capture of the input signal.
 """
 
 from __future__ import annotations
@@ -33,8 +31,8 @@ import pytest
 import torch
 
 from neurox import Profiler, Reporter, stamp_names
+from neurox.primitive.analog import AdcProber
 from neurox.primitive.analog.current_adc import (
-    IadcProber,
     SarIadc,
     SarIadcConfig,
     SarIadcPolicy,
@@ -48,7 +46,7 @@ def _config(
     *,
     adc_bits: int = 3,
     v_rail__V: float = 0.0,
-    t_conduct_per_step__ns: tuple[float, ...] = (0.0, 0.0, 0.0),
+    t_conduct_per_step__ns: float = 0.0,
     latency_per_step__ns: float = 3.0,
     e_fixed_per_op__fJ: float = 7.0,
 ) -> SarIadcConfig:
@@ -110,15 +108,11 @@ def test_config_rejects_bad_energy_knobs() -> None:
     """Negative rail, conduction window, and step latency are rejected."""
     for bad, match in (
         ({"v_rail__V": -0.1}, r"require: v_rail__V \(-0\.1\) >= 0"),
-        ({"t_conduct_per_step__ns": (0.1, -0.1, 0.1)}, r"require: t_conduct_per_step__ns\[1\] \(-0\.1\) >= 0"),
-        # Shorter than bits (3).
-        ({"t_conduct_per_step__ns": (0.1, 0.1)}, r"require: len\(t_conduct_per_step__ns\) \(2\) >= 3"),
+        ({"t_conduct_per_step__ns": -0.1}, r"require: t_conduct_per_step__ns \(-0\.1\) >= 0"),
         ({"latency_per_step__ns": -0.1}, r"require: latency_per_step__ns \(-0\.1\) >= 0"),
     ):
         with pytest.raises(ValueError, match=match):
             _config(**bad)
-    # The conduction list is drawn per executed step, so a longer one is tolerated.
-    assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1)).bits == 3
 
 
 def test_convert_rejects_bad_bits(device: torch.device) -> None:
@@ -168,9 +162,8 @@ def test_lowered_bits_equal_the_max_bits_code_shifted(device: torch.device, max_
     max-bits code's leading `b` bits. Edge widths `b = 1` and `b = B` are
     covered by the sweep.
     """
-    steps = (0.0,) * max_bits
     adc = _build(
-        _config(adc_bits=max_bits, t_conduct_per_step__ns=steps, latency_per_step__ns=0.0),
+        _config(adc_bits=max_bits, t_conduct_per_step__ns=0.0, latency_per_step__ns=0.0),
         device,
     )
     ladder = tuple(float(k + 1) for k in range((1 << max_bits) - 1))
@@ -212,7 +205,7 @@ def test_energy_is_fixed_only_without_conduction(device: torch.device) -> None:
     surviving contribution from the `_compute_input_dynamic_energy__fJ` hook (base
     zero) would break this equality.
     """
-    adc = _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=(0.0, 0.0, 0.0), e_fixed_per_op__fJ=7.0), device)
+    adc = _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=0.0, e_fixed_per_op__fJ=7.0), device)
     refs = _refs(_LADDER_A, device)
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
@@ -226,17 +219,11 @@ def test_energy_linear_in_window_and_rail(device: torch.device) -> None:
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
     e_floor = _convert_energy(
-        _build(_config(v_rail__V=0.0, t_conduct_per_step__ns=(1.0, 1.0, 1.0)), device), i_in, refs, adc_bits=3
+        _build(_config(v_rail__V=0.0, t_conduct_per_step__ns=1.0), device), i_in, refs, adc_bits=3
     )
-    e_t = _convert_energy(
-        _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=(1.0, 1.0, 1.0)), device), i_in, refs, adc_bits=3
-    )
-    e_2t = _convert_energy(
-        _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=(2.0, 2.0, 2.0)), device), i_in, refs, adc_bits=3
-    )
-    e_2v = _convert_energy(
-        _build(_config(v_rail__V=2.0, t_conduct_per_step__ns=(1.0, 1.0, 1.0)), device), i_in, refs, adc_bits=3
-    )
+    e_t = _convert_energy(_build(_config(v_rail__V=1.0, t_conduct_per_step__ns=1.0), device), i_in, refs, adc_bits=3)
+    e_2t = _convert_energy(_build(_config(v_rail__V=1.0, t_conduct_per_step__ns=2.0), device), i_in, refs, adc_bits=3)
+    e_2v = _convert_energy(_build(_config(v_rail__V=2.0, t_conduct_per_step__ns=1.0), device), i_in, refs, adc_bits=3)
 
     conduction = e_t - e_floor
     assert conduction > 0.0
@@ -277,7 +264,7 @@ def test_enable_energy_record_false_suppresses_only_energy(device: torch.device)
     config = _config(
         adc_bits=3,
         v_rail__V=1.0,
-        t_conduct_per_step__ns=(0.5, 0.5, 0.5),
+        t_conduct_per_step__ns=0.5,
         latency_per_step__ns=3.0,
         e_fixed_per_op__fJ=7.0,
     )
@@ -315,7 +302,7 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     expected = adc.convert(i_in, refs, bits=3)
     # The record stays where it was recorded, which is where the call's own
     # tensors it is compared against live.
-    with IadcProber() as prober:
+    with AdcProber() as prober:
         code = adc.convert(i_in, refs, bits=3)
 
     assert torch.equal(code, expected)
@@ -323,5 +310,7 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     assert len(records) == 1
     record = records[0]
     assert torch.equal(record.i_in__uA, i_in)
-    assert torch.equal(record.code, code)
-    assert record.bits == 3
+    assert record.input_name() == "i_in__uA"
+    assert torch.equal(record.input_value(), i_in)
+    assert not hasattr(record, "code")
+    assert not hasattr(record, "bits")

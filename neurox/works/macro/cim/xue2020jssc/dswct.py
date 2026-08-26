@@ -8,12 +8,7 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class DswctConfig(ConfigBase):
-    area_per_inst__um2: float
-    leakage_per_inst__uW: float
-
-    def validate(self) -> None:
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+    pass
 
 
 class DswctPolicy(PolicyBase):
@@ -54,11 +49,11 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
 
     @property
     def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
+        return 0.0
 
     @property
     def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+        return 0.0
 
     @property
     def digit_num(self) -> int:

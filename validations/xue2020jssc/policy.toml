@@ -1,88 +1,33 @@
-# Nonideality-free ("all-off") policy for the xue2020jssc SINWP 1T1R CIM sub-array.
-#
-# One child policy per owned ModuleBase block: the 1T1R pure array (linearized
-# cell + solver chunk knob), the WL DAC, the CABLC / SL clamp seats, the CABLC
-# reference source, the kernel SAR current ADC, the shared static Iref, the
-# control static seat, and the source-free DSWCT / SINWP-SC / PN-ISUB / TMCSA
-# modules. This scheme models no mismatch or noise, so every per-source toggle is
-# false -- the lossless baseline and the only intended policy.
-#
-# Pull with:
-#   [policy]
-#   _neurox_use = "policy.toml:policy"
+# Xue2020 JSSC all-off nonideality policy.
 
 [policy]
 _neurox_class = "Xue2020JsscCimMacroPolicy"
 
-
-# --- 1T1R pure array (linearized cell + solver chunk knob) ---
-# solve_chunk_size = 0 solves the whole broadcast leading in one block (no
-# per-chunk memory bound); the nested cell policy is the deterministic linear
-# lookup (source-free).
-#
-# NEEDS RETUNING for the flattened array. The column MUX left the array, so the
-# solve leading lost its 32-slot axis (now batch x x_bits x instance) while the
-# trailing cell grid grew by the same factor, to (phys_col = 512, row = 256).
-# Total work is unchanged, but a chunk is now 32x heavier: the per-chunk memory
-# budget this knob sets no longer means what it did, and `validate.py`'s
-# `--solve-chunk` default is sized against the OLD leading. Retune both against
-# the flattened shapes in the recalibration campaign.
+# Bounds solver intermediates during ADC characterization.
 [policy.array_policy]
-solve_chunk_size = 0
+solve_chunk_size = 1024
 
 [policy.array_policy.cell_policy]
 _neurox_class = "XbarCell1t1rLinearPolicy"
 
-
-# --- WL 1-bit ON/OFF DAC ---
 [policy.wl_dac_policy]
 _neurox_class = "GeneralVdacPolicy"
 drive_thermal = false
 
-
-# --- CABLC BL-clamp seat ---
 [policy.cablc_policy]
 offset = false
 thermal = false
 
-
-# --- CABLC reference source (dedicated single-tap Vref) ---
 [policy.cablc_vref_policy]
 tolerance = false
 
-
-# --- SL ideal-clamp seat ---
 [policy.sl_driver_policy]
 offset = false
 thermal = false
 
-
-# --- Kernel SAR current-mode quantizer (value converter) ---
 [policy.adc_policy]
 comparator_offset = false
 coupling_mismatch = false
 
-
-# --- Shared static current-reference source ---
 [policy.reference_policy]
 tolerance = false
-
-
-# --- Control static seat (UnmodeledBlock; source-free marker) ---
-[policy.control_policy]
-
-
-# --- DSWCT place-value mirror bank (source-free module policy) ---
-[policy.dswct_policy]
-
-
-# --- SINWP-SC sample-and-hold combine (source-free module policy) ---
-[policy.sinwp_sc_policy]
-
-
-# --- PN-ISUB polarity subtractor (source-free module policy) ---
-[policy.pn_isub_policy]
-
-
-# --- TMCSA phase-resolved conversion billing (source-free module policy) ---
-[policy.tmcsa_policy]

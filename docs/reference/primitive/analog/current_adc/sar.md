@@ -20,15 +20,15 @@ $$\mathrm{code}_{b} = \big\lfloor \mathrm{code}_{b_{\max}} / 2^{\,b_{\max}-b} \b
 
 ## Numerical method
 
-The conversion performs $b$ sequential comparisons. Each step is a closed-form per-element reference selection and sign decision, with no inner iteration. The conversion latency is the sum of the first $b$ per-step latency terms.
+The conversion performs $b$ sequential comparisons. Each step is a closed-form per-element reference selection and sign decision, with no inner iteration. Every step has the same decision latency, so the conversion latency is $b$ times that value.
 
 ## Energy model
 
 Per sensing step the dynamic energy is one data-independent per-op constant plus the current-domain conduction drawn while the input and selected reference conduct across the rail,
 
-$$E_{\mathrm{step},s} = E_{\mathrm{fixed}} + V_{\mathrm{rail}} \cdot (I_{\mathrm{in}} + I_{\mathrm{ref},s}) \cdot t_{\mathrm{cond},s},$$
+$$E_{\mathrm{step},s} = E_{\mathrm{fixed}} + V_{\mathrm{rail}} \cdot (I_{\mathrm{in}} + I_{\mathrm{ref},s}) \cdot t_{\mathrm{cond}},$$
 
-with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond},s} = $ `t_conduct_per_step__ns[s]` the per-step conduction window ($1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$). An all-zero `t_conduct_per_step__ns` reduces the model to the pure fixed energy $b \cdot E_{\mathrm{fixed}}$ per element. Source-generation energy for the input and reference currents is outside this model.
+with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond}} = $ `t_conduct_per_step__ns` the common conduction window of every step ($1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$). A zero `t_conduct_per_step__ns` reduces the model to the pure fixed energy $b \cdot E_{\mathrm{fixed}}$ per element. Source-generation energy for the input and reference currents is outside this model.
 
 ## Noise & non-idealities
 
@@ -48,7 +48,7 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `margin_gain` ($A$) | triple-margin pre-gain before the latch | — | $> 0$ | Design |
 | `e_fixed_per_op__fJ` ($E_{\mathrm{fixed}}$) | data-independent per-step energy constant | fJ | $\geq 0$ | Design |
 | `v_rail__V` ($V_{\mathrm{rail}}$) | rail the input and selected reference conduct across per step | V | $\geq 0$ | Design |
-| `t_conduct_per_step__ns` ($t_{\mathrm{cond},s}$) | per-step conduction window; all-zero ⇒ pure fixed energy | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
+| `t_conduct_per_step__ns` ($t_{\mathrm{cond}}$) | conduction window shared by every step; zero ⇒ pure fixed energy | ns | $\geq 0$ | Design |
 | `latency_per_step__ns` | decision latency of one search step | ns | $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
@@ -64,7 +64,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | $I_{\mathrm{ref},s}$ | mid-point reference selected at step $s$ | uA | `i_refs__uA` (per call) |
 | $A$ | triple-margin pre-gain | — | `margin_gain` |
 | $V_{\mathrm{rail}}$ | per-step conduction rail | V | `v_rail__V` |
-| $t_{\mathrm{cond},s}$ | per-step conduction window | ns | `t_conduct_per_step__ns` |
+| $t_{\mathrm{cond}}$ | conduction window shared by every step | ns | `t_conduct_per_step__ns` |
 | $\delta$ | static input-referred offset held across steps | uA | `comparator_offset__uA` + `coupling_offset__uA` |
 | $D_s$ | decided bit at step $s$ (MSB-first) | — | code accumulation |
 | $b$ | resolution (bits), per call | — | `bits` |

@@ -11,10 +11,10 @@ Coverage:
     per-access array caps row `array`, the two converter rows `wl_dac` /
     `bl_dac`, the macro-owned `.bl_cond` / `.dl_cond` conduction channels,
     the RS-CSA row `rscsa`, and the two flat peripheral channels
-    `.mux_driver` / `.timing_ctrl` — all positive, each billed by the RIGHT
-    module (array / converters / RS-CSA self-bill un-channelled; the four
-    channels are the macro root's own events; no `cell` self-bill row leaks
-    through), and they ADD UP to the report's total dynamic energy,
+    `mux_driver` / `timing_ctrl` — all positive, each billed by the RIGHT
+    module (array / converters / RS-CSA / unmodeled blocks self-bill; only the
+    two conduction channels belong to the macro root; no `cell` self-bill row
+    leaks through), and they ADD UP to the report's total dynamic energy,
   * branch ownership: both conduction channels reconcile EXACTLY against an
     independent re-solve oracle over ONE window — `.bl_cond == VDD_bl *
     sum(I_BL_port) * T_AC` and `.dl_cond == VDD_core * sum(I_TBL_raw) * T_AC`
@@ -88,7 +88,7 @@ _ARRAY_CAPS = "array"
 _WL_DAC = "wl_dac"
 _BL_DAC = "bl_dac"
 _RSCSA = "rscsa"
-_MACRO_CHANNELS = ("bl_cond", "dl_cond", "mux_driver", "timing_ctrl")
+_MACRO_CHANNELS = ("bl_cond", "dl_cond")
 _FIG19_KEYS = (
     _ARRAY_CAPS,
     _WL_DAC,
@@ -96,8 +96,8 @@ _FIG19_KEYS = (
     ".bl_cond",
     ".dl_cond",
     _RSCSA,
-    ".mux_driver",
-    ".timing_ctrl",
+    "mux_driver",
+    "timing_ctrl",
 )
 
 
@@ -381,7 +381,7 @@ def test_conduction_and_latency_follow_the_executed_window(device: torch.device)
         assert macro_b.initiation_interval__ns(adc_bits=bits) == pytest.approx(macro_b.latency__ns(adc_bits=bits))
         # Window-invariant rows: the caps and the drive events ride no window,
         # the control lumps are per-op constants.
-        for row in (_ARRAY_CAPS, _WL_DAC, _BL_DAC, ".mux_driver", ".timing_ctrl"):
+        for row in (_ARRAY_CAPS, _WL_DAC, _BL_DAC, "mux_driver", "timing_ctrl"):
             assert by_name[row] == pytest.approx(full__fJ[row]), f"{row} moved with the executed window"
 
 

@@ -1,4 +1,5 @@
 from . import current_adc, current_dac, diff_voltage_adc, voltage_dac
+from .adc_probe import AdcProber, AdcRecord
 from .current_mux import Imux, ImuxConfig, ImuxPolicy
 from .current_reference import (
     Iref,
@@ -26,6 +27,8 @@ __all__ = [
     "current_dac",
     "diff_voltage_adc",
     "voltage_dac",
+    "AdcProber",
+    "AdcRecord",
     "Imux",
     "ImuxConfig",
     "ImuxPolicy",

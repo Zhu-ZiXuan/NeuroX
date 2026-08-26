@@ -42,8 +42,7 @@ from neurox.primitive.xbar.solver import (
 )
 from neurox.tools._config import resolve_relative_path
 from neurox.tools._plateau import CandidateRow, WorkloadScale
-
-from ._sampling import load_distribution, make_generator, sample_w, sample_x_batches
+from neurox.tools._sampling import load_distribution, make_generator, sample_w, sample_x_batches
 
 
 @dataclass(frozen=True)

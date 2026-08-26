@@ -2,7 +2,6 @@ from .base import (
     DiffVadc,
     DiffVadcConfig,
     DiffVadcPolicy,
-    DiffVadcProber,
     DiffVadcRecord,
 )
 from .general import (
@@ -20,7 +19,6 @@ __all__ = [
     "DiffVadc",
     "DiffVadcConfig",
     "DiffVadcPolicy",
-    "DiffVadcProber",
     "DiffVadcRecord",
     "GeneralDiffVadc",
     "GeneralDiffVadcConfig",

@@ -24,8 +24,8 @@ are not modeled explicitly. The read path follows an explicit circuit model unde
 declared device, parasitic, timing, and workload assumptions; its static seats are
 declared small/zero. The effective input and weight nonzero probabilities are
 calibrated against the two read-path conduction seats; conditional on being
-nonzero, sign-magnitude weights and unsigned inputs are uniform. The TMCSA scale
-is calibrated to its breakdown slice. With Control and Reference adopted from
+nonzero, sign-magnitude weights and unsigned inputs are uniform. TMCSA energy
+follows its explicit branch-current and phase-duration model. With Control and Reference adopted from
 the remaining Fig.18 shares, agreement with the total is therefore a consistency
 check, not independent validation.
 
@@ -60,14 +60,15 @@ convention / node-voltage effects, not gated.
 Run:
     make validate_xue2020jssc
 
-The three TOML artifacts are FIXED files beside this script; only the run knobs
-(device, seed, draw counts, solver chunk) are CLI-settable, by invoking the script
-directly:
+The three TOML artifacts are fixed files beside this script; the CLI accepts
+runtime knobs and the output directory:
 
-    TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py \
-        --device auto --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096
+    TORCH_COMPILE_DISABLE=1 uv run --extra calib python validations/xue2020jssc/validate.py \
+        --device auto --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096 \
+        --output-dir log/validation/xue2020jssc
 
-``results.md`` records the run whose report text this harness logs.
+The report and an SVG breakdown comparison are written under ``--output-dir``;
+no generated Markdown report is kept in the repository.
 """
 
 from __future__ import annotations
@@ -117,14 +118,13 @@ _PAIR_MEMBERS = tuple(name for members in _PAIRED_SLICES.values() for name in me
 # (the whole input branch ``VDD * I_DL``). The DSWCT / SINWP-SC / PN-ISUB
 # modules self-bill on their own module rows; ``reference`` has no dynamic row
 # (100 % static); ``tmcsa`` is the scheme phase-billing MODULE row (the kernel
-# ``adc`` is energy-silent). ``control`` is the one remaining macro channel
-# besides ``.cablc``.
+# ``adc`` is energy-silent). ``control`` self-bills on its module row.
 _DYN_NAMES: dict[str, tuple[str, ...]] = {
     "cablc": (".cablc", "array"),
     "dswct": ("dswct",),
     "sinwp_sc": ("sinwp_sc",),
     "pn_isub": ("pn_isub",),
-    "control": (".control",),
+    "control": ("control",),
     "tmcsa": ("tmcsa",),
 }
 # Static-record qualified names per slice (static side). The ``array`` static seat
@@ -315,6 +315,18 @@ def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: f
     )
 
 
+def comparison_slices(m: Measurement, anchors: dict) -> tuple[SliceEnergy, ...]:
+    """Return the five rows comparable with Fig.18 under the paired accounting basis."""
+    pairs = {s.name: s for s in paired_slices(m.slices, anchors["fig18_shares"], anchors["target"]["per_access__fJ"])}
+    return (
+        m.slice("control"),
+        m.slice("reference"),
+        pairs["cablc+dswct"],
+        pairs["sinwp_sc+pn_isub"],
+        m.slice("tmcsa"),
+    )
+
+
 @dataclass(frozen=True)
 class Measurement:
     """Energy-per-access measurement: the gated total plus the informational breakdown."""
@@ -348,8 +360,8 @@ class Measurement:
     """Relative standard deviation of the round totals."""
     dyn_by_name: dict[str, float] = field(default_factory=dict)
     """Every profiler dynamic-energy row in fJ PER ACCESS, keyed by qualified name.
-    The gate reads only the slice aggregation above; this raw row view is what the
-    calibration campaign (`tools/calibrate.py`) reduces its per-block residuals from."""
+    The gate reads only the slice aggregation above; this raw row view preserves
+    the component-level accounting behind each reported slice."""
 
     @property
     def draws(self) -> int:
@@ -586,7 +598,6 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     """
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
-    shares = anchors["fig18_shares"]
     lines: list[str] = []
     lines.append("| Slice | Energy [fJ/acc] | dyn | static | Fig.18 x target [fJ] | pred/ref | basis |")
     lines.append("|---|--:|--:|--:|--:|--:|:--|")
@@ -599,9 +610,10 @@ def energy_table(m: Measurement, anchors: dict) -> str:
             f"{target_cell} | {ratio_cell} | {basis} |"
         )
 
-    lines.extend(row(m.slice(name), basis="adopted") for name in _ADOPTED_SLICES)
-    lines.extend(row(pair, basis="modeled pair") for pair in paired_slices(m.slices, shares, target))
-    lines.append(row(m.slice("tmcsa"), basis="modeled"))
+    comparable = comparison_slices(m, anchors)
+    lines.extend(row(s, basis="adopted") for s in comparable[:2])
+    lines.extend(row(s, basis="modeled pair") for s in comparable[2:4])
+    lines.append(row(comparable[4], basis="modeled"))
     lines.extend(row(m.slice(name), basis="pair member") for name in _PAIR_MEMBERS)
     if abs(m.unmapped_static__fJ) > 1e-9:
         lines.append(
@@ -617,8 +629,92 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     return "\n".join(lines)
 
 
+def plot_energy_breakdown(m: Measurement, anchors: dict, output_path: Path) -> None:
+    """Plot NeuroX and Fig.18 energy breakdowns on the paired accounting basis."""
+    import matplotlib as mpl
+
+    mpl.use("Agg")
+    mpl.rcParams["svg.fonttype"] = "none"
+    import matplotlib.pyplot as plt
+
+    slices = comparison_slices(m, anchors)
+    labels = ("Control", "Reference", "CABLC + DSWCT", "SINWP-SC + PN-ISUB", "TMCSA")
+    colors = ("#4477AA", "#EE6677", "#228833", "#CCBB44", "#AA3377")
+    model__fJ = [s.total__fJ for s in slices]
+    paper__fJ = [s.target__fJ for s in slices]
+
+    modeled_sum__fJ = sum(s.total__fJ for s in slices)
+    residual__fJ = m.total__fJ - modeled_sum__fJ
+    residual_tol__fJ = max(1e-6, abs(m.total__fJ) * 1e-9)
+    if abs(residual__fJ) > residual_tol__fJ:
+        labels = (*labels, "Other")
+        colors = (*colors, "#BBBBBB")
+        model__fJ.append(residual__fJ)
+        paper__fJ.append(0.0)
+
+    fig, ax = plt.subplots(figsize=(14.0, 4.2))
+    rows = (model__fJ, paper__fJ)
+    max_segment__fJ = max(model__fJ + paper__fJ)
+    for row_index, values__fJ in enumerate(rows):
+        left__fJ = 0.0
+        total__fJ = sum(values__fJ)
+        for color, value__fJ in zip(colors, values__fJ, strict=True):
+            if value__fJ == 0.0:
+                continue
+            ax.barh(
+                row_index,
+                value__fJ,
+                left=left__fJ,
+                height=0.58,
+                color=color,
+                edgecolor="white",
+                linewidth=0.8,
+            )
+            if value__fJ / total__fJ >= 0.075:
+                ax.text(
+                    left__fJ + value__fJ / 2.0,
+                    row_index,
+                    f"{value__fJ / 1000.0:.2f} pJ\n{value__fJ / total__fJ * 100.0:.1f}%",
+                    ha="center",
+                    va="center",
+                    color="white" if color not in {"#CCBB44", "#BBBBBB"} else "black",
+                    fontsize=8.5,
+                    fontweight="bold",
+                )
+            left__fJ += value__fJ
+        ax.text(
+            left__fJ + max_segment__fJ * 0.01,
+            row_index,
+            f"{left__fJ / 1000.0:.3f} pJ",
+            va="center",
+            fontsize=9,
+        )
+
+    legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=color) for color in colors]
+    ax.legend(
+        legend_handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.22),
+        ncol=3,
+        frameon=False,
+    )
+    ax.set_yticks((0, 1), labels=("NeuroX", "Paper Fig.18"))
+    ax.xaxis.set_major_formatter(lambda value__fJ, _: f"{value__fJ / 1000.0:g}")
+    ax.set_xlabel("Energy per access [pJ]")
+    ax.set_title("Xue2020 energy breakdown — paired accounting basis")
+    ax.grid(axis="x", alpha=0.18)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, format="svg", bbox_inches="tight")
+    plt.close(fig)
+    _LOG.info("breakdown plot: %s", output_path)
+
+
 def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str:
-    """Energy-basis gate report, the text ``results.md`` records."""
+    """Render the energy-basis gate report written to the run log."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
     within, rel = gate(m, anchors)
@@ -729,9 +825,23 @@ def main() -> None:
         help="cpu, cuda[:idx], or auto (cuda if visible else cpu); default auto. Pick the card with "
         "CUDA_VISIBLE_DEVICES.",
     )
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("log/validation/xue2020jssc"),
+        help="Directory for validation.log and energy_breakdown.svg.",
+    )
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    log_path = args.output_dir / "validation.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=(logging.StreamHandler(), logging.FileHandler(log_path, mode="w", encoding="utf-8")),
+        force=True,
+    )
+    _LOG.info("validation log: %s", log_path)
 
     with _ANCHORS_PATH.open("rb") as fh:
         anchors = tomllib.load(fh)
@@ -748,6 +858,7 @@ def main() -> None:
     )
 
     _LOG.info("%s", render_report(m, anchors, device=device))
+    plot_energy_breakdown(m, anchors, args.output_dir / "energy_breakdown.svg")
 
 
 if __name__ == "__main__":

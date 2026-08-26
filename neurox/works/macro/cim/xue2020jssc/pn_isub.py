@@ -17,13 +17,9 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 class PnIsubConfig(ConfigBase):
     e_per_op__fJ: float
     """Data-independent comparator energy, billed once per sign decision — per (slot, IO) entry."""
-    area_per_inst__um2: float
-    leakage_per_inst__uW: float
 
     def validate(self) -> None:
         self._require_non_neg(self.e_per_op__fJ, "e_per_op__fJ")
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 class PnIsubPolicy(PolicyBase):
@@ -56,11 +52,11 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
 
     @property
     def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
+        return 0.0
 
     @property
     def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+        return 0.0
 
     def forward(self, i_p__uA: Tensor, i_n__uA: Tensor, *, window__ns: float) -> tuple[Tensor, Tensor]:
         """Subtract the polarity lane currents into magnitude + sign.

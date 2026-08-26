@@ -1,4 +1,4 @@
-"""Parse, validate, and emit the calibration-exchange TOML formats.
+"""Parse, validate, and emit macro-mode exchange TOML formats.
 
 Emit, parse, and validation for both formats live only here.
 
@@ -136,7 +136,7 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
 
 
 @dataclass(frozen=True)
-class AdcMode(ValidateMixin):
+class MacroMode(ValidateMixin):
     """One quantization operating mode of the mode set."""
 
     quantization_mode: int
@@ -157,7 +157,7 @@ class AdcMode(ValidateMixin):
 class ModeSet(ValidateMixin):
     """Validated mode set: the mode tables plus the layer -> mode mapping."""
 
-    modes: tuple[AdcMode, ...]
+    modes: tuple[MacroMode, ...]
     """Modes ascending by `quantization_mode`, contiguous from 0."""
     layers: dict[str, int]
     """`layer name -> quantization_mode` for every covered layer; per mode the
@@ -197,7 +197,7 @@ def load_mode_set(path: Path) -> ModeSet:
         raise ValueError(f"{path}: top-level keys must be exactly {{modes, layers}}; got {sorted(raw)}")
     if not isinstance(raw["modes"], list):
         raise TypeError(f"{path}: [[modes]] must be an array of tables")
-    modes: list[AdcMode] = []
+    modes: list[MacroMode] = []
     for i, entry in enumerate(raw["modes"]):
         where = f"{path}: [[modes]] entry {i}"
         expected = {"quantization_mode", "quantization_input_range", "layer_num"}
@@ -207,7 +207,7 @@ def load_mode_set(path: Path) -> ModeSet:
             raise ValueError(f"{where}: keys must be exactly {sorted(expected)}; got {entry!r}")
         lower, upper = _check_pair(entry["quantization_input_range"], where=where, key="quantization_input_range")
         modes.append(
-            AdcMode(
+            MacroMode(
                 quantization_mode=_check_int(entry["quantization_mode"], where=where, key="quantization_mode"),
                 quantization_input_range=(
                     _check_int(lower, where=where, key="quantization_input_range lower"),

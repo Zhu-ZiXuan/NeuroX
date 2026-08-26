@@ -4,8 +4,8 @@ Covers `neurox.works.macro.cim.xue2020jssc.dswct.Dswct` standalone on a
 tiny hand-built witness config (no macro, no solve):
 
   * shape law — `inst_count` derives from the `(gn, 2)` fabrication shape
-    (one bank per (IO, polarity)) and the static area / leakage seats scale
-    with it; the forward output preserves the `w_digit` axis,
+    (one bank per (IO, polarity)); static PPA is structurally zero, and the
+    forward output preserves the `w_digit` axis,
   * value law — the forward output equals the same computation done inline:
     LSB-first digit-ratio weighting; no profiler
     required and no events emitted outside one,
@@ -41,10 +41,7 @@ _DIGIT_RATIOS = (0.25, 0.5)  # LSB-first (MSB anchor 0.5, radix 2)
 
 
 def _build_config() -> DswctConfig:
-    return DswctConfig(
-        area_per_inst__um2=2.0,
-        leakage_per_inst__uW=3.0,
-    )
+    return DswctConfig()
 
 
 def _build_dswct(
@@ -82,15 +79,14 @@ def _inline_i_wdl(i_dl__uA: Tensor, digit_ratios: tuple[float, ...] = _DIGIT_RAT
 # ---------------------------------------------------------------------------
 
 
-def test_inst_count_and_static_seats_derive_from_config() -> None:
-    """One bank per (IO, polarity): inst_count = gn * 2 and statics scale with it."""
+def test_inst_count_and_structural_zero_static_ppa() -> None:
+    """One bank per (IO, polarity), with structural zero static PPA."""
     dswct = _build_dswct()
     assert dswct.inst_shape == (_GN, _POL)
     assert dswct.inst_count == _GN * _POL
     assert dswct.digit_num == _W_DIGIT
-    config = dswct.config
-    assert dswct.area__um2 == pytest.approx(config.area_per_inst__um2 * _GN * _POL)
-    assert dswct.leakage__uW == pytest.approx(config.leakage_per_inst__uW * _GN * _POL)
+    assert dswct.area__um2 == 0.0
+    assert dswct.leakage__uW == 0.0
 
 
 def test_forward_preserves_the_digit_axis() -> None:

@@ -11,7 +11,6 @@ policy_section = "policy"
 solver_section = "array_config.solver_config"  # dotted path to the ColBlColSlSolverConfig table
 
 [workload]
-inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis
 active_rows = 32                  # == row_num (input-parallel faithful point; 1 <= active_rows <= 32)
 weight_samples = 4
 input_samples_per_weight = 8

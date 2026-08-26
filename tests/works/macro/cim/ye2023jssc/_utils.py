@@ -222,8 +222,16 @@ def build_config(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=1.0,
         ),
-        mux_driver_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=5.0),
-        timing_ctrl_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=14.0),
+        mux_driver_config=UnmodeledBlockConfig(
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=5.0,
+            energy_per_op__fJ=E_MUX_DRIVER__fJ,
+        ),
+        timing_ctrl_config=UnmodeledBlockConfig(
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=14.0,
+            energy_per_op__fJ=E_TIMING_CTRL__fJ,
+        ),
         # The PH0 seat is a config value: the witness writes the analytic all-off
         # row floor of ITS OWN width, so `code == MAC` stays exact when a test
         # widens the witness.
@@ -231,8 +239,6 @@ def build_config(
         v_tbl__V=V_TBL__V,
         v_sl__V=V_SL__V,
         vdd__V=VDD__V,
-        e_mux_driver_per_op__fJ=E_MUX_DRIVER__fJ,
-        e_timing_ctrl_per_op__fJ=E_TIMING_CTRL__fJ,
         # One code carries one MAC unit, so the window holds the 2**adc_bits
         # codes the readout resolves and the rescale factor is the identity.
         modes=(

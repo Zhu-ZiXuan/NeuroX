@@ -11,26 +11,24 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import RecordBase, RecorderBase, RegistryMixin
+from neurox.common import RegistryMixin
+from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class DiffVadcRecord(RecordBase):
+class DiffVadcRecord(AdcRecord):
     v_pos__V: Tensor
     """Positive-side input voltage the call was handed.
     Shape: `[...]`."""
     v_neg__V: Tensor
     """Negative-side input voltage the call was handed.
     Shape: `[...]`."""
-    code: Tensor
-    """Raw unsigned integer code the call returned.
-    Shape: `[...]`."""
-    bits: int
-    """Resolution the conversion executed."""
 
+    def input_name(self) -> str:
+        return "v_diff__V"
 
-class DiffVadcProber(RecorderBase[DiffVadcRecord]):
-    """Capture differential-voltage ADC conversion records."""
+    def input_value(self) -> Tensor:
+        return self.v_pos__V - self.v_neg__V
 
 
 class DiffVadcConfig(AnalogConfig, ABC):
@@ -158,13 +156,11 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
             v_refs__V=v_refs__V,
             bits=bits,
         )
-        if DiffVadcProber.active():
-            DiffVadcProber.submit(
+        if AdcProber.active():
+            AdcProber.submit(
                 DiffVadcRecord(
                     v_pos__V=v_pos__V,
                     v_neg__V=v_neg__V,
-                    code=code,
-                    bits=bits,
                 ),
             )
         return code

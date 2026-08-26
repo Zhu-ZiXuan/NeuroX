@@ -10,12 +10,7 @@ _POLARITY_NUM = 2  # P (PWG), N (NWG) lane per CIM-IO
 
 
 class SinwpScConfig(ConfigBase):
-    area_per_inst__um2: float
-    leakage_per_inst__uW: float
-
-    def validate(self) -> None:
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+    pass
 
 
 class SinwpScPolicy(PolicyBase):
@@ -64,11 +59,11 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
 
     @property
     def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
+        return 0.0
 
     @property
     def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+        return 0.0
 
     @property
     def input_bit_num(self) -> int:

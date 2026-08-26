@@ -1,6 +1,6 @@
-"""LS-fit the per-mode rescale factor of a CIM macro via dual probed runs.
+"""Fit the per-mode rescale factor of a CIM macro against its ideal twin.
 
-CLI: `python -m neurox.tools.calibrate_adc.rescale_fit --config <run.toml>
+CLI: `python -m neurox.tools.calibrate_macro.rescale_fit --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
 [--log-dir <dir>] [--log-level INFO] [--modes m[,m...]]`
 
@@ -9,23 +9,15 @@ The operating modes come from the mode-set TOML named by the run config;
 stimulus battery, so a per-mode run bounds single-command runtime and the
 emitted fragments concatenate.
 
-For each requested `quantization_mode` the tool programs random ternary weight
-patterns into the physical macro and its lossless twin, drives random binary WL
-batches through both, pairs the physical macro's `current_adc.convert` records
-with the ideal twin's `vec_mat_mul` return element for element, maps the ideal
-dots onto the macro's ADC input code axis, drops pairs outside that mode's
-input code range and top-code-saturated pairs (both drop counts logged per
-mode), and solves the zero-through-origin least squares
-`ideal_code ~= rescale_factor * code`. The fit target is the twin's real-valued
-code scale `M * 2^B / W` (`W` the mode's window width, `B` the twin's
-`adc_max_bits`), so the fitted slope is exactly the rescale currency: the
-macro's code expressed in ideal-macro codes. The fit runs at the macro's
-`adc_max_bits` only — lower bit widths follow the base-class law
-`r_b = r_B * 2^(B - b)`. Output is a `[[modes]]` macro-config fragment, one
-table per mode, plus a per-mode fit plot of code vs ideal code.
+Logical weight and input batches are sampled from a configured distribution.
+The physical macro and its lossless twin receive identical programs and legal
+caller-side active-position planes. Their public `vec_mat_mul` returns already
+share the logical output layout, so the fit depends on no ADC implementation or
+probe. The zero-through-origin least-squares slope expresses one physical macro
+output code in ideal MAC units.
 
 See Also:
-    docs/guides/calibration/calibrate_adc.md
+    docs/guides/calibration/calibrate_macro.md
 """
 
 from __future__ import annotations
@@ -40,18 +32,12 @@ import torch
 from neurox.common import ConfigBase, TensorDataClassBase, ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
+from neurox.tools._logging import add_file_logging
+from neurox.tools._macro import MacroSection, build_ideal_twin, build_physical_macro, unroll_active_positions
+from neurox.tools._sampling import load_distribution, make_generator, sample_w, sample_x_batches
 
-from ._math import RescaleFit, filter_fit_samples, fit_rescale_through_origin
-from ._modes import AdcMode, load_mode_set
-from ._testbench import (
-    MacroSection,
-    add_file_logging,
-    build_ideal_twin,
-    build_physical_macro,
-    run_paired_stimulus,
-    sample_binary_x,
-    sample_ternary_w,
-)
+from ._math import RescaleFit, fit_rescale_through_origin
+from .modes import MacroMode, load_mode_set
 
 logger = logging.getLogger(__name__)
 
@@ -59,26 +45,21 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class _StimulusCfg(ValidateMixin):
     seed: int
-    """RNG seed for weights and drives."""
-    w_densities: tuple[float, ...]
-    """Ternary non-zero densities; one weight-pattern group per density."""
-    x_densities: tuple[float, ...]
-    """Binary WL drive densities crossed with every weight pattern."""
-    patterns_per_density: int
-    """Independent weight patterns per entry of `w_densities`."""
-    x_batch: int
-    """Drive vectors per (pattern, x density) combination, batched into a
-    single VMM call."""
+    distribution_file: Path
+    weight_samples: int
+    input_samples_per_weight: int
+    batch_w: int
+    batch_x: int
 
     def __post_init__(self) -> None:
-        self._require_non_empty(self.w_densities, "[stimulus].w_densities")
-        self._require_non_empty(self.x_densities, "[stimulus].x_densities")
-        self._require_pos(self.patterns_per_density, "[stimulus].patterns_per_density")
-        self._require_pos(self.x_batch, "[stimulus].x_batch")
-        for index, density in enumerate(self.w_densities):
-            self._require_in_closed_interval(density, f"w_densities[{index}]", 0.0, 1.0)
-        for index, density in enumerate(self.x_densities):
-            self._require_in_closed_interval(density, f"x_densities[{index}]", 0.0, 1.0)
+        self._require_pos(self.weight_samples, "[stimulus].weight_samples")
+        self._require_pos(self.input_samples_per_weight, "[stimulus].input_samples_per_weight")
+        self._require_pos(self.batch_w, "[stimulus].batch_w")
+        self._require_pos(self.batch_x, "[stimulus].batch_x")
+        if self.weight_samples % self.batch_w:
+            raise ValueError("require: weight_samples is divisible by batch_w")
+        if self.input_samples_per_weight % self.batch_x:
+            raise ValueError("require: input_samples_per_weight is divisible by batch_x")
 
 
 class RescaleFitToolConfig(ConfigBase):
@@ -100,20 +81,16 @@ class ModeFitResult(TensorDataClassBase):
     quantization_input_range: tuple[int, int]
     """Inclusive MAC-unit window the mode quantizes."""
     adc_input_code_range: tuple[int, int]
-    """Inclusive input-code domain the mode's converter resolves."""
     fit: RescaleFit
     total_num: int
     """Probed pairs before filtering."""
     range_dropped_num: int
     """Pairs dropped for falling outside `adc_input_code_range`."""
-    saturated_num: int
-    """Pairs dropped as top-code-saturated; the two causes may overlap."""
     code: torch.Tensor
     """Macro output code of the pairs entering the fit.
     Shape: `[sample_num]`."""
-    ideal_code: torch.Tensor
-    """Ideal-macro code of the same pairs, in the twin's real-valued code
-    scale.
+    ideal_value: torch.Tensor
+    """Lossless ideal-macro value of the same pairs.
     Shape: `[sample_num]`."""
 
 
@@ -121,60 +98,76 @@ def _fit_one_mode(
     physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     ideal: IdealCimMacro,
     *,
-    mode: AdcMode,
+    mode: MacroMode,
     adc_bits: int,
     stimulus: _StimulusCfg,
-    row_num: int,
-    col_num: int,
+    macro_section: MacroSection,
+    run_config_path: Path,
+    device: torch.device,
 ) -> ModeFitResult:
-    """Run the stimulus battery at one mode and solve the rescale.
-
-    The fit target is the ideal twin's real-valued code scale
-    `input_code * 2^B / W` — the unquantized code the twin's window would read,
-    so the slope is the physical code expressed in ideal codes.
-    """
+    """Run one distributed logical workload and fit ideal value from macro code."""
     quantization_mode = mode.quantization_mode
     window = ideal.quantization_input_ranges[quantization_mode]
-    width = window[1] - window[0] + 1
-    ideal_code_scale = float(1 << ideal.adc_max_bits) / width
     _, code_range = physical.map_quantization_input_code(
         torch.zeros((), dtype=torch.int64), quantization_mode=quantization_mode
     )
 
-    gen = torch.Generator().manual_seed(stimulus.seed)
+    distribution_path = resolve_relative_path(stimulus.distribution_file, run_config_path)
+    distribution = load_distribution(distribution_path, physical)
+    generator = make_generator(stimulus.seed, torch.device("cpu"))
     code_parts: list[torch.Tensor] = []
     ideal_parts: list[torch.Tensor] = []
-    for w_density in stimulus.w_densities:
-        for _ in range(stimulus.patterns_per_density):
-            w = sample_ternary_w(gen, col_num=col_num, row_num=row_num, density=w_density)
-            for x_density in stimulus.x_densities:
-                x = sample_binary_x(gen, batch=stimulus.x_batch, row_num=row_num, density=x_density)
-                pair = run_paired_stimulus(
-                    physical,
-                    ideal,
-                    w=w,
-                    x=x,
-                    input_num=row_num,
+    for w in sample_w(
+        distribution,
+        physical,
+        input_num=macro_section.input_num,
+        output_num=macro_section.output_num,
+        n=stimulus.weight_samples,
+        batch_w=stimulus.batch_w,
+        device=torch.device("cpu"),
+        generator=generator,
+    ):
+        w = w.to(device)
+        physical.program(w)
+        ideal.program(w)
+        for x in sample_x_batches(
+            distribution,
+            physical,
+            input_num=macro_section.input_num,
+            n_total=stimulus.input_samples_per_weight,
+            batch_size=stimulus.batch_x,
+            device=torch.device("cpu"),
+            generator=generator,
+        ):
+            x = x.unsqueeze(1).to(device)
+            planes = unroll_active_positions(
+                x,
+                input_num=macro_section.input_num,
+                max_active_num=physical.max_active_num,
+                inst_rank=len(physical.inst_shape),
+            )
+            with torch.no_grad():
+                code = physical.vec_mat_mul(
+                    planes,
                     quantization_mode=quantization_mode,
                     adc_bits=adc_bits,
                 )
-                input_code, _ = physical.map_quantization_input_code(pair.ideal_m, quantization_mode=quantization_mode)
-                code_parts.append(pair.code)
-                ideal_parts.append(input_code)
+                ideal_value = ideal.vec_mat_mul(
+                    planes,
+                    quantization_mode=quantization_mode,
+                    adc_bits=None,
+                )
+            code_parts.append(code.flatten().to("cpu", torch.float64))
+            ideal_parts.append(ideal_value.flatten().to("cpu", torch.float64))
     code = torch.cat(code_parts)
-    adc_input_code = torch.cat(ideal_parts)
-    # Ideal-axis design-domain filter (the mode only serves input codes its
-    # converter resolves) AND top-code-saturation filter (no linear-region
-    # information).
-    selection = filter_fit_samples(
-        code,
-        adc_input_code,
-        adc_input_code_range=code_range,
-        top_code=(1 << adc_bits) - 1,
+    ideal_value = torch.cat(ideal_parts)
+    input_code, code_range = physical.map_quantization_input_code(
+        ideal_value.to(torch.int64),
+        quantization_mode=quantization_mode,
     )
-    keep = selection.keep
-    ideal_code = adc_input_code.to(torch.float64) * ideal_code_scale
-    fit = fit_rescale_through_origin(code[keep], ideal_code[keep])
+    code_lower, code_upper = code_range
+    keep = (input_code >= code_lower) & (input_code <= code_upper)
+    fit = fit_rescale_through_origin(code[keep], ideal_value[keep])
     return ModeFitResult(
         quantization_mode=quantization_mode,
         adc_bits=adc_bits,
@@ -182,10 +175,9 @@ def _fit_one_mode(
         adc_input_code_range=code_range,
         fit=fit,
         total_num=int(code.numel()),
-        range_dropped_num=selection.range_dropped_num,
-        saturated_num=selection.saturated_num,
+        range_dropped_num=int((~keep).sum()),
         code=code[keep],
-        ideal_code=ideal_code[keep],
+        ideal_value=ideal_value[keep],
     )
 
 
@@ -197,7 +189,7 @@ def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
     slots.
     """
     lines = [
-        "# modes fragment fitted by neurox.tools.calibrate_adc.rescale_fit",
+        "# modes fragment fitted by neurox.tools.calibrate_macro.rescale_fit",
         f"# at adc_bits = {results[0].adc_bits if results else 0} (the macro's adc_max_bits);",
         "# nest each table under the macro config section when pasting",
         "# (e.g. [[cim_macro.modes]]), keeping the mode order.",
@@ -225,15 +217,16 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.scatter(
         result.code.numpy(),
-        result.ideal_code.numpy(),
+        result.ideal_value.numpy(),
         s=12,
         alpha=0.35,
         color="tab:blue",
         edgecolors="none",
         label="probed pairs",
     )
+    code_min = int(result.code.min()) if result.code.numel() else 0
     code_max = int(result.code.max()) if result.code.numel() else 1
-    grid = torch.arange(0, code_max + 1, dtype=torch.float64)
+    grid = torch.arange(code_min, code_max + 1, dtype=torch.float64)
     ax.plot(
         grid.numpy(),
         (result.fit.rescale_factor * grid).numpy(),
@@ -242,7 +235,7 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
         label=f"fit: rescale = {result.fit.rescale_factor:.4f}  ($R^2$ = {result.fit.r2:.4f})",
     )
     ax.set_xlabel("macro output code")
-    ax.set_ylabel("ideal macro code")
+    ax.set_ylabel("ideal macro value")
     ax.set_title(f"Rescale fit — mode {result.quantization_mode}, {result.adc_bits} bits")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", framealpha=0.85)
@@ -253,7 +246,7 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generic macro-ADC rescale fit (config-driven)")
+    parser = argparse.ArgumentParser(description="Generic macro rescale fit (config-driven)")
     add_standard_args(parser, output_file=True)
     parser.add_argument(
         "--plot-dir",
@@ -286,7 +279,12 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_tool_config(RescaleFitToolConfig, args.config)
     modes_path = resolve_relative_path(cfg.modes_file, args.config)
     mode_set = load_mode_set(modes_path)
-    physical = build_physical_macro(cfg.macro, base=args.config, device=device)
+    physical = build_physical_macro(
+        cfg.macro,
+        base=args.config,
+        device=device,
+        inst_shape=(cfg.stimulus.batch_w,),
+    )
     ideal = build_ideal_twin(physical, device=device)
 
     if args.modes is not None:
@@ -320,13 +318,14 @@ def main(argv: list[str] | None = None) -> int:
             mode=mode,
             adc_bits=adc_bits,
             stimulus=cfg.stimulus,
-            row_num=cfg.macro.input_num,
-            col_num=cfg.macro.output_num,
+            macro_section=cfg.macro,
+            run_config_path=args.config,
+            device=device,
         )
         results.append(result)
         logger.info(
             "mode %d: max_bits_rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  "
-            "samples = %d of %d (input code outside [%d, %d] excluded %d, top-code-saturated excluded %d)",
+            "samples = %d of %d (mapped input code outside [%d, %d] excluded %d)",
             mode.quantization_mode,
             result.fit.rescale_factor,
             result.fit.r2,
@@ -336,7 +335,6 @@ def main(argv: list[str] | None = None) -> int:
             result.total_num,
             *result.adc_input_code_range,
             result.range_dropped_num,
-            result.saturated_num,
         )
 
     lines = _fragment_lines(results)

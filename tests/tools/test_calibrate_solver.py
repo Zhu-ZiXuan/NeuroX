@@ -372,8 +372,7 @@ class TestRecordAggregationLaw:
 class TestShippedRunConfig:
     def test_parses_and_validates(self) -> None:
         cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
-        # inst_shape is bound to [batch_w] and active_rows is in range.
-        assert list(cfg.workload.inst_shape) == [cfg.workload.batch_w]
+        assert cfg.workload.batch_w >= 1
         assert cfg.workload.active_rows >= 1
         assert cfg.macro.solver_section
 

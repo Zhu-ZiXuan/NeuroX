@@ -13,12 +13,12 @@ Hand-built tiny witness, eager, CPU. Five laws:
     round-trip both reconcile.
   * PHASE-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
     the hand-computed per-step formula on a tiny witness —
-    `alpha * sum_s vdd * (3 * (i_sub + i_ref_path[s]) * t_ph2
+    `sum_s vdd * (3 * (i_sub + i_ref_path[s]) * t_ph2
     + 2 * (i_sub + i_ref_path[s]) * t_ph3) + bits * e_per_step` per
     converted element, with `i_ref_path[s]` looked up from the final code.
   * LOWERED-BIT LAW: a `b`-bit conversion truncates the max-bits search after
     `b` levels and bills those leading decisions at the up-shifted code.
-  * GUARDS: invalid phase durations and scale are rejected at config time; a
+  * GUARDS: invalid phase durations are rejected at config time; a
     code/input shape mismatch, a wrong ladder tap
     count, and a `bits` outside `[1, max_bits]` are rejected at call time.
 """
@@ -43,7 +43,6 @@ _BITS = 3
 _VDD__V = 1.2  # non-unity so a dropped rail factor is caught
 _T_PH2__NS = 0.4
 _T_PH3__NS = 0.6
-_CONDUCTION_SCALE = 1.25
 _E_PER_STEP__fJ = 7.0
 _AREA_PER_INST__um2 = 2.0
 _LEAKAGE_PER_INST__uW = 3.0
@@ -57,13 +56,11 @@ def _config(
     *,
     t_ph2__ns: float = _T_PH2__NS,
     t_ph3__ns: float = _T_PH3__NS,
-    conduction_scale: float = _CONDUCTION_SCALE,
     e_per_step__fJ: float = _E_PER_STEP__fJ,
 ) -> TmcsaConfig:
     return TmcsaConfig(
         t_ph2__ns=t_ph2__ns,
         t_ph3__ns=t_ph3__ns,
-        conduction_scale=conduction_scale,
         e_per_step__fJ=e_per_step__fJ,
         area_per_inst__um2=_AREA_PER_INST__um2,
         leakage_per_inst__uW=_LEAKAGE_PER_INST__uW,
@@ -93,7 +90,7 @@ def _build_kernel_adc() -> SarIadc:
             margin_gain=3.0,
             e_fixed_per_op__fJ=0.0,
             v_rail__V=0.0,
-            t_conduct_per_step__ns=(0.0,) * _BITS,
+            t_conduct_per_step__ns=0.0,
             latency_per_step__ns=1.0,
             comparator_offset_sigma__uA=0.0,
             coupling_mismatch_sigma__uA=0.0,
@@ -208,7 +205,7 @@ def test_phase_billing_law_hand_computed() -> None:
             i_ref = _LADDER[int(module._ref_tap_lut[c_val, s])]
             i_ph2 = 3.0 * (i_val + i_ref)  # PH2: inputs (1x each) + internal P3/P4 (2x each)
             i_ph3 = 2.0 * (i_val + i_ref)  # PH3: internal only; 2x splits into two 1x sinks
-            expected += _CONDUCTION_SCALE * _VDD__V * (i_ph2 * _T_PH2__NS + i_ph3 * _T_PH3__NS)
+            expected += _VDD__V * (i_ph2 * _T_PH2__NS + i_ph3 * _T_PH3__NS)
 
     reporter = Reporter(module)
     assert reporter.total_dynamic_energy__fJ(prof) == pytest.approx(expected, rel=1e-12)
@@ -249,7 +246,7 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
         for s in range(bits):
             i_ref = _LADDER[int(module._ref_tap_lut[c_val, s])]
             i_common = i_val + i_ref
-            expected += _CONDUCTION_SCALE * _VDD__V * (3.0 * i_common * _T_PH2__NS + 2.0 * i_common * _T_PH3__NS)
+            expected += _VDD__V * (3.0 * i_common * _T_PH2__NS + 2.0 * i_common * _T_PH3__NS)
 
     assert lowered == pytest.approx(expected, rel=1e-12)
 
@@ -279,13 +276,11 @@ def test_billing_outside_profiler_is_silent() -> None:
 
 
 def test_config_rejects_invalid_energy_parameters() -> None:
-    """Phase durations are nonnegative, scale is positive, and fixed energy is nonnegative."""
+    """Phase durations and fixed energy are nonnegative."""
     with pytest.raises(ValueError, match="t_ph2__ns"):
         _config(t_ph2__ns=-0.1)
     with pytest.raises(ValueError, match="t_ph3__ns"):
         _config(t_ph3__ns=-0.1)
-    with pytest.raises(ValueError, match="conduction_scale"):
-        _config(conduction_scale=0.0)
     with pytest.raises(ValueError, match="e_per_step__fJ"):
         _config(e_per_step__fJ=-1.0)
 
