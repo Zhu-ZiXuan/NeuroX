@@ -61,7 +61,7 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
             T__K=T__K,
         )
 
-        self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
+        self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
 
     @property
     def _area_per_inst__um2(self) -> float:

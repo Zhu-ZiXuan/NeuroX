@@ -11,11 +11,10 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import RegistryMixin
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 
 
-class IdacConfig(AnalogConfig, ABC):
+class IdacConfig(ConfigBase, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -24,12 +23,12 @@ class IdacConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class IdacPolicy(AnalogPolicy, ABC):
+class IdacPolicy(PolicyBase, ABC):
     pass
 
 
 class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
-    AnalogBase[ConfigT, PolicyT],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin["IdacConfig", "IdacPolicy", "Idac[IdacConfig, IdacPolicy]"],
     ABC,
 ):

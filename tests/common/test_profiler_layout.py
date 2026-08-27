@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common.profile_mixin import ProfileMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 _E_OP__FJ = 0.5
 
@@ -24,12 +24,19 @@ _DETAIL_NUM = 7  # an emitter detail axis
 _DELTA__FJ = 1024.0  # one perturbation, larger than any billed element
 
 
-class _Emitter(nn.Module, ProfileMixin):
-    """Minimal emitting host."""
+class _Config(ConfigBase):
+    pass
+
+
+class _Policy(PolicyBase):
+    pass
+
+
+class _Emitter(ModuleBase[_Config, _Policy]):
+    """Minimal emitting module."""
 
     def __init__(self, inst_count: int = 1) -> None:
-        nn.Module.__init__(self)
-        self._inst_count = inst_count
+        super().__init__(config=_Config(), policy=_Policy(), inst_shape=(inst_count,))
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -38,10 +45,6 @@ class _Emitter(nn.Module, ProfileMixin):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return 0.0
-
-    @property
-    def inst_count(self) -> int:
-        return self._inst_count
 
     def emit(self, energy: Tensor, *, channel: str | None = None) -> None:
         self._record_dynamic_energy(energy, channel=channel)

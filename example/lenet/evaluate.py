@@ -24,16 +24,10 @@ from example.lenet.model_quant import QuantLeNet5
 from example.lenet.quant import QuantConv2d, QuantLinear
 from example.lenet.train_quant import QAT_SCHEMA
 from neurox import Reporter, fabricate, stamp_names
-from neurox.architecture.unit.cim import CimUnit
-from neurox.architecture.unit.cim.engine import CimEngine
-from neurox.common import ModuleBase, Profiler, neurox_roots
-from neurox.primitive.macro.cim import CimMacro
+from neurox.architecture.unit import LinearUnit
+from neurox.common import Profiler
 
 CONFIG_DIR = Path(__file__).parent
-
-# The two operator interfaces a NeuroX root exposes (`linear.py`, `conv2d.py`);
-# a root has exactly one of these, never both.
-_ROOT_ENTRY_METHODS = ("linear", "conv2d")
 
 
 def _initialize_physical_state(model: nn.Module) -> None:
@@ -50,8 +44,8 @@ def _initialize_physical_state(model: nn.Module) -> None:
             layer.macro.program(layer.weight_int.to(torch.int32))
 
 
-def _wrap_entry(root: ModuleBase, name: str, shapes: dict[ModuleBase, tuple[int, ...]]) -> Callable[[], None]:
-    """Shadow `root`'s bound `name` method with a shape-capturing wrapper.
+def _wrap_entry(root: LinearUnit, shapes: dict[LinearUnit, tuple[int, ...]]) -> Callable[[], None]:
+    """Shadow `root.linear` with a shape-capturing wrapper.
 
     The wrapper lives in the instance dict, in front of the class method.
 
@@ -59,55 +53,56 @@ def _wrap_entry(root: ModuleBase, name: str, shapes: dict[ModuleBase, tuple[int,
         A callback that drops the instance attribute, so lookups reach the
         class method again and nothing holds `root` past the capture.
     """
-    original: Callable[..., Tensor] = getattr(root, name)
+    original = root.linear
 
     def wrapped(input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         shapes[root] = tuple(input.shape)
         return original(input, quantization_mode=quantization_mode, adc_bits=adc_bits)
 
-    setattr(root, name, wrapped)
-    return lambda: delattr(root, name)
+    vars(root)["linear"] = wrapped
+
+    def restore() -> None:
+        del vars(root)["linear"]
+
+    return restore
 
 
-def capture_root_input_shapes(model: nn.Module) -> tuple[dict[ModuleBase, tuple[int, ...]], list[Callable[[], None]]]:
-    """Shadow every NeuroX root's entry point to capture the shape it receives.
+def capture_root_input_shapes(model: nn.Module) -> tuple[dict[LinearUnit, tuple[int, ...]], list[Callable[[], None]]]:
+    """Shadow every macro-backed layer's entry point to capture its input shape.
 
-    `QuantLeNet5` is a plain `nn.Module`, so its roots — each layer's `.macro` —
-    are buried and each sees a different shape; `neurox_roots` discovers them
-    without hard-coding layer geometry in the script.
+    A layer calls its macro's `linear()` method directly rather than through
+    `__call__`, so no `forward()` hook can observe the input.
 
-    A root's real entry point is `linear()` or `conv2d()` (`LinearUnit` /
-    `Conv2dUnit`), called straight rather than through `__call__`, so no
-    `forward()` ever runs to hook; the capture shadows that entry point in the
-    same pre-call spirit.
-
-    Only the shape is recorded, an input that cannot be computed. Latency
-    follows from shape plus config and is derived rather than captured.
+    Only the shape is recorded, an input that cannot be computed. The
+    initiation interval follows from shape plus config.
 
     Returns:
         The per-root shape dict, populated once the model's forward runs,
         and the restore callbacks that undo the shadowing.
     """
-    shapes: dict[ModuleBase, tuple[int, ...]] = {}
+    shapes: dict[LinearUnit, tuple[int, ...]] = {}
     restores: list[Callable[[], None]] = []
-    for root in neurox_roots(model):
-        for name in _ROOT_ENTRY_METHODS:
-            if hasattr(root, name):
-                restores.append(_wrap_entry(root, name, shapes))
-                break
+    seen: set[LinearUnit] = set()
+    for layer in model.modules():
+        if not isinstance(layer, (QuantConv2d, QuantLinear)):
+            continue
+        root = layer.macro
+        if root in seen:
+            continue
+        seen.add(root)
+        restores.append(_wrap_entry(root, shapes))
     return shapes, restores
 
 
-def latency_per_sample__ns(model: nn.Module, root_shapes: dict[ModuleBase, tuple[int, ...]]) -> float:
-    """Modelled duration of one sample's pass through every macro-backed layer [ns].
+def initiation_interval_per_sample__ns(model: nn.Module, root_shapes: dict[LinearUnit, tuple[int, ...]]) -> float:
+    """Modelled initiation interval of one sample across every macro-backed layer [ns].
 
     Each layer's root times the call it actually received, using the captured
     input shape — the one runtime extent (`M`, a convolution unit's
     output-position count) that depends on the input resolution and so cannot
     be read from config alone. `M` is a time axis: the engine unrolls one
     macro-access schedule per output position, so a conv layer's duration
-    scales with its output map. Only the sample batch stays outside the figure,
-    which is one sample's pass by definition.
+    scales with its output map. Only the sample batch stays outside the figure.
 
     Raises:
         RuntimeError: A macro-backed layer has no captured input shape.
@@ -116,16 +111,11 @@ def latency_per_sample__ns(model: nn.Module, root_shapes: dict[ModuleBase, tuple
     for layer in model.modules():
         if not isinstance(layer, (QuantConv2d, QuantLinear)):
             continue
-        (root,) = neurox_roots(layer)
-        # Narrowing by type is a temporary stand-in for a proper latency
-        # interface: only these three families declare `latency__ns`, and no
-        # interface spans them yet.
-        if not isinstance(root, (CimUnit, CimEngine, CimMacro)):
-            continue
+        root = layer.macro
         shape = root_shapes.get(root)
         if shape is None:
             raise RuntimeError(f"no captured input shape for {type(root).__name__}; forward never ran")
-        total__ns += root.latency__ns(shape, adc_bits=layer.adc_bits)
+        total__ns += root.initiation_interval__ns(shape, adc_bits=layer.adc_bits)
     return total__ns
 
 
@@ -214,7 +204,7 @@ def main() -> None:
     # energy is leakage times the duty-cycle period a deployment holds the macro
     # for, which is a property of that deployment rather than of the access time
     # below, so the two are reported separately.
-    latency__ns = latency_per_sample__ns(model, root_shapes)
+    initiation_interval__ns = initiation_interval_per_sample__ns(model, root_shapes)
     print(f"config:                   {args.config} (cim_macro={args.cim_macro})")
     print(f"policy:                   {args.policy}")
     print(f"samples:                  {total}")
@@ -224,7 +214,7 @@ def main() -> None:
     print(f"area_total_um2:           {static.area__um2:.4f}")
     print(f"leakage_power_total_uW:   {static.leakage__uW:.4f}")
     print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
-    print(f"modeled_latency_per_sample_ns: {latency__ns:.4f}")
+    print(f"modeled_initiation_interval_per_sample_ns: {initiation_interval__ns:.4f}")
     if energy_by_name__fJ:
         print("dynamic_energy_by_name_fJ:")
         width = max(len(name) for name in energy_by_name__fJ)

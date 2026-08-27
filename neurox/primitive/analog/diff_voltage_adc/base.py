@@ -11,9 +11,8 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import RegistryMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class DiffVadcRecord(AdcRecord):
@@ -31,7 +30,7 @@ class DiffVadcRecord(AdcRecord):
         return self.v_pos__V - self.v_neg__V
 
 
-class DiffVadcConfig(AnalogConfig, ABC):
+class DiffVadcConfig(ConfigBase, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -40,12 +39,12 @@ class DiffVadcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class DiffVadcPolicy(AnalogPolicy, ABC):
+class DiffVadcPolicy(PolicyBase, ABC):
     pass
 
 
 class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
-    AnalogBase[ConfigT, PolicyT],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin[
         "DiffVadcConfig",
         "DiffVadcPolicy",

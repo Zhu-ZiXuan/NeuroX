@@ -11,9 +11,8 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import RegistryMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class IadcRecord(AdcRecord):
@@ -28,7 +27,7 @@ class IadcRecord(AdcRecord):
         return self.i_in__uA
 
 
-class IadcConfig(AnalogConfig, ABC):
+class IadcConfig(ConfigBase, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -37,12 +36,12 @@ class IadcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class IadcPolicy(AnalogPolicy, ABC):
+class IadcPolicy(PolicyBase, ABC):
     pass
 
 
 class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
-    AnalogBase[ConfigT, PolicyT],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin[
         "IadcConfig",
         "IadcPolicy",

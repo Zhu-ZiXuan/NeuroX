@@ -62,7 +62,7 @@ def test_shape_law() -> None:
     assert module.input_bit_num == len(_BIT_RATIOS)
 
     i__uA = _witness_currents()
-    out = module(i__uA, window_per_bit__ns=torch.tensor(_WINDOW__NS, dtype=_DTYPE))
+    out = module(i__uA, window_per_bit__ns=_WINDOW__NS)
     assert tuple(out.shape) == (1, _SERIAL, _GN, _POLARITY_NUM)
 
 
@@ -70,7 +70,7 @@ def test_value_law() -> None:
     """forward == inline LSB-first ratio-weighted sum over the bit axis."""
     module = _build_sinwp_sc()
     i__uA = _witness_currents()
-    out = module(i__uA, window_per_bit__ns=torch.tensor(_WINDOW__NS, dtype=_DTYPE))
+    out = module(i__uA, window_per_bit__ns=_WINDOW__NS)
 
     ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1, 1)
     expected = (i__uA * ratios).sum(dim=(-5, -1))
@@ -92,7 +92,7 @@ def test_leg_billing_law() -> None:
     window = torch.tensor(_WINDOW__NS, dtype=_DTYPE)
 
     with Profiler() as prof, torch.no_grad():
-        module(i__uA, window_per_bit__ns=window)
+        module(i__uA, window_per_bit__ns=_WINDOW__NS)
 
     # Branch-tensor law: the billed branches are the materialized legs
     # i_leg[k] = s_k * i[k], not the interface currents.
@@ -119,5 +119,5 @@ def test_billing_outside_profiler_is_silent() -> None:
     """forward outside a profiler records nothing and still returns the value."""
     module = _build_sinwp_sc()
     i__uA = _witness_currents()
-    out = module(i__uA, window_per_bit__ns=torch.tensor(_WINDOW__NS, dtype=_DTYPE))
+    out = module(i__uA, window_per_bit__ns=_WINDOW__NS)
     assert tuple(out.shape) == (1, _SERIAL, _GN, _POLARITY_NUM)

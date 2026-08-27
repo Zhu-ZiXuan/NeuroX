@@ -44,25 +44,7 @@ class ProfileMixin:
 
     @property
     def qualified_name(self) -> str:
-        """Hierarchical name the module's tree stamped onto it.
-
-        A module never names itself: a tree traversal assigns the name, and a
-        later traversal overwrites it.
-
-        Raises:
-            RuntimeError: No tree has stamped this module yet.
-        """
-        try:
-            return self.__qualified_name
-        except AttributeError:
-            raise RuntimeError(
-                f"{type(self).__name__} carries no name stamp; "
-                "call neurox.common.tree.stamp_names(model) once the model is assembled"
-            ) from None
-
-    @qualified_name.setter
-    def qualified_name(self, name: str) -> None:
-        self.__qualified_name = name
+        raise NotImplementedError
 
     @property
     def area__um2(self) -> float:

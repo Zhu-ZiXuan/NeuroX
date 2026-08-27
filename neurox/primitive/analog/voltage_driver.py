@@ -8,13 +8,11 @@ See Also:
 import torch
 from torch import Tensor
 
-from neurox.common import DcopBase, SnapBase
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
-
-class VoltageDriverConfig(AnalogConfig):
+class VoltageDriverConfig(ConfigBase):
     r_out__MOhm: float
     """Series output resistance — its NEGATIVE is the constant clamp slope
     ∂V_clamp/∂I; 0 recovers the ideal voltage-source limit."""
@@ -44,7 +42,7 @@ class VoltageDriverConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class VoltageDriverPolicy(AnalogPolicy):
+class VoltageDriverPolicy(PolicyBase):
     offset: bool
     """Apply the static systematic per-instance offset `offset_sigma__V`."""
     thermal: bool
@@ -78,7 +76,7 @@ class VoltageDriverSnap(SnapBase):
     Shape: `[..., *inst_shape]`."""
 
 
-class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
+class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
     """Generic Thevenin voltage-source clamp driver.
 
     The clamp follows `v_clamp = v_ref + v_perturb - i_port * r_out`, where
@@ -87,7 +85,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     ideal voltage source.
     """
 
-    # === Circuit constant buffers ===
+    # === Functional buffers ===
 
     _frozen_r_out__MOhm: Tensor  # Shape: []
 
@@ -110,10 +108,9 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_frozen_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
-            persistent=False,
         )
         self._register_fabrication_buffers(dtype=dtype)
 
@@ -126,10 +123,9 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_offset__V",
             torch.zeros((), dtype=dtype),
-            persistent=False,
         )
 
     def _sample_fabrication_variation(self) -> None:

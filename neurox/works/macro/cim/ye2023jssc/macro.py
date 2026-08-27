@@ -169,12 +169,9 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     # === Functional buffers ===
 
-    _w_encode_lut: Tensor  # Shape: [w_value_num, w_digit_num]
-
-    # === Circuit constant buffers ===
-
     _wl_onehot_code: Tensor  # Shape: [col_num, col_num]
     _sl_v_ref__V: Tensor  # Shape: []
+    _w_encode_lut: Tensor  # Shape: [w_value_num, w_digit_num]
 
     def __init__(
         self,
@@ -203,7 +200,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 f"require: max_active_num ({config.max_active_num}) == row_num ({self.row_num}) (input-parallel design)"
             )
         self._init_children(dtype=dtype, T__K=T__K)
-        self._register_model_buffers(dtype=dtype)
+        self._register_functional_buffers(dtype=dtype)
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -341,12 +338,12 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             T__K=T__K,
         )
 
-    def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
+    def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
         config = self.config
         # The scan pattern is DIGITAL: output o raises word line o and holds every
         # other line at its off code, and the WL converter turns that into levels.
-        self.register_buffer("_wl_onehot_code", torch.eye(self.col_num, dtype=torch.long), persistent=False)
-        self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
+        self._register_nonpersistent_buffer("_wl_onehot_code", torch.eye(self.col_num, dtype=torch.long))
+        self._register_nonpersistent_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype))
 
         # An unrepresentable logical value keeps this table's all-zero row: an
         # arbitrary radix list may leave holes inside `w_value_range`, and config
@@ -357,7 +354,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         values = digits @ torch.tensor(config.array_config.weight_radix, dtype=torch.long)
         encode_lut = torch.zeros((sum(config.array_config.weight_radix) + 1, digit_num), dtype=torch.long)
         encode_lut[values] = digits
-        self.register_buffer("_w_encode_lut", encode_lut, persistent=False)
+        self._register_nonpersistent_buffer("_w_encode_lut", encode_lut)
 
     @property
     def x_value_range(self) -> tuple[int, int]:
@@ -417,7 +414,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         return quantization_mode
 
     @property
-    def t_ac__ns(self) -> Tensor:
+    def t_ac__ns(self) -> float:
         """Nominal access window T_AC [ns] at `adc_max_bits`.
 
         The RS-CSA runs the compensation phase plus one compare phase per requested

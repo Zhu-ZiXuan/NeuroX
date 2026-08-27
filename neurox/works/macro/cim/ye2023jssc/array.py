@@ -154,10 +154,9 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
         self._v_tbl__V = v_tbl__V
 
         # Plane-major place values: each radix spans an equal group of columns.
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_radix_per_col",
             torch.tensor(all_radix, dtype=dtype).repeat_interleave(col_num // len(all_radix)),
-            persistent=False,
         )
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:

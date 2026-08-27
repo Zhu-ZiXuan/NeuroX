@@ -2,20 +2,19 @@
 
 A physical module holds two kinds of tensor state, and the split decides where a value lives, when it is sampled, and on which device it runs.
 
-Registered buffers carry what construction fixes: nominal baselines, functional tables, and circuit constants. Each is registered at its intended `dtype`, and PyTorch migrates it with the module, so a `to(device)` taken before any physical state exists decides where all later work runs. Fabricated and programmed values are ordinary tensor attributes written by the lifecycle method that produces them, and a per-call snap is a local value no module keeps.
+Registered buffers carry the construction-fixed tensor representations that execution or fabrication needs: functional tensors and nominal baselines. Each is registered at its intended `dtype`, and PyTorch migrates it with the module, so a `to(device)` taken before any physical state exists decides where all later work runs. Fabricated and programmed values are ordinary tensor attributes written by the lifecycle method that produces them, and a per-call snap is a local value no module keeps.
 
 All of it is implementation state of the owning module. A consumer reads it through that module's `*Snap` or `*Dcop` value object, or through a purpose-built accessor when the value is part of the module's contract. Concrete cross-module value objects inherit `SnapBase` or `DcopBase`; a `Protocol` that only describes the structural surface a collaborator accepts does not. Registered child modules are the exception: they keep public structural names, because PyTorch addresses them by name in the module tree.
 
 ## State categories
 
-- **Functional buffer** — read directly by the forward math: a transfer LUT, a state map, an index or mapping mask, a bias constant.
-- **Circuit constant buffer** — electrical and timing constants, such as a wire-parameter profile or a frozen output resistance.
+- **Functional buffer** — a tensor read directly by execution: a transfer LUT, state map, index or mask, tensor-valued constant, or 0-D seed that must follow the module's device and dtype or expand without allocation.
 - **Nominal buffer** — the `_nominal_*` baseline `fabricate()` consumes. A scalar physical baseline is 0-D; a genuinely multi-valued one, such as a reference ladder or a capacitor bank, stays a compact vector or table.
 - **Fabricated state** — the attribute `fabricate()` writes: static per-instance mismatch around a nominal buffer, carrying the instance axes.
 - **Programmed state** — the attribute `program(...)` writes: the caller's value after mapping and programming effects.
 - **Snap** — a fresh tensor or frozen value object built for one call, adding dynamic noise on top of fabricated or programmed state, never stored on the module.
 
-Functional and circuit constant buffers stand outside the nominal-to-fabricated-to-snap progression, and a module declares only the categories its model needs: a programmable leaf may have no nominal buffer, and a deterministic LUT leaf no fabricated state. A class header groups its tensor declarations under these same category names, in the banner form fixed by [code_style](../conventions/code_style.md).
+Functional buffers stand outside the nominal-to-fabricated-to-snap progression, and a module declares only the categories its model needs: a programmable leaf may have no nominal buffer, and a deterministic LUT leaf no fabricated state. A class header groups its tensor declarations under these same category names, in the banner form fixed by [code_style](../conventions/code_style.md).
 
 ## Lifecycle
 
@@ -31,7 +30,7 @@ Placement and precision are settled once, at the module's own buffers. A module 
 
 ### Device migration
 
-`to(device)` moves parameters and registered buffers, which covers every nominal, functional, and circuit constant buffer; later lifecycle methods then derive their tensors from the migrated buffers or accept an already placed programming input. Fabricated and programmed states are ordinary attributes, so a `to(device)` after they exist leaves them behind. Migration after materialization is unsupported: move the module first, then rerun `fabricate()` and `program(...)`.
+`to(device)` moves parameters and registered buffers, which covers every nominal and functional buffer; later lifecycle methods then derive their tensors from the migrated buffers or accept an already placed programming input. Fabricated and programmed states are ordinary attributes, so a `to(device)` after they exist leaves them behind. Migration after materialization is unsupported: move the module first, then rerun `fabricate()` and `program(...)`.
 
 ### Fabrication and programming
 

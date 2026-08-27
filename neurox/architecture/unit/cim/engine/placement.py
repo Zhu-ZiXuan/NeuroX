@@ -88,15 +88,13 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     def _register_block_slot_routing_buffers(self) -> None:
         routing = make_block_slot_routing(placement=self.plan)
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_input_source_index",
             routing.gather_index,
-            persistent=False,
         )
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_block_slot_mask",
             routing.slot_mask,
-            persistent=False,
         )
 
     def _init_contraction_accumulator(self, *, macro_plane_num: int) -> None:

@@ -74,7 +74,6 @@ def _build(*, gn: int = _GN) -> Tmcsa:
         inst_shape=(gn,),
         max_bits=_BITS,
         vdd__V=_VDD__V,
-        dtype=_DTYPE,
     )
     module.eval()
     module.fabricate()

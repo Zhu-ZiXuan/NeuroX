@@ -9,10 +9,10 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-class ImuxConfig(AnalogConfig):
+class ImuxConfig(ConfigBase):
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
@@ -23,11 +23,11 @@ class ImuxConfig(AnalogConfig):
         self._require_pos(self.mux_gain, "mux_gain")
 
 
-class ImuxPolicy(AnalogPolicy):
+class ImuxPolicy(PolicyBase):
     pass
 
 
-class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
+class Imux(ModuleBase[ImuxConfig, ImuxPolicy]):
     """Ideal N:1 time-share current mux — identity·gain transport."""
 
     is_profile_target: ClassVar[bool] = False

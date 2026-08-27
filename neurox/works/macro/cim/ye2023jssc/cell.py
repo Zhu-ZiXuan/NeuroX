@@ -102,10 +102,9 @@ class Ye2023Jssc2t1rCell(
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_i_t2_table__uA",
             torch.tensor(config.i_t2_table__uA, dtype=dtype),
-            persistent=False,
         )
 
     def program(self, w_state_idx: Tensor) -> None:
@@ -174,5 +173,5 @@ class Ye2023Jssc2t1rCell(
             Unit-scale T2 current.
             Shape: `[..., col, row]`.
         """
-        on = snap.v_wl__V > self._v_wl_on_threshold__V
+        on = snap.v_wl__V > self.config.v_wl_on_threshold__V
         return torch.where(on, torch.where(dcop.v_x__V > 0.0, snap.i_t2_drive__uA, snap.i_t2_floor__uA), 0.0)

@@ -146,16 +146,16 @@ def test_rail_billing_is_vdd_abs_i_wdl_window() -> None:
 
 
 def test_per_bit_diagonal_window_rides_the_leading_batch() -> None:
-    """Per-plane window tensor: each leading plane bills against ITS window only."""
+    """Per-plane Python windows bill each leading plane against its own duration."""
     dswct = _build_dswct()
     x_bits = 2
     i_dl = _i_dl(x_bits)  # leading = the WL bit-plane axis
-    window__ns = torch.tensor((2.0, 5.0), dtype=_DTYPE)
+    window__ns = (2.0, 5.0)
     with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     per_plane = (i_dl * ratios).abs().sum(dim=(-4, -3, -2, -1))
-    expect__fJ = float(_VDD__V * (per_plane * window__ns).sum())
+    expect__fJ = float(_VDD__V * (per_plane * torch.tensor(window__ns, dtype=_DTYPE)).sum())
     assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 

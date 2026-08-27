@@ -4,10 +4,12 @@ See Also:
     docs/reference/primitive/device/rram.md
 """
 
+from typing import ClassVar
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, DeviceBase, PolicyBase, SnapBase
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -79,7 +81,7 @@ class RramSnap(SnapBase):
     """Sampled per-cell conductance, read noise included. Shape: `[...]`."""
 
 
-class Rram(DeviceBase[RramConfig, RramPolicy]):
+class Rram(ModuleBase[RramConfig, RramPolicy]):
     """Stateful programmable-conductance RRAM model.
 
     Programming variation is applied by `program()` and read variation by
@@ -88,6 +90,8 @@ class Rram(DeviceBase[RramConfig, RramPolicy]):
     Args:
         g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
     """
+
+    is_profile_target: ClassVar[bool] = False
 
     # === Programmed state ===
 
@@ -108,7 +112,6 @@ class Rram(DeviceBase[RramConfig, RramPolicy]):
         if not (g_max__uS > config.g_min__uS):
             raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
 
-        self._g_min__uS = config.g_min__uS
         self._g_max__uS = g_max__uS
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
@@ -119,7 +122,8 @@ class Rram(DeviceBase[RramConfig, RramPolicy]):
                 preserved in the programmed state.
             t_elapsed: Time elapsed since programming [s].
         """
-        g__uS = target_g__uS.clamp(self._g_min__uS, self._g_max__uS)
+        g_min__uS = self.config.g_min__uS
+        g__uS = target_g__uS.clamp(g_min__uS, self._g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
         if self.policy.drift and self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
             drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
@@ -128,12 +132,12 @@ class Rram(DeviceBase[RramConfig, RramPolicy]):
         g__uS = apply_stuck_at_fault(
             x=g__uS,
             config=self.config.stuck_at,
-            min_val=self._g_min__uS,
+            min_val=g_min__uS,
             max_val=self._g_max__uS,
             enabled=self.policy.stuck_at,
         )
 
-        g__uS = g__uS.clamp(self._g_min__uS, self._g_max__uS)
+        g__uS = g__uS.clamp(g_min__uS, self._g_max__uS)
 
         self._g__uS = g__uS
 
@@ -153,7 +157,7 @@ class Rram(DeviceBase[RramConfig, RramPolicy]):
         g = self._g__uS.expand(shape) if shape else self._g__uS
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
-        g = g.clamp(self._g_min__uS, self._g_max__uS)
+        g = g.clamp(self.config.g_min__uS, self._g_max__uS)
         return RramSnap(g__uS=g)
 
     def solve_dc(self, v__V: Tensor, snap: RramSnap) -> RramDcop:

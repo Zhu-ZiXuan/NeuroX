@@ -53,10 +53,9 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
         )
         self._input_phase_num = activation_plan.activation_group_num
         self._input_phase_dim = -(macro_inst_rank + 2)
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_active_input_mask",
             make_activation_group_mask(activation=activation_plan),
-            persistent=False,
         )
         self.phase_accumulator = SerialAccumulator(
             config=config.phase_accumulator_config,

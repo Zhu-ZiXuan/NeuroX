@@ -95,10 +95,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
     _ladder_weights: Tensor  # Shape: [2**max_bits - 1]
 
-    # === Circuit constant buffers ===
-
-    _t_conversion__ns: Tensor  # Shape: [max_bits]
-
     def __init__(
         self,
         *,
@@ -125,19 +121,13 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         self._window__ns = tuple(
             sum(config.t_phase__ns[:b]) + config.t_intrinsic__ns[b - 1] for b in range(1, config.bits + 1)
         )
-        self.register_buffer(
-            "_t_conversion__ns",
-            torch.tensor(self._window__ns, dtype=dtype),
-            persistent=False,
-        )
         # The code-independent baseline is prorated by the executed-window ratio.
         self._e_fixed_scale = tuple(t / self._window__ns[-1] for t in self._window__ns)
         # The compare phases weigh the ONE injected reference by 2**(bits - p),
         # so together they resolve every tap of the uniform ladder below.
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_ladder_weights",
             torch.arange(1, 1 << config.bits, dtype=dtype),
-            persistent=False,
         )
 
     @property
@@ -168,7 +158,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         """Static PH0 compensation current [uA] subtracted once per conversion."""
         return self._i_ph0_comp__uA
 
-    def t_conversion__ns(self, bits: int) -> Tensor:
+    def t_conversion__ns(self, bits: int) -> float:
         """Return the executed conversion window of a `bits` conversion.
 
         The window spans the compensation phase, the first `bits - 1` compare phases
@@ -179,13 +169,12 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
         Returns:
             Executed conversion window.
-            Shape: `[]`.
 
         Raises:
             ValueError: `bits` is outside `[1, max_bits]`.
         """
         self._check_bits(bits)
-        return self._t_conversion__ns[bits - 1]
+        return self._window__ns[bits - 1]
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
         """Unsigned code endpoints at `bits` — `(0, 2 ** bits - 1)`."""

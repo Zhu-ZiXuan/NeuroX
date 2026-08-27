@@ -6,6 +6,7 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass
 from inspect import Parameter, signature
 
 import pytest
+import torch
 import torch.nn as nn
 
 from neurox import fabricate
@@ -70,6 +71,12 @@ class _RegisteredModule(_ModuleRegistryRoot):
 
 class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
     pass
+
+
+class _BufferedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    def __init__(self) -> None:
+        super().__init__(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+        self._register_nonpersistent_buffer("anchor", torch.tensor(1.0))
 
 
 class _FabricatingModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
@@ -151,6 +158,12 @@ def test_profile_mixin_rejects_non_module_subclass() -> None:
 def test_module_base_default_fabrication_is_a_noop() -> None:
     module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
     module.fabricate()
+
+
+def test_module_base_registers_buffers_without_persisting_them() -> None:
+    module = _BufferedModule()
+    assert tuple(name for name, _ in module.named_buffers()) == ("anchor",)
+    assert not module.state_dict()
 
 
 def test_fabricate_walks_through_plain_module_wrappers_in_preorder() -> None:

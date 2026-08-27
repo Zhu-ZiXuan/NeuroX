@@ -351,12 +351,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
     _slot_map: Tensor  # Shape: [sweep, gn, polarity, w_digit]
     _seat_of_phys: Tensor  # Shape: [phys_col]
-
-    # === Circuit constant buffers ===
-
     _sl_v_ref__V: Tensor  # Shape: []
-    _window_array_by_bits__ns: Tensor  # Shape: [adc_max_bits, x_bits]
-    _window_sc_by_bits__ns: Tensor  # Shape: [adc_max_bits, x_bits]
 
     def __init__(
         self,
@@ -393,7 +388,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
         self._x_transcoder = TrueFormTranscoder(radix=2, digit_count=config.input_bit_num)
         self._init_children(dtype=dtype, T__K=T__K)
-        self._register_model_buffers(dtype=dtype)
+        self._register_functional_buffers(dtype=dtype)
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -546,7 +541,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             inst_shape=(*self.inst_shape, gn),
             max_bits=config.adc_config.bits,
             vdd__V=config.vdd__V,
-            dtype=dtype,
         )
         # One threshold source per fabricated sub-array copy, shared across that
         # copy's TMCSAs: the inst_shape carries the fabrication prefix and no IO
@@ -570,7 +564,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             T__K=T__K,
         )
 
-    def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
+    def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
         config = self.config
         # Column-MUX placement: phys_col = ((slot * gn + io) * polarity + pol) *
         # w_digit + digit, the bijection (slot, io, polarity, digit) -> physical
@@ -585,26 +579,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # by this index is what turns a seat-ordered tensor into a physical one,
         # so both directions are a single index_select over a stored bijection.
         seat_of_phys = torch.argsort(slot_map.reshape(-1))
-        self.register_buffer("_slot_map", slot_map, persistent=False)
-        self.register_buffer("_seat_of_phys", seat_of_phys, persistent=False)
+        self._register_nonpersistent_buffer("_slot_map", slot_map)
+        self._register_nonpersistent_buffer("_seat_of_phys", seat_of_phys)
         # SL direct ground tie: a plain all-zeros reference, no Vref module.
-        self.register_buffer("_sl_v_ref__V", torch.zeros((), dtype=dtype), persistent=False)
-        self.register_buffer(
-            "_window_array_by_bits__ns",
-            torch.tensor(
-                tuple(config.array_windows__ns(bits) for bits in range(1, config.adc_config.bits + 1)),
-                dtype=dtype,
-            ),
-            persistent=False,
-        )
-        self.register_buffer(
-            "_window_sc_by_bits__ns",
-            torch.tensor(
-                tuple(config.sinwp_windows__ns(bits) for bits in range(1, config.adc_config.bits + 1)),
-                dtype=dtype,
-            ),
-            persistent=False,
-        )
+        self._register_nonpersistent_buffer("_sl_v_ref__V", torch.zeros((), dtype=dtype))
 
     @property
     def x_value_range(self) -> tuple[int, int]:
@@ -821,8 +799,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self._mode(quantization_mode)
         config = self.config
         tail__ns = config.tail__ns(adc_bits)
-        window_array__ns = self._window_array_by_bits__ns[adc_bits - 1]
-        window_sc__ns = self._window_sc_by_bits__ns[adc_bits - 1]
+        window_array__ns = config.array_windows__ns(adc_bits)
+        window_sc__ns = config.sinwp_windows__ns(adc_bits)
         vdd__V = config.vdd__V
         gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
         x_long = x.long()  # dtype guard for >> and the bit-expand
@@ -947,7 +925,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             # leading, whose last axes are this macro's instance axes, which the
             # collector sums past the caller's leading dims.
             # Shape: [..., x_bits] -> [...]
-            e_cablc = (read_power * window_array__ns).sum(dim=-1)
+            e_cablc = read_power[..., 0] * window_array__ns[0]
+            for bit, window__ns in enumerate(window_array__ns[1:], start=1):
+                e_cablc = e_cablc + read_power[..., bit] * window__ns
             self._record_dynamic_energy(e_cablc, channel="cablc")
 
         # --- 3: DSWCT place-value weighting -> I_WDL (self-billing) ---

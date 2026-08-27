@@ -7,13 +7,12 @@ See Also:
 import torch
 from torch import Tensor
 
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.primitive.physics import K_BOLTZMANN__J_per_K
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
-
-class SwitchCapConfig(AnalogConfig):
+class SwitchCapConfig(ConfigBase):
     c_unit__fF: float
     """Capacitance of the weight-1 cap the bank's weights multiply."""
     cap_mismatch_sigma_relative: float
@@ -37,14 +36,14 @@ class SwitchCapConfig(AnalogConfig):
         self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
 
 
-class SwitchCapPolicy(AnalogPolicy):
+class SwitchCapPolicy(PolicyBase):
     cap_mismatch: bool
     """Apply `cap_mismatch_sigma_relative` at fabricate time."""
     sampling_thermal_noise: bool
     """Apply kT/C settling noise at sample time."""
 
 
-class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
+class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
@@ -97,10 +96,9 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         dtype: torch.dtype,
         cap_weights: tuple[float, ...],
     ) -> None:
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_c__fF",
             self.config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype),
-            persistent=False,
         )
 
     def _sample_fabrication_variation(self) -> None:

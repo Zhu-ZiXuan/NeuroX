@@ -7,19 +7,26 @@ import torch
 import torch.nn as nn
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common.profile_mixin import ProfileMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 _AREA_PER_INST__UM2 = 2.0
 _LEAKAGE_PER_INST__UW = 0.5
 
 
-class _Leaf(nn.Module, ProfileMixin):
-    """Minimal emitting host: same base order as `ModuleBase`."""
+class _Config(ConfigBase):
+    pass
+
+
+class _Policy(PolicyBase):
+    pass
+
+
+class _Leaf(ModuleBase[_Config, _Policy]):
+    """Minimal emitting module."""
 
     def __init__(self, *, energy__fJ: float = 0.0, inst_count: int = 1) -> None:
-        nn.Module.__init__(self)
+        super().__init__(config=_Config(), policy=_Policy(), inst_shape=(inst_count,))
         self._energy__fJ = energy__fJ
-        self._inst_count = inst_count
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -29,10 +36,6 @@ class _Leaf(nn.Module, ProfileMixin):
     def _leakage_per_inst__uW(self) -> float:
         return _LEAKAGE_PER_INST__UW
 
-    @property
-    def inst_count(self) -> int:
-        return self._inst_count
-
     def run(self, *, channel: str | None = None) -> None:
         self._record_dynamic_energy(torch.tensor(self._energy__fJ), channel=channel)
 
@@ -41,14 +44,13 @@ class _Other(_Leaf):
     """A second emitter class, so a report covers more than one kind of host."""
 
 
-class _Untargeted(nn.Module, ProfileMixin):
-    """A host whose silicon is counted at its owner, so it declares none."""
+class _Untargeted(ModuleBase[_Config, _Policy]):
+    """A module whose silicon is counted at its owner, so it declares none."""
 
     is_profile_target = False
 
-    @property
-    def inst_count(self) -> int:
-        return 1
+    def __init__(self) -> None:
+        super().__init__(config=_Config(), policy=_Policy(), inst_shape=())
 
 
 class _Owner(nn.Module):
@@ -159,7 +161,7 @@ def test_an_instance_bound_at_a_second_location_stops_the_reporter() -> None:
 
 
 def test_a_non_target_is_held_to_the_same_stamp() -> None:
-    """The gate covers every profile-capable module, whether or not it holds a row."""
+    """The gate covers every NeuroX module, whether or not it holds a row."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     owner.shadow = _Untargeted()  # bound after the walk that named the model

@@ -7,12 +7,12 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, DeviceBase, PolicyBase, RegistryMixin, SnapBase
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, RegistryMixin, SnapBase
 
 
 class XbarCell1t1rConfig(ConfigBase, ABC):
@@ -40,7 +40,7 @@ class XbarCell1t1rDcop(DcopBase):
 
 
 class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, SnapT: XbarCell1t1rSnap](
-    DeviceBase[ConfigT, PolicyT],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin[
         XbarCell1t1rConfig,
         XbarCell1t1rPolicy,
@@ -48,6 +48,8 @@ class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, Sna
     ],
     ABC,
 ):
+    is_profile_target: ClassVar[bool] = False
+
     def __init__(
         self,
         *,

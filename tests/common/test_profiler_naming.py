@@ -7,14 +7,22 @@ import torch
 import torch.nn as nn
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common.profile_mixin import ProfileMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-class _Leaf(nn.Module, ProfileMixin):
-    """Minimal emitting host: same base order as `ModuleBase`."""
+class _Config(ConfigBase):
+    pass
+
+
+class _Policy(PolicyBase):
+    pass
+
+
+class _Leaf(ModuleBase[_Config, _Policy]):
+    """Minimal emitting module."""
 
     def __init__(self, *, energy__fJ: float = 0.0) -> None:
-        nn.Module.__init__(self)
+        super().__init__(config=_Config(), policy=_Policy(), inst_shape=())
         self._energy__fJ = energy__fJ
 
     @property
@@ -24,10 +32,6 @@ class _Leaf(nn.Module, ProfileMixin):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return 0.5
-
-    @property
-    def inst_count(self) -> int:
-        return 1
 
     def run(self, *, channel: str | None = None) -> None:
         if self._energy__fJ:

@@ -4,10 +4,12 @@ See Also:
     docs/reference/primitive/device/selector.md
 """
 
+from typing import ClassVar
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DeviceBase, PolicyBase
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
 
@@ -27,8 +29,10 @@ class SelectorPolicy(PolicyBase):
     """Draw a per-cell threshold offset at fabricate time."""
 
 
-class Selector(DeviceBase[SelectorConfig, SelectorPolicy]):
+class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     """OTS selector with static per-cell V_th mismatch."""
+
+    is_profile_target: ClassVar[bool] = False
 
     # === Nominal buffers ===
 
@@ -53,10 +57,9 @@ class Selector(DeviceBase[SelectorConfig, SelectorPolicy]):
         self._register_fabrication_buffers(dtype=dtype)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_vth__V",
             torch.tensor(self.config.vth_nominal__V, dtype=dtype),
-            persistent=False,
         )
 
     def _sample_fabrication_variation(self) -> None:

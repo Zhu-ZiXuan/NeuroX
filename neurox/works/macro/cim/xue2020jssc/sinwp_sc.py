@@ -55,7 +55,7 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
 
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._vdd__V = vdd__V
-        self.register_buffer("_bit_ratios", bit_ratios.detach().clone(), persistent=False)
+        self._register_nonpersistent_buffer("_bit_ratios", bit_ratios.detach().clone())
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -70,7 +70,7 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         """Number of input bits K — the combine-ratio count."""
         return self._bit_ratios.numel()
 
-    def forward(self, i__uA: Tensor, *, window_per_bit__ns: Tensor) -> Tensor:
+    def forward(self, i__uA: Tensor, *, window_per_bit__ns: tuple[float, ...]) -> Tensor:
         """Combine the per-bit currents over the input-radix ratios.
 
         Args:
@@ -80,7 +80,6 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
                 Shape: `[..., x_bits, serial, gn, polarity, w_digit]`.
             window_per_bit__ns: Per-input-bit conduction window — the
                 sample-and-hold suffix-sum window the macro injects per call.
-                Shape: `[x_bits]`.
 
         Returns:
             Combined lane current.
@@ -99,10 +98,8 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
             )
         if i__uA.shape[-5] != n_bits:
             raise ValueError(f"forward() expects x_bits ({n_bits}) at dim -5; got {i__uA.shape[-5]}")
-        if tuple(window_per_bit__ns.shape) != (n_bits,):
-            raise ValueError(
-                f"forward() expects window_per_bit__ns.shape ({(n_bits,)}); got {tuple(window_per_bit__ns.shape)}"
-            )
+        if len(window_per_bit__ns) != n_bits:
+            raise ValueError(f"forward() expects {n_bits} window_per_bit__ns entries; got {len(window_per_bit__ns)}")
 
         # Branch-tensor law: materialize the per-leg sink currents FIRST —
         # each mirror leg carries the s_k-scaled copy, not the interface
@@ -113,14 +110,16 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         i_leg__uA = i__uA * bit_ratios
 
         if self._is_dynamic_energy_profile_active():
-            # Neither branch reduces its own axes: the collector sums the bit,
-            # slot and (gn, polarity) lane axes past the caller's leading dims.
             # Rail conduction: signed per-bit LEG current (not |I|) over the
             # suffix-sum hold window.
-            # Shape: [x_bits] -> [x_bits, serial=1, gn=1, polarity=1, w_digit=1]
-            window_view__ns = window_per_bit__ns.view(n_bits, 1, 1, 1, 1)
+            # Fold the internal bit axis with its Python-scalar windows;
+            # torch.compile unrolls this fixed-length loop.
             # Shape: [..., x_bits, serial, gn, polarity, w_digit]
-            e_conduction = (self._vdd__V * window_view__ns) * i_leg__uA
+            #     -> [..., serial, gn, polarity, w_digit]
+            e_conduction = i_leg__uA.select(-5, 0) * window_per_bit__ns[0]
+            for bit, bit_window__ns in enumerate(window_per_bit__ns[1:], start=1):
+                e_conduction = e_conduction + i_leg__uA.select(-5, bit) * bit_window__ns
+            e_conduction = self._vdd__V * e_conduction
             self._record_dynamic_energy(e_conduction)
 
         # Sum input-bit and weight-digit place values into one lane current.

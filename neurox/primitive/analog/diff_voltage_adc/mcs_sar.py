@@ -122,7 +122,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
         self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
-        self._cap_num = config.max_bits
         self._register_fabrication_buffers(dtype=dtype)
 
         # `bits` is a runtime argument, so `1 << bits` under dynamo lowers to a
@@ -159,11 +158,10 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             [c_unit] + [c_unit * (2**k) for k in range(config.max_bits - 1)],
             dtype=dtype,
         )
-        self.register_buffer("_nominal_c__fF", nominal_c__fF, persistent=False)
-        self.register_buffer(
+        self._register_nonpersistent_buffer("_nominal_c__fF", nominal_c__fF)
+        self._register_nonpersistent_buffer(
             "_nominal_comparator_offset__V",
             torch.zeros((), dtype=dtype),
-            persistent=False,
         )
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
@@ -198,14 +196,14 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         # the step tables and the kT/C sigma both divide by.
         policy = self.policy
         self._c_p__fF = apply_pelgrom_mismatch(
-            self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.max_bits),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self._c_n__fF = apply_pelgrom_mismatch(
-            self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.max_bits),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,

@@ -117,28 +117,22 @@ class XbarCell1t1rLinear[
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_g_cell_off_table__uS",
             torch.tensor(config.g_cell_off_table__uS, dtype=dtype),
-            persistent=False,
         )
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_g_cell_on_table__uS",
             torch.tensor(config.g_cell_on_table__uS, dtype=dtype),
-            persistent=False,
         )
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_vx_ratio_off_table",
             torch.tensor(config.vx_ratio_off_table, dtype=dtype),
-            persistent=False,
         )
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_vx_ratio_on_table",
             torch.tensor(config.vx_ratio_on_table, dtype=dtype),
-            persistent=False,
         )
-
-        self._v_wl_on_threshold__V = config.v_wl_on_threshold__V
 
     @property
     def w_state_num(self) -> int:
@@ -164,7 +158,7 @@ class XbarCell1t1rLinear[
 
     def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
         """WL-switched `(g_cell__uS, vx_ratio)` of the linear branch."""
-        on = snap.v_wl__V > self._v_wl_on_threshold__V
+        on = snap.v_wl__V > self.config.v_wl_on_threshold__V
         g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
         vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
         return g_cell__uS, vx_ratio

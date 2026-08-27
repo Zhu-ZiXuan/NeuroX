@@ -7,10 +7,10 @@ See Also:
 import torch
 from torch import Tensor
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-class UnmodeledBlockConfig(AnalogConfig):
+class UnmodeledBlockConfig(ConfigBase):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     """Carries the block's whole standing bias power."""
@@ -23,11 +23,11 @@ class UnmodeledBlockConfig(AnalogConfig):
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 
 
-class UnmodeledBlockPolicy(AnalogPolicy):
+class UnmodeledBlockPolicy(PolicyBase):
     pass
 
 
-class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
+class UnmodeledBlock(ModuleBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
     """Circuit block represented by flat per-instance and per-operation PPA."""
 
     _energy_per_op__fJ: Tensor
@@ -42,10 +42,9 @@ class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_energy_per_op__fJ",
             torch.tensor(config.energy_per_op__fJ, dtype=dtype),
-            persistent=False,
         )
 
     @property

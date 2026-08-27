@@ -108,13 +108,10 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_state_to_g_map__uS",
             torch.tensor(config.state_to_g_map__uS, dtype=dtype),
-            persistent=False,
         )
-        self._newton_iter_num = config.newton_iter_num
-
         self._init_children(dtype=dtype, T__K=T__K)
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
@@ -206,7 +203,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
         # A fixed trip count: a residual-driven stop would branch on a tensor
         # value and break traceability.
-        for _ in range(self._newton_iter_num):
+        for _ in range(self.config.newton_iter_num):
             dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
             dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
             f_cell__uA = dc_nmos.ids__uA - dc_rram.i__uA

@@ -13,7 +13,9 @@ IMPORT_SCAN_ROOTS = (LIBRARY_ROOT, REPO_ROOT / "validations")
 CLI_ROOT = LIBRARY_ROOT / "tools"
 PACKAGE = "neurox"
 
-_ROOT_LIFT_EXCEPTIONS = {"common": frozenset({"Profiler", "Reporter", "fabricate", "stamp_names"})}
+_ROOT_LIFT_EXCEPTIONS = {
+    "common": frozenset({"Profiler", "Reporter", "check_unique_neurox_bindings", "fabricate", "stamp_names"})
+}
 
 _ALLOWED_TOP_LEVEL_DEPENDENCIES: dict[str, frozenset[str]] = {
     "common": frozenset({"common"}),

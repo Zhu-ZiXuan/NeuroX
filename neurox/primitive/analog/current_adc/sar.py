@@ -138,8 +138,8 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         return bits * self.config.latency_per_step__ns
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        self.register_buffer("_nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
-        self.register_buffer("_nominal_coupling_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
+        self._register_nonpersistent_buffer("_nominal_comparator_offset__uA", torch.zeros((), dtype=dtype))
+        self._register_nonpersistent_buffer("_nominal_coupling_offset__uA", torch.zeros((), dtype=dtype))
 
     @property
     def max_bits(self) -> int:

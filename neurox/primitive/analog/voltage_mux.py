@@ -7,12 +7,11 @@ See Also:
 import torch
 from torch import Tensor
 
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
-
-class VmuxConfig(AnalogConfig):
+class VmuxConfig(ConfigBase):
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
@@ -41,14 +40,14 @@ class VmuxConfig(AnalogConfig):
         self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
 
 
-class VmuxPolicy(AnalogPolicy):
+class VmuxPolicy(PolicyBase):
     mux_gain_mismatch: bool
     """Apply `mux_gain_mismatch_sigma_relative` at fabricate time."""
     mux_noise: bool
     """Apply `mux_noise_sigma__V` per call."""
 
 
-class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
+class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
     """Single-ended N:1 voltage transport with gain, noise, and PPA."""
 
     # === Nominal buffers ===
@@ -69,7 +68,6 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._sigma_eps_g = config.mux_gain_mismatch_sigma_relative
         self._register_fabrication_buffers(dtype=dtype)
 
     @property
@@ -81,12 +79,12 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        self.register_buffer("_nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
+        self._register_nonpersistent_buffer("_nominal_eps_g", torch.zeros((), dtype=dtype))
 
     def _sample_fabrication_variation(self) -> None:
         self._eps_g = apply_gaussian(
             self._nominal_eps_g.clone().expand(self.inst_shape),
-            self._sigma_eps_g,
+            self.config.mux_gain_mismatch_sigma_relative,
             enabled=self.policy.mux_gain_mismatch,
         )
 

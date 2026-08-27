@@ -19,10 +19,7 @@ from example.bert.model_quant import to_quant
 from example.bert.quant import QuantLinear
 from example.bert.train_quant import QAT_SCHEMA
 from neurox import Reporter, fabricate, stamp_names
-from neurox.architecture.unit.cim import CimUnit
-from neurox.architecture.unit.cim.engine import CimEngine
-from neurox.common import Profiler, neurox_roots
-from neurox.primitive.macro.cim import CimMacro
+from neurox.common import Profiler
 
 CONFIG_DIR = Path(__file__).parent
 
@@ -35,8 +32,8 @@ def _initialize_physical_state(model: nn.Module) -> None:
             layer.macro.program(layer.weight_int.to(torch.int32))
 
 
-def latency_per_token__ns(model: nn.Module) -> float:
-    """Modelled duration of one token's pass through every macro-backed layer [ns].
+def initiation_interval_per_token__ns(model: nn.Module) -> float:
+    """Modelled initiation interval of one token across every macro-backed layer [ns].
 
     Each layer times the unit it drives at the operating point it resolved,
     over one input vector of the contraction width its programmed weight fixes.
@@ -48,14 +45,9 @@ def latency_per_token__ns(model: nn.Module) -> float:
     for layer in model.modules():
         if not isinstance(layer, QuantLinear):
             continue
-        for root in neurox_roots(layer):
-            # Narrowing by type is a temporary stand-in for a proper latency
-            # interface: only these three families declare `latency__ns`, and
-            # no interface spans them yet.
-            if not isinstance(root, (CimUnit, CimEngine, CimMacro)):
-                continue
-            # Shape: [K], the fan-in one output channel contracts over.
-            total__ns += root.latency__ns((layer.in_features,), adc_bits=layer.adc_bits)
+        root = layer.macro
+        # Shape: [K], the fan-in one output channel contracts over.
+        total__ns += root.initiation_interval__ns((layer.in_features,), adc_bits=layer.adc_bits)
     return total__ns
 
 
@@ -169,7 +161,7 @@ def main() -> None:
     # energy is leakage times the duty-cycle period a deployment holds the macro
     # for, which is a property of that deployment rather than of the access time
     # below, so the two are reported separately.
-    latency__ns = latency_per_token__ns(model)
+    initiation_interval__ns = initiation_interval_per_token__ns(model)
     print(f"samples:                  {total}")
     print(f"top1_accuracy:            {acc:.4f}")
     print(f"wall_time_s:              {elapsed:.2f}")
@@ -185,7 +177,7 @@ def main() -> None:
     print(f"leakage_power_total_uW:   {static.leakage__uW:.4f}")
     print(f"tokens:                   {token_num}")
     print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
-    print(f"modeled_latency_per_token_ns: {latency__ns:.4f}")
+    print(f"modeled_initiation_interval_per_token_ns: {initiation_interval__ns:.4f}")
     if energy_by_name__fJ:
         print("dynamic_energy_by_name_fJ:")
         width = max(len(name) for name in energy_by_name__fJ)

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from .profile_mixin import ProfileMixin
+from .module import ModuleBase
 from .profiler import EnergyRecord, Profiler
 
 
@@ -56,7 +56,7 @@ class Reporter:
     """Turn one model's modules and one profiler's records into report rows.
 
     The reporter binds one model at construction and walks it once: to collect
-    the static rows, and to check that every profile-capable module it holds is
+    the static rows, and to check that every NeuroX module it holds is
     stamped with the name this very walk gives it. Building the reporter before
     the measurement is therefore the canonical order — the walk is where a
     missing or stale stamp is caught, well before any record is read. Static
@@ -68,7 +68,7 @@ class Reporter:
         model: The tree every reported name is resolved against.
 
     Raises:
-        ValueError: A profile-capable module of `model` carries no name stamp,
+        ValueError: A NeuroX module of `model` carries no name stamp,
             carries one from another tree, or is bound at a second location.
     """
 
@@ -77,7 +77,7 @@ class Reporter:
         static_entries: list[StaticEntry] = []
         for name, module in model.named_modules(remove_duplicate=False):
             module_names.add(name)
-            if not isinstance(module, ProfileMixin):
+            if not isinstance(module, ModuleBase):
                 continue
             try:
                 stamped = module.qualified_name

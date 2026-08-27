@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 from abc import ABC
 from dataclasses import dataclass
-from typing import ClassVar, dataclass_transform, final
+from typing import dataclass_transform, final
 
 import torch.nn as nn
+from torch import Tensor
 
 from .profile_mixin import ProfileMixin
 from .serialize_mixin import SerializeMixin
@@ -103,6 +104,8 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
         inst_shape: Multiplicity of parallel physical instances.
     """
 
+    __qualified_name: str
+
     def __init__(
         self,
         *,
@@ -116,15 +119,6 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
         self.__config = config
         self.__policy = policy
         self.__inst_shape = inst_shape
-        self.__inst_count = math.prod(inst_shape)
-
-    @final
-    def fabricate(self) -> None:
-        """Resample static manufacturing variation across this module subtree."""
-        fabricate(self)
-
-    def _sample_fabrication_variation(self) -> None:
-        pass
 
     @property
     @final
@@ -144,15 +138,124 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     @property
     @final
     def inst_count(self) -> int:
-        return self.__inst_count
+        return math.prod(self.__inst_shape)
+
+    @final
+    def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
+        nn.Module.register_buffer(self, name, tensor, persistent=False)
+
+    @property
+    @final
+    def qualified_name(self) -> str:
+        """Hierarchical name the module's tree stamped onto it.
+
+        Raises:
+            RuntimeError: No tree has stamped this module yet.
+        """
+        try:
+            return self.__qualified_name
+        except AttributeError:
+            raise RuntimeError(
+                f"{type(self).__name__} carries no name stamp; "
+                "call neurox.stamp_names(model) once the model is assembled"
+            ) from None
+
+    @final
+    def stamp_names(self, *, qualified_name: str = "") -> None:
+        """Stamp this module and its NeuroX subtree with hierarchical names."""
+        self.__qualified_name = qualified_name
+        for relative_name, child in _neurox_children(self):
+            child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
+            child.stamp_names(qualified_name=child_name)
+
+    @final
+    def fabricate(self) -> None:
+        """Resample static manufacturing variation across this module subtree."""
+        self._sample_fabrication_variation()
+        for _, child in _neurox_children(self):
+            child.fabricate()
+
+    def _sample_fabrication_variation(self) -> None:
+        pass
 
 
-class DeviceBase[ConfigT: ConfigBase, PolicyT: PolicyBase](ModuleBase[ConfigT, PolicyT]):
-    is_profile_target: ClassVar[bool] = False
+type NeuroxModule = ModuleBase[ConfigBase, PolicyBase]
+
+
+def _neurox_roots(model: nn.Module) -> list[NeuroxModule]:
+    """Collect the outermost NeuroX modules `model` holds.
+
+    The walk stops descending at the first `ModuleBase` it meets, so a root
+    covers its own NeuroX children instead of listing them beside it. A plain
+    container may hold several roots. Roots are deduplicated by identity and
+    retain their first-appearance order.
+
+    Returns:
+        The outermost NeuroX modules.
+    """
+    if isinstance(model, ModuleBase):
+        return [model]
+    return [module for _, module in _neurox_children(model)]
+
+
+def _neurox_children(
+    module: nn.Module,
+) -> list[tuple[str, NeuroxModule]]:
+    children: list[tuple[str, NeuroxModule]] = []
+    seen: set[NeuroxModule] = set()
+    for name, child in module.named_children():
+        if isinstance(child, ModuleBase):
+            candidates = [(name, child)]
+        else:
+            candidates = [
+                (f"{name}.{relative_name}", descendant) for relative_name, descendant in _neurox_children(child)
+            ]
+        for relative_name, descendant in candidates:
+            if descendant in seen:
+                continue
+            seen.add(descendant)
+            children.append((relative_name, descendant))
+    return children
+
+
+def check_unique_neurox_bindings(model: nn.Module) -> None:
+    """Check that each NeuroX module occupies one path in `model`.
+
+    Raises:
+        ValueError: One module instance is bound at two paths.
+    """
+    locations: dict[NeuroxModule, str] = {}
+    for relative_name, module in model.named_modules(remove_duplicate=False):
+        if not isinstance(module, ModuleBase):
+            continue
+        if module in locations:
+            raise ValueError(
+                f"{type(module).__name__} is bound at both {locations[module]!r} and {relative_name!r}; "
+                "one physical instance holds one location, so bind a separate instance per site"
+            )
+        locations[module] = relative_name
 
 
 def fabricate(root: nn.Module) -> None:
-    """Resample static manufacturing variation across a registered module tree."""
-    for module in root.modules():
-        if isinstance(module, ModuleBase):
-            module._sample_fabrication_variation()  # noqa: SLF001  the dispatcher owns this hook
+    """Resample fabrication variation across every outermost NeuroX subtree."""
+    for module in _neurox_roots(root):
+        module.fabricate()
+
+
+def stamp_names(model: nn.Module) -> None:
+    """Stamp every NeuroX module of `model` with its hierarchical name.
+
+    A module never knows its own name: the name is a property of the tree that
+    holds it, and only a walk from a root can hand it out. Stamping again
+    overwrites existing names, allowing a rewired model to be renamed.
+
+    Raises:
+        ValueError: One module instance sits at two locations of `model`.
+    """
+    check_unique_neurox_bindings(model)
+    if isinstance(model, ModuleBase):
+        model.stamp_names()
+        return
+
+    for qualified_name, root in _neurox_children(model):
+        root.stamp_names(qualified_name=qualified_name)

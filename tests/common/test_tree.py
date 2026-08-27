@@ -9,8 +9,9 @@ import pytest
 import torch
 import torch.nn as nn
 
-from neurox import stamp_names
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, neurox_roots
+from neurox import check_unique_neurox_bindings, stamp_names
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import _neurox_roots
 
 
 class _Config(ConfigBase):
@@ -46,13 +47,13 @@ class _Owner(nn.Module):
 
 def test_a_neurox_module_is_its_own_root() -> None:
     node = _Node()
-    assert neurox_roots(node) == [node]
+    assert _neurox_roots(node) == [node]
 
 
 def test_descent_stops_at_the_first_neurox_module() -> None:
     inner = _Node()
     outer = _Node(inner)
-    assert neurox_roots(nn.Sequential(outer)) == [outer]
+    assert _neurox_roots(nn.Sequential(outer)) == [outer]
 
 
 def test_a_plain_container_may_hold_several_roots() -> None:
@@ -65,7 +66,7 @@ def test_a_plain_container_may_hold_several_roots() -> None:
             self.first = first
             self.block = nn.Sequential(nn.ReLU(), second)
 
-    assert neurox_roots(_Host()) == [first, second]
+    assert _neurox_roots(_Host()) == [first, second]
 
 
 def test_a_module_bound_under_two_parents_is_one_root() -> None:
@@ -77,11 +78,11 @@ def test_a_module_bound_under_two_parents_is_one_root() -> None:
             self.left = nn.Sequential(shared)
             self.right = nn.Sequential(shared)
 
-    assert neurox_roots(_Host()) == [shared]
+    assert _neurox_roots(_Host()) == [shared]
 
 
 def test_a_tree_without_neurox_modules_has_no_root() -> None:
-    assert neurox_roots(nn.Sequential(nn.Linear(2, 2), nn.ReLU())) == []
+    assert _neurox_roots(nn.Sequential(nn.Linear(2, 2), nn.ReLU())) == []
 
 
 # === Stamps ===
@@ -96,11 +97,12 @@ def test_a_stamp_is_the_walks_own_name() -> None:
     assert inner.qualified_name == "leaf.children_.0"
 
 
-def test_the_stamped_model_names_itself_with_the_empty_string() -> None:
-    """`named_modules` names a root `""`; the stamp keeps that name as it is."""
-    node = _Node()
-    stamp_names(node)
-    assert node.qualified_name == ""
+def test_a_neurox_module_stamps_its_own_subtree() -> None:
+    inner = _Node()
+    outer = _Node(nn.Sequential(inner))
+    outer.stamp_names()
+    assert outer.qualified_name == ""
+    assert inner.qualified_name == "children_.0.0"
 
 
 def test_stamping_against_another_root_overwrites_the_earlier_name() -> None:
@@ -132,6 +134,19 @@ def test_one_instance_at_two_locations_is_an_error() -> None:
 
     with pytest.raises(ValueError, match="bound at both"):
         stamp_names(_Host())
+
+
+def test_duplicate_bindings_can_be_checked_before_stamping() -> None:
+    shared = _Node()
+
+    class _Host(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.left = shared
+            self.right = shared
+
+    with pytest.raises(ValueError, match="bound at both"):
+        check_unique_neurox_bindings(_Host())
 
 
 def test_an_unstamped_module_refuses_to_name_itself() -> None:

@@ -6,12 +6,13 @@ See Also:
 
 import math
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, DeviceBase, PolicyBase, SnapBase
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 
@@ -82,13 +83,15 @@ class MosfetSnap(SnapBase):
     """Per-cell signed threshold voltage. Shape: `[...]`."""
 
 
-class Mosfet(DeviceBase[MosfetConfig, MosfetPolicy], ABC):
+class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
         W__um: Channel width.
         L__um: Channel length.
     """
+
+    is_profile_target: ClassVar[bool] = False
 
     # === Nominal buffers ===
 
@@ -164,15 +167,13 @@ class Mosfet(DeviceBase[MosfetConfig, MosfetPolicy], ABC):
         nominal_beta__uA_per_V2: float,
         nominal_vth__V: float,
     ) -> None:
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_beta__uA_per_V2",
             torch.tensor(nominal_beta__uA_per_V2, dtype=dtype),
-            persistent=False,
         )
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_vth__V",
             torch.tensor(nominal_vth__V, dtype=dtype),
-            persistent=False,
         )
 
     def _sample_fabrication_variation(self) -> None:

@@ -96,19 +96,17 @@ The class header is the object's state manifest for the human reader; a declarat
 - A child object or submodule is not declared — one visible assignment in `__init__` and the module tree already expose it — and neither is compact scalar metadata bound there. A subclass may repeat an inherited child declaration solely to narrow its static type; that declaration introduces no new state.
 - An attribute a base class requires of its subclass is declared as an abstract property on the base, per §Property vs method.
 - A config, policy, or Protocol field, or a field of a public tensor container, stays explicit because its declaration defines that data structure; it is no state declaration, so the grouping, typing, and shape rules below do not reach it.
-- Register each buffer with an explicit literal name; never hide buffer creation behind a loop or `setattr`.
+- Register each buffer through `ModuleBase._register_nonpersistent_buffer` with an explicit literal name; never hide buffer creation behind a loop or `setattr`.
 - Only a registered buffer is called a buffer; what `fabricate()` or `program(...)` produces is state.
 
 Group declarations by lifecycle phase, under these names and in this order, omitting any group the class does not have:
 
 | Group | Holds |
 |---|---|
-| Functional buffers | Registered buffers the forward math reads: lookup tables, ratio vectors, index and mapping masks, bias constants |
-| Circuit constant buffers | Registered buffers holding electrical and timing constants |
+| Functional buffers | Registered tensors execution reads: lookup tables, ratio vectors, indices and masks, tensor-valued constants, and 0-D device/dtype or expansion seeds |
 | Nominal buffers | The registered fabrication sources `fabricate()` consumes |
 | Fabricated state | What `fabricate()` produces |
 | Programmed state | What `program(...)` produces |
-| Runtime buffers | Registered buffers the forward mutates in place, whose lifecycle is training or calibration rather than fabrication or programming |
 
 - A banner opens a group where the grouping helps the reader; a group holding a single member needs none.
 - Where the nominal and fabricated groups pair one-to-one, both list their members in the same order.

@@ -8,12 +8,11 @@ See Also:
 import torch
 from torch import Tensor
 
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_relative_gaussian
 
-from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
-
-class VrefConfig(AnalogConfig):
+class VrefConfig(ConfigBase):
     v_refs__V: tuple[tuple[float, ...], ...]
     """Nominal reference-voltage taps, 2-D `[mode][tap]`. Modes have equal
     length and non-negative values; ordering within a mode is not enforced,
@@ -57,13 +56,13 @@ class VrefConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class VrefPolicy(AnalogPolicy):
+class VrefPolicy(PolicyBase):
     tolerance: bool
     """Apply the per-instance initial-accuracy spread
     `tolerance_sigma_relative` at fabricate time."""
 
 
-class Vref(AnalogBase[VrefConfig, VrefPolicy]):
+class Vref(ModuleBase[VrefConfig, VrefPolicy]):
     """Fabricate-only multi-output voltage reference with static tolerance.
 
     A pure identity source: one static `[mode][tap]` bank per physical
@@ -101,10 +100,9 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_nominal_v_refs__V",
             torch.tensor(self.config.v_refs__V, dtype=dtype),
-            persistent=False,
         )
 
     @property

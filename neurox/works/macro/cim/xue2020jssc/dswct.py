@@ -45,7 +45,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             raise ValueError(f"require: digit_ratios is a non-empty 1-D tensor; got shape {tuple(digit_ratios.shape)}")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._vdd__V = vdd__V
-        self.register_buffer("_digit_ratios", digit_ratios.detach().clone(), persistent=False)
+        self._register_nonpersistent_buffer("_digit_ratios", digit_ratios.detach().clone())
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -60,7 +60,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         """Number of place-value legs per bank — the digit-ratio buffer length."""
         return int(self._digit_ratios.shape[0])
 
-    def forward(self, i_dl__uA: Tensor, *, window__ns: Tensor | float) -> Tensor:
+    def forward(self, i_dl__uA: Tensor, *, window__ns: tuple[float, ...] | float) -> Tensor:
         """Weight the per-digit BL currents by place value.
 
         The leading batch carries the WL bit-plane axis (and any data batch), so
@@ -70,10 +70,8 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             i_dl__uA: Per-lane BL port current; every leading axis is anonymous
                 broadcast batch.
                 Shape: `[..., serial, gn, polarity, w_digit]`.
-            window__ns: Conduction window of this call's plane(s); a scalar, or a
-                tensor broadcasting against the leading batch — the axes in front of
-                the `(serial, gn, polarity, w_digit)` trailing.
-                Shape: `[...]`.
+            window__ns: One conduction window shared by every leading position,
+                or one scalar per position of the rightmost leading plane axis.
 
         Returns:
             Per-digit weighted current `I_WDL`.
@@ -91,14 +89,26 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         # LSB-first per-digit mirror ratios.
         i_wdl__uA = i_dl__uA * self._digit_ratios
         if self._is_dynamic_energy_profile_active():
-            # The digit legs are internal structure of ONE bank, so they fold
-            # here; the collector sums the (gn, polarity) bank axes and the slot
-            # axis past the caller's leading dims.
-            # Shape: [...] -> [..., serial=1, gn=1, polarity=1]
-            window_view__ns = window__ns[..., None, None, None] if isinstance(window__ns, Tensor) else window__ns
             # Rail: VDD * |I_WDL| * window over every (slot, lane, digit) leg.
             # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
             i_wdl_bank__uA = i_wdl__uA.abs().sum(dim=-1)
-            e__fJ = self._vdd__V * window_view__ns * i_wdl_bank__uA
+            if isinstance(window__ns, tuple):
+                plane_num = len(window__ns)
+                if i_wdl_bank__uA.ndim < 4:
+                    raise ValueError("forward() expects a rightmost leading plane axis for per-plane windows")
+                plane_extent = i_wdl_bank__uA.shape[-4]
+                if plane_extent != plane_num:
+                    raise ValueError(
+                        f"forward() expects the rightmost leading plane extent ({plane_extent}) "
+                        f"to match the window count ({plane_num})"
+                    )
+                # Fold the internal plane axis with its Python-scalar windows;
+                # torch.compile unrolls this fixed-length loop.
+                e__fJ = i_wdl_bank__uA.select(-4, 0) * window__ns[0]
+                for plane, plane_window__ns in enumerate(window__ns[1:], start=1):
+                    e__fJ = e__fJ + i_wdl_bank__uA.select(-4, plane) * plane_window__ns
+            else:
+                e__fJ = i_wdl_bank__uA * window__ns
+            e__fJ = self._vdd__V * e__fJ
             self._record_dynamic_energy(e__fJ)
         return i_wdl__uA

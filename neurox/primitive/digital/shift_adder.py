@@ -59,10 +59,9 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
             raise ValueError(f"require: scale ({scale}) >= 2")
         if digit_count < 1:
             raise ValueError(f"require: digit_count ({digit_count}) >= 1")
-        self.register_buffer(
+        self._register_nonpersistent_buffer(
             "_scales",
             torch.tensor([scale**i for i in range(digit_count)], dtype=torch.int64),
-            persistent=False,
         )
 
     @property

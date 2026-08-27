@@ -73,11 +73,10 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
             T__K=T__K,
         )
 
-        self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
-        self.register_buffer(
+        self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
+        self._register_nonpersistent_buffer(
             "_code_to_per_op_energy__fJ",
             torch.tensor(config.code_to_per_op_energy__fJ, dtype=dtype),
-            persistent=False,
         )
 
     @property

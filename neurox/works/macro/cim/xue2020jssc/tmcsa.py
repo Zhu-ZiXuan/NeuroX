@@ -56,11 +56,6 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
 
     _ref_tap_lut: Tensor  # Shape: [2**max_bits, max_bits]
 
-    # === Circuit constant buffers ===
-
-    _t_ph2__ns: Tensor  # Shape: []
-    _t_ph3__ns: Tensor  # Shape: []
-
     def __init__(
         self,
         *,
@@ -69,7 +64,6 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         inst_shape: tuple[int, ...],
         max_bits: int,
         vdd__V: float,
-        dtype: torch.dtype,
     ) -> None:
         if max_bits < 1:
             raise ValueError(f"require: max_bits ({max_bits}) >= 1")
@@ -78,9 +72,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._max_bits = max_bits
         self._vdd__V = vdd__V
-        self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2__ns, dtype=dtype), persistent=False)
-        self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3__ns, dtype=dtype), persistent=False)
-        self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits), persistent=False)
+        self._register_nonpersistent_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits))
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -171,7 +163,8 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         i_ph2__uA = 3.0 * i_common__uA  # PH2: inputs (1x each) + internal P3/P4 (2x each)
         i_ph3__uA = 2.0 * i_common__uA  # PH3: internal only; the 2x splits into two 1x sinks
         # Shape: [..., serial, gn, bits] -> [..., serial, gn]
-        e_conduction__fJ = self._vdd__V * (i_ph2__uA * self._t_ph2__ns + i_ph3__uA * self._t_ph3__ns).sum(dim=-1)
+        config = self.config
+        e_conduction__fJ = self._vdd__V * (i_ph2__uA * config.t_ph2__ns + i_ph3__uA * config.t_ph3__ns).sum(dim=-1)
         e__fJ = e_conduction__fJ + bits * self.config.e_per_step__fJ
         # The SAR step axis is already summed above; the collector sums the slot
         # and CIM-IO axes past the caller's leading dims.
