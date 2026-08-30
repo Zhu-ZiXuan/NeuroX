@@ -15,7 +15,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = ("neurox", "validations")
 
-STANDARD_UNIT_ATOMS = ("V", "uA", "uS", "MOhm", "fF", "ns", "K", "fJ", "uW", "um")
+STANDARD_UNIT_ATOMS = ("V", "uA", "uS", "MOhm", "fF", "fC", "ns", "K", "fJ", "uW", "um")
 
 # Each entry groups one module's stable code bindings whose well-formed expressions contain
 # nonstandard atoms.

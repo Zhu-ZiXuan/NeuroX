@@ -1,13 +1,12 @@
 """Physical device, circuit, and macro models."""
 
-from . import analog, device, digital, macro, xbar
-from .physics import T_ROOM__K
+from . import analog, device, digital, macro, physics, xbar
 
 __all__ = [
-    "analog",
+    "physics",
     "device",
+    "analog",
     "digital",
-    "macro",
     "xbar",
-    "T_ROOM__K",
+    "macro",
 ]

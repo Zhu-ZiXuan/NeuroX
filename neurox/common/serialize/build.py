@@ -10,7 +10,7 @@ from dataclasses import MISSING, Field, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import ClassVar, Protocol, TypeGuard, Union, get_args, get_origin, get_type_hints
+from typing import ClassVar, Protocol, TypeAliasType, TypeGuard, Union, get_args, get_origin, get_type_hints
 
 from .keys import CLASS_DISCRIMINATOR
 from .value import ConfigDict, ConfigValue, normalize_config_dict
@@ -84,6 +84,9 @@ def _resolve_concrete_dataclass[T](base: type[T], type_name: str) -> type[T]:
 
 def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
     """Coerce one value recursively into an annotated type."""
+    if isinstance(tp, TypeAliasType):
+        return _build_value(value, tp.__value__, path=path)
+
     origin = get_origin(tp)
     args = get_args(tp)
 

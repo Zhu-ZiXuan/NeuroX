@@ -101,7 +101,9 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     the inherited no-op implementation.
 
     Args:
-        inst_shape: Multiplicity of parallel physical instances.
+        inst_shape: Hardware-instance shape. Physical axes encode circuit
+            multiplicity; axes explicitly fixed at one may instead reserve a
+            broadcast position for a runtime axis.
     """
 
     __qualified_name: str

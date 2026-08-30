@@ -47,7 +47,10 @@ def initiation_interval_per_token__ns(model: nn.Module) -> float:
             continue
         root = layer.macro
         # Shape: [K], the fan-in one output channel contracts over.
-        total__ns += root.initiation_interval__ns((layer.in_features,), adc_bits=layer.adc_bits)
+        total__ns += root.initiation_interval__ns(
+            (layer.in_features,),
+            adc_active_bits=layer.adc_active_bits,
+        )
     return total__ns
 
 

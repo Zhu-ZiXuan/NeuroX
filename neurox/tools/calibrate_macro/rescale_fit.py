@@ -1,20 +1,19 @@
-"""Fit the per-mode rescale factor of a CIM macro against its ideal twin.
+"""Fit the per-mode rescale factor of a CIM macro at `adc_bits`.
 
 CLI: `python -m neurox.tools.calibrate_macro.rescale_fit --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
 [--log-dir <dir>] [--log-level INFO] [--modes m[,m...]]`
 
-The operating modes come from the mode-set TOML named by the run config;
-`--modes` narrows the run to a subset of that set — each mode re-runs the full
-stimulus battery, so a per-mode run bounds single-command runtime and the
-emitted fragments concatenate.
+`--modes` narrows the run to a subset of the macro's configured reference
+operating points. Each mode re-runs the full stimulus battery.
 
 Logical weight and input batches are sampled from a configured distribution.
-The physical macro and its lossless twin receive identical programs and legal
-caller-side active-position planes. Their public `vec_mat_mul` returns already
-share the logical output layout, so the fit depends on no ADC implementation or
-probe. The zero-through-origin least-squares slope expresses one physical macro
-output code in ideal MAC units.
+The physical macro and its ideal twin receive identical programs and legal
+caller-side active-position planes. The physical result at `adc_bits` and the
+twin's result at `adc_active_bits = 0` already share the logical output layout,
+so the fit depends on no ADC implementation or probe. The zero-through-origin
+least-squares slope expresses one final full-resolution macro output code in
+MAC units.
 
 See Also:
     docs/guides/calibration/calibrate_macro.md
@@ -37,7 +36,6 @@ from neurox.tools._macro import MacroSection, build_ideal_twin, build_physical_m
 from neurox.tools._sampling import load_distribution, make_generator, sample_w, sample_x_batches
 
 from ._math import RescaleFit, fit_rescale_through_origin
-from .modes import MacroMode, load_mode_set
 
 logger = logging.getLogger(__name__)
 
@@ -65,29 +63,16 @@ class _StimulusCfg(ValidateMixin):
 class RescaleFitToolConfig(ConfigBase):
     macro: MacroSection
     stimulus: _StimulusCfg
-    modes_file: Path
-    """Mode-set TOML, relative to the tool TOML; every mode is fitted unless
-    `--modes` selects a subset."""
 
 
 class ModeFitResult(TensorDataClassBase):
-    """Fit + diagnostics for one operating mode.
-
-    `sample_num` is the count of pairs surviving the fit filter.
-    """
+    """Full-resolution fit and diagnostics for one operating mode."""
 
     quantization_mode: int
     adc_bits: int
-    quantization_input_range: tuple[int, int]
-    """Inclusive MAC-unit window the mode quantizes."""
-    adc_input_code_range: tuple[int, int]
     fit: RescaleFit
-    total_num: int
-    """Probed pairs before filtering."""
-    range_dropped_num: int
-    """Pairs dropped for falling outside `adc_input_code_range`."""
     code: torch.Tensor
-    """Macro output code of the pairs entering the fit.
+    """Macro output code entering the fit.
     Shape: `[sample_num]`."""
     ideal_value: torch.Tensor
     """Lossless ideal-macro value of the same pairs.
@@ -98,20 +83,14 @@ def _fit_one_mode(
     physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     ideal: IdealCimMacro,
     *,
-    mode: MacroMode,
+    quantization_mode: int,
     adc_bits: int,
     stimulus: _StimulusCfg,
     macro_section: MacroSection,
     run_config_path: Path,
     device: torch.device,
 ) -> ModeFitResult:
-    """Run one distributed logical workload and fit ideal value from macro code."""
-    quantization_mode = mode.quantization_mode
-    window = ideal.quantization_input_ranges[quantization_mode]
-    _, code_range = physical.map_quantization_input_code(
-        torch.zeros((), dtype=torch.int64), quantization_mode=quantization_mode
-    )
-
+    """Fit ideal value from one mode's full-resolution macro code."""
     distribution_path = resolve_relative_path(stimulus.distribution_file, run_config_path)
     distribution = load_distribution(distribution_path, physical)
     generator = make_generator(stimulus.seed, torch.device("cpu"))
@@ -144,67 +123,46 @@ def _fit_one_mode(
                 x,
                 input_num=macro_section.input_num,
                 max_active_num=physical.max_active_num,
-                inst_rank=len(physical.inst_shape),
+                inst_shape=physical.inst_shape,
             )
             with torch.no_grad():
                 code = physical.vec_mat_mul(
                     planes,
                     quantization_mode=quantization_mode,
-                    adc_bits=adc_bits,
+                    adc_active_bits=adc_bits,
                 )
                 ideal_value = ideal.vec_mat_mul(
                     planes,
                     quantization_mode=quantization_mode,
-                    adc_bits=None,
+                    adc_active_bits=0,
                 )
             code_parts.append(code.flatten().to("cpu", torch.float64))
             ideal_parts.append(ideal_value.flatten().to("cpu", torch.float64))
     code = torch.cat(code_parts)
     ideal_value = torch.cat(ideal_parts)
-    input_code, code_range = physical.map_quantization_input_code(
-        ideal_value.to(torch.int64),
-        quantization_mode=quantization_mode,
-    )
-    code_lower, code_upper = code_range
-    keep = (input_code >= code_lower) & (input_code <= code_upper)
-    fit = fit_rescale_through_origin(code[keep], ideal_value[keep])
+    fit = fit_rescale_through_origin(code, ideal_value)
     return ModeFitResult(
         quantization_mode=quantization_mode,
         adc_bits=adc_bits,
-        quantization_input_range=window,
-        adc_input_code_range=code_range,
         fit=fit,
-        total_num=int(code.numel()),
-        range_dropped_num=int((~keep).sum()),
-        code=code[keep],
-        ideal_value=ideal_value[keep],
+        code=code,
+        ideal_value=ideal_value,
     )
 
 
-def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
-    """The `[[modes]]` macro-config TOML fragment, nested under the macro section.
-
-    One table per mode, in mode order — the config reads the mode index from
-    the table position, so a partial run's tables paste into the matching
-    slots.
-    """
+def _fragment_lines(results: list[ModeFitResult], factors: tuple[float, ...]) -> list[str]:
+    """Return one complete rescale-factor assignment."""
+    updated = list(factors)
+    for result in results:
+        updated[result.quantization_mode] = result.fit.rescale_factor
     lines = [
-        "# modes fragment fitted by neurox.tools.calibrate_macro.rescale_fit",
-        f"# at adc_bits = {results[0].adc_bits if results else 0} (the macro's adc_max_bits);",
-        "# nest each table under the macro config section when pasting",
-        "# (e.g. [[cim_macro.modes]]), keeping the mode order.",
+        "# fitted by neurox.tools.calibrate_macro.rescale_fit",
+        f"# at full ADC resolution: adc_bits = {results[0].adc_bits if results else 0};",
+        "# tuple position is quantization_mode",
+        "rescale_factors = [",
     ]
-    for r in sorted(results, key=lambda r: r.quantization_mode):
-        lower, upper = r.quantization_input_range
-        code_lower, code_upper = r.adc_input_code_range
-        lines += [
-            f"# quantization_mode = {r.quantization_mode}",
-            "[[modes]]",
-            f"quantization_input_range = [{lower}, {upper}]",
-            f"adc_input_code_range = [{code_lower}, {code_upper}]",
-            f"max_bits_rescale_factor = {r.fit.rescale_factor:.6f}",
-        ]
-    return lines
+    lines.extend(f"    {factor:.6f}," for factor in updated)
+    return [*lines, "]"]
 
 
 def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
@@ -232,11 +190,11 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
         (result.fit.rescale_factor * grid).numpy(),
         color="tab:orange",
         linewidth=2.0,
-        label=f"fit: rescale = {result.fit.rescale_factor:.4f}  ($R^2$ = {result.fit.r2:.4f})",
+        label=(f"fit: rescale = {result.fit.rescale_factor:.4f}  ($R^2$ = {result.fit.r2:.4f})"),
     )
     ax.set_xlabel("macro output code")
     ax.set_ylabel("ideal macro value")
-    ax.set_title(f"Rescale fit — mode {result.quantization_mode}, {result.adc_bits} bits")
+    ax.set_title(f"Full-resolution rescale fit — mode {result.quantization_mode}, adc_bits = {result.adc_bits}")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", framealpha=0.85)
     fig.tight_layout()
@@ -246,7 +204,7 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generic macro rescale fit (config-driven)")
+    parser = argparse.ArgumentParser(description="Full-resolution macro rescale fit (config-driven)")
     add_standard_args(parser, output_file=True)
     parser.add_argument(
         "--plot-dir",
@@ -264,7 +222,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--modes",
         type=str,
         default=None,
-        help="Comma-separated quantization_mode subset of the mode set to fit in this run",
+        help="Comma-separated quantization_mode subset to fit in this run",
     )
     return parser
 
@@ -277,8 +235,6 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device(args.device)
 
     cfg = load_tool_config(RescaleFitToolConfig, args.config)
-    modes_path = resolve_relative_path(cfg.modes_file, args.config)
-    mode_set = load_mode_set(modes_path)
     physical = build_physical_macro(
         cfg.macro,
         base=args.config,
@@ -289,33 +245,29 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.modes is not None:
         selected = tuple(int(value) for value in args.modes.split(","))
-        known = {mode.quantization_mode for mode in mode_set.modes}
+        known = set(range(len(physical.config.rescale_factors)))
         for mode_idx in selected:
             if mode_idx not in known:
-                raise SystemExit(f"--modes entry {mode_idx} not in the mode set {sorted(known)} ({modes_path})")
-        modes = tuple(mode for mode in mode_set.modes if mode.quantization_mode in selected)
+                raise SystemExit(f"--modes entry {mode_idx} outside {sorted(known)}")
+        modes = selected
     else:
-        modes = mode_set.modes
-    # The fit runs at the macro's max bits; every lower bit width follows
-    # the base-class rescale law from the fitted max-bits factor.
-    adc_bits = physical.adc_max_bits
-    mode_num = len(physical.quantization_input_ranges)
-    for mode in modes:
-        if not (0 <= mode.quantization_mode < mode_num):
-            raise SystemExit(f"mode-set quantization_mode {mode.quantization_mode} outside [0, {mode_num})")
+        modes = tuple(range(len(physical.config.rescale_factors)))
+    # The fit runs at full ADC resolution; every lower active width follows
+    # the base-class rescale law from this factor.
+    adc_bits = physical.adc_bits
     logger.info(
-        "fitting modes %s at adc_bits = %d on %s",
-        [mode.quantization_mode for mode in modes],
+        "fitting modes %s at full ADC resolution (adc_bits = %d) on %s",
+        list(modes),
         adc_bits,
         device,
     )
 
     results: list[ModeFitResult] = []
-    for mode in modes:
+    for quantization_mode in modes:
         result = _fit_one_mode(
             physical,
             ideal,
-            mode=mode,
+            quantization_mode=quantization_mode,
             adc_bits=adc_bits,
             stimulus=cfg.stimulus,
             macro_section=cfg.macro,
@@ -324,20 +276,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         results.append(result)
         logger.info(
-            "mode %d: max_bits_rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  "
-            "samples = %d of %d (mapped input code outside [%d, %d] excluded %d)",
-            mode.quantization_mode,
+            "mode %d: rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  samples = %d",
+            quantization_mode,
             result.fit.rescale_factor,
             result.fit.r2,
             result.fit.rmse,
             result.fit.max_abs_residual,
             result.fit.sample_num,
-            result.total_num,
-            *result.adc_input_code_range,
-            result.range_dropped_num,
         )
 
-    lines = _fragment_lines(results)
+    lines = _fragment_lines(results, physical.config.rescale_factors)
     logger.info("%s", "\n".join(lines))
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

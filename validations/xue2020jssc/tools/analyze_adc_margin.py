@@ -1,11 +1,4 @@
-"""Estimate Xue2020 ADC decision references from saved probe samples.
-
-The fixed mapping is `[0, 9] -> 0`, `[10, 19] -> 1`, ..., `[60, 69] -> 6`,
-and `[70, +inf) -> 7`. For every boundary, the analyzer compares only the two
-adjacent exact-value clusters. At tail quantile `q`, it places the candidate
-reference midway between the lower cluster's `q` quantile and the upper
-cluster's `1-q` quantile, and reports their signed sensing margin.
-"""
+"""Estimate Xue2020 ADC references between adjacent ideal-value clusters."""
 
 from __future__ import annotations
 

@@ -1,18 +1,18 @@
-"""Xue 2020 JSSC RRAM CIM macro scheme — one sub-array of the published 1-Mb macro.
-
-Importing the package registers the macro with the CIM-macro family registry, so
-`from_config` dispatches to it; the scheme's sub-blocks are owner-built concrete
-classes with no registry entries.
+"""Xue et al. 2020 JSSC 1T1R CIM macro.
 
 @article{xue2020jssc,
-    author  = {TODO: only "Xue et al." was salvageable},
+    author  = {Xue, Cheng-Xin and Chen, Wei-Hao and Liu, Je-Syu and Li, Jia-Fang and Lin, Wei-Yu and Lin, Wei-En and
+                Wang, Jing-Hong and Wei, Wei-Chen and Huang, Tsung-Yuan and Chang, Ting-Wei and
+                Chang, Tung-Cheng and Kao, Hui-Yao and Chiu, Yen-Cheng and Lee, Chun-Ying and King, Ya-Chin and
+                Lin, Chrong-Jung and Liu, Ren-Shuo and Hsieh, Chih-Cheng and Tang, Kea-Tiong and Chang, Meng-Fan},
     title   = {Embedded 1-Mb ReRAM-Based Computing-in-Memory Macro With Multibit Input
-               and Weight for CNN-Based AI Edge Processors},
+                and Weight for CNN-Based AI Edge Processors},
     journal = {IEEE Journal of Solid-State Circuits},
     year    = {2020},
-    volume  = {TODO},
-    number  = {TODO},
-    pages   = {TODO},
+    month   = {Jan},
+    volume  = {55},
+    number  = {1},
+    pages   = {203--215},
     doi     = {10.1109/JSSC.2019.2951363},
 }
 """

@@ -66,7 +66,6 @@ class Adder(DigitalBase[AdderConfig]):
         """
         y = a + b
         if self._is_dynamic_energy_profile_active():
-            # Shape: [] -> [*y.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=y.device)
             self._record_dynamic_energy(e_op__fJ.expand(y.shape))
         return y

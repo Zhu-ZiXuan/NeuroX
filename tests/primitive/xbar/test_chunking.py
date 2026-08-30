@@ -697,8 +697,8 @@ def _solve_array(array: _Array, v_wl: Tensor) -> XbarArray1t1rSteadyState:
         sl_driver=sl_driver,
         sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref, shape=sl_ref.shape),
     )
-    bl_driver.drive(state.i_bl_port__uA, state.v_bl_clamp__V)
-    sl_driver.drive(state.i_sl_port__uA, state.v_sl_drive__V)
+    bl_driver.drive(i_port__uA=state.i_bl_port__uA)
+    sl_driver.drive(i_port__uA=state.i_sl_port__uA)
     return state
 
 

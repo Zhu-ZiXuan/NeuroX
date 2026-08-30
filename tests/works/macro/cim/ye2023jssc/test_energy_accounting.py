@@ -22,10 +22,10 @@ Coverage:
   * the window is derived and shared: stretching the RS-CSA phase set stretches
     both conduction channels by the same factor and leaves every capacitive row
     untouched,
-  * the window is the EXECUTED one: lowering `adc_bits` drops compare phases,
+  * the window is the EXECUTED one: lowering `adc_active_bits` drops compare phases,
     so both conduction channels, the latency, and the readout's zero-residue
     baseline scale by the executed-window ratio while the capacitive rows and
-    the per-op control lumps do not move; at `adc_bits == adc_max_bits` every
+    the per-op control lumps do not move; at `adc_active_bits == adc_bits` every
     value is the nominal one,
   * caps are the ARRAY's alone: it bills every per-node total inside itself under
     the kernel's held-BL scan law (WL node off the gate drive, BL and X nodes off
@@ -40,7 +40,7 @@ Coverage:
     PH0 current on every output, the BL conduction vanishes, the BL converter
     still bills its code-0 entry per column, and the array collapses to its
     closed-form scanned-WL-plus-TBL value,
-  * the RS-CSA is E_fixed-dominant: when `e_fixed` dwarfs the per-code SAR
+  * the RS-CSA is per-op-energy-dominant: when `energy_per_op` dwarfs the per-code SAR
     energy the per-conversion energy is code-independent to within a few percent,
   * latency is `T_AC` over the macro's own output axis, invariant to a caller
     batch,
@@ -119,14 +119,14 @@ def _run(
     x: Tensor,
     *,
     device: torch.device,
-    adc_bits: int = TINY_ADC_BITS,
+    adc_active_bits: int = TINY_ADC_BITS,
 ) -> tuple[Ye2023JsscCimMacro, Profiler, Reporter]:
     """Build + fabricate a fresh macro, program `w`, profile one VMM on `x`."""
     macro = build_macro(config, input_num=w.shape[-2], output_num=w.shape[-1], device=device)
     stamp_names(macro)
     macro.program(w.to(device))
     with Profiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=adc_bits)
+        macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_active_bits=adc_active_bits)
     return macro, prof, Reporter(macro)
 
 
@@ -234,7 +234,7 @@ def _array_scan_caps__fJ(macro: Ye2023JsscCimMacro) -> float:
     and only the paired WL and TBL excursions remain.
     """
     cfg = macro.config
-    phys_col_num = macro.array.weight_grid_shape[-2]
+    phys_col_num = macro.array.cell.inst_shape[-2]
     per_access__fJ = (
         cfg.vdd__V
         * phys_col_num
@@ -351,7 +351,7 @@ def test_conduction_rides_the_derived_window(device: torch.device) -> None:
 
 
 def test_conduction_and_latency_follow_the_executed_window(device: torch.device) -> None:
-    """Lowering `adc_bits` shortens the window every conduction branch rides.
+    """Lowering `adc_active_bits` shortens the window every conduction branch rides.
 
     The readout runs PH0 plus one compare phase per requested bit, so both
     conduction channels and the access latency scale by the executed-window
@@ -363,22 +363,24 @@ def test_conduction_and_latency_follow_the_executed_window(device: torch.device)
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
-    macro, prof_full, rep_full = _run(cfg, w, x, device=device, adc_bits=TINY_ADC_BITS)
+    macro, prof_full, rep_full = _run(cfg, w, x, device=device, adc_active_bits=TINY_ADC_BITS)
     full__fJ = rep_full.by_name(prof_full)
     # The full-resolution run reports the NOMINAL window the macro publishes.
-    full_latency__ns = macro.latency__ns(adc_bits=TINY_ADC_BITS)
+    full_latency__ns = macro.latency__ns(adc_active_bits=TINY_ADC_BITS)
     assert full_latency__ns == pytest.approx(float(macro.t_ac__ns) * TINY_OUTPUT_NUM)
 
     for bits in range(1, TINY_ADC_BITS + 1):
-        macro_b, prof_b, rep_b = _run(cfg, w, x, device=device, adc_bits=bits)
+        macro_b, prof_b, rep_b = _run(cfg, w, x, device=device, adc_active_bits=bits)
         by_name = rep_b.by_name(prof_b)
         ratio = float(macro_b.rscsa.t_conversion__ns(bits)) / float(macro_b.t_ac__ns)
         assert ratio <= 1.0, f"window ratio {ratio} at bits={bits}"
         assert (ratio < 1.0) == (bits < TINY_ADC_BITS), f"window ratio {ratio} at bits={bits}"
         for channel in (".bl_cond", ".dl_cond"):
             assert by_name[channel] == pytest.approx(ratio * full__fJ[channel]), f"{channel} at bits={bits}"
-        assert macro_b.latency__ns(adc_bits=bits) == pytest.approx(ratio * full_latency__ns)
-        assert macro_b.initiation_interval__ns(adc_bits=bits) == pytest.approx(macro_b.latency__ns(adc_bits=bits))
+        assert macro_b.latency__ns(adc_active_bits=bits) == pytest.approx(ratio * full_latency__ns)
+        assert macro_b.initiation_interval__ns(adc_active_bits=bits) == pytest.approx(
+            macro_b.latency__ns(adc_active_bits=bits)
+        )
         # Window-invariant rows: the caps and the drive events ride no window,
         # the control lumps are per-op constants.
         for row in (_ARRAY_CAPS, _WL_DAC, _BL_DAC, "mux_driver", "timing_ctrl"):
@@ -390,16 +392,16 @@ def test_rscsa_zero_residue_row_is_the_prorated_baseline(device: torch.device) -
 
     A zero-input access lands exactly on the seated PH0 compensation, so every
     compare phase weighs a zero residue and the conversion energy isolates the
-    apportioned `E_fixed`.
+    apportioned per-op energy.
     """
     cfg = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
     for bits in range(1, TINY_ADC_BITS + 1):
-        macro, prof, reporter = _run(cfg, w, x, device=device, adc_bits=bits)
+        macro, prof, reporter = _run(cfg, w, x, device=device, adc_active_bits=bits)
         ratio = float(macro.rscsa.t_conversion__ns(bits)) / float(macro.t_ac__ns)
-        expected__fJ = TINY_OUTPUT_NUM * cfg.adc_config.e_fixed_per_op__fJ * ratio
+        expected__fJ = TINY_OUTPUT_NUM * cfg.adc_config.energy_per_op__fJ * ratio
         assert reporter.by_name(prof)[_RSCSA] == pytest.approx(expected__fJ), f"bits={bits}"
 
 
@@ -489,7 +491,7 @@ def test_one_hold_covers_exactly_one_row_scan(device: torch.device) -> None:
     macro, _prof, _rep = _run(cfg, w, x, device=device)
 
     # Physical rows == logical outputs == the accesses one call serializes.
-    array_row_num = macro.array.weight_grid_shape[-1]
+    array_row_num = macro.array.cell.inst_shape[-1]
     assert array_row_num == macro.col_num == TINY_OUTPUT_NUM
     # And the held pattern is the same for every one of those accesses: the BL
     # reference carries no output axis of its own before it is broadcast.
@@ -517,7 +519,7 @@ def test_zero_input_bills_only_the_leakage_floor(device: torch.device) -> None:
     assert by_name.get(".bl_cond", 0.0) == 0.0
     # A column driven to the IN = 0 level is still driven: the converter bills
     # that code's own entry on every physical column.
-    phys_col_num = macro.array.weight_grid_shape[-2]
+    phys_col_num = macro.array.cell.inst_shape[-2]
     assert by_name[_BL_DAC] == pytest.approx(phys_col_num * E_BL_DAC_PER_CODE__fJ[0])
     # The array collapses to its closed-form scanned-node value.
     assert by_name[_ARRAY_CAPS] == pytest.approx(_array_scan_caps__fJ(macro))
@@ -548,24 +550,27 @@ def test_conduction_grows_with_active_inputs(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (e) RS-CSA is E_fixed-dominant / flat
+# (e) RS-CSA is per-op-energy-dominant / flat
 # ---------------------------------------------------------------------------
 
 
-def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
-    """With `e_fixed` dominant the RS-CSA per-conversion energy is ~code-independent.
+def test_rscsa_energy_flat_when_energy_per_op_dominates(device: torch.device) -> None:
+    """With per-op energy dominant, RS-CSA conversion energy is nearly code-independent.
 
     All four outputs carry the SAME code, so the row is
-    `output_num * (E_fixed + E_code(code))`: a zero residue costs exactly
-    `E_fixed`, every code stays inside the all-reference envelope
+    `output_num * (E_op + E_phase(code))`: a zero residue costs exactly
+    `E_op`, every code stays inside the all-reference envelope
     `sum_p k * v_rail * t_phase_p * I_REF_p`, and the sweep spread measures the
     data-dependent share alone. The per-phase reference is the ONE injected
     current at that phase's binary place value, `2**(bits - p) * i_ref`.
     """
     base = build_config()
-    adc = dataclasses.replace(base.adc_config, e_fixed_per_op__fJ=1.0e4)
+    adc = dataclasses.replace(base.adc_config, energy_per_op__fJ=1.0e4)
     cfg = dataclasses.replace(base, adc_config=adc)
-    i_ref__uA = cfg.reference_config.i_refs__uA[QUANTIZATION_MODE][0]
+    values = cfg.reference_config.values
+    assert isinstance(values, tuple)
+    i_ref__uA = values[QUANTIZATION_MODE]
+    assert not isinstance(i_ref__uA, tuple)
 
     def rscsa_energy(w_in0: int, w_in1: int) -> float:
         w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
@@ -576,17 +581,17 @@ def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
 
     # Codes 0 (no residue), 7 (mid bits), 14 (MSB latched) — spanning the ladder.
     energies = [rscsa_energy(0, 0), rscsa_energy(7, 0), rscsa_energy(7, 7)]
-    floor__fJ = TINY_OUTPUT_NUM * adc.e_fixed_per_op__fJ
+    floor__fJ = TINY_OUTPUT_NUM * adc.energy_per_op__fJ
     envelope__fJ = floor__fJ + TINY_OUTPUT_NUM * sum(
         adc.mirror_scale * adc.v_rail__V * adc.t_phase__ns[phase] * (1 << (adc.bits - phase)) * i_ref__uA
         for phase in range(1, adc.bits + 1)
     )
-    # A zero-MAC conversion leaves no residue to compare: E_fixed alone.
+    # A zero-MAC conversion leaves no residue to compare: per-op energy alone.
     assert energies[0] == pytest.approx(floor__fJ)
     for e in energies:
-        assert floor__fJ <= e <= envelope__fJ, f"conversion energy outside [E_fixed, envelope]: {e}"
+        assert floor__fJ <= e <= envelope__fJ, f"conversion energy outside [E_op, envelope]: {e}"
     spread = (max(energies) - min(energies)) / min(energies)
-    assert spread < 0.05, f"RS-CSA not flat under dominant e_fixed: {energies} (spread {spread:.4f})"
+    assert spread < 0.05, f"RS-CSA not flat under dominant energy_per_op: {energies} (spread {spread:.4f})"
 
 
 # ---------------------------------------------------------------------------
@@ -601,8 +606,8 @@ def test_latency_is_t_ac_over_the_output_axis(device: torch.device) -> None:
 
     macro, _prof, _rep = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
     t_ac = float(macro.t_ac__ns)
-    assert macro.latency__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
-    assert macro.initiation_interval__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
+    assert macro.latency__ns(adc_active_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
+    assert macro.initiation_interval__ns(adc_active_bits=TINY_ADC_BITS) == pytest.approx(t_ac * TINY_OUTPUT_NUM)
 
 
 # ---------------------------------------------------------------------------

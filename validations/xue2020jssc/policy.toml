@@ -25,9 +25,8 @@ tolerance = false
 offset = false
 thermal = false
 
-[policy.adc_policy]
+[policy.tmcsa_policy]
 comparator_offset = false
-coupling_mismatch = false
 
-[policy.reference_policy]
+[policy.tmcsa_iref_policy]
 tolerance = false

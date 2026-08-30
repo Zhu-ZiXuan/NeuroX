@@ -6,7 +6,7 @@ Outcome of `make validate_ye2023jssc`, whose defaults are the record run: `--dev
 
 The campaign has two parts. Five HARD GATES decide pass/fail — the harness exits non-zero unless all five pass. The dual-caliber power report is NOT gated: each Fig.19 point is fully consistent with the model under exactly one mounting hypothesis for the measured setup, and no single mounting explains both, so the two readings are reported side by side instead of one being fitted.
 
-Four gates are INDEPENDENT — no free parameter is solved against the quantity they check. The RS-CSA energy gate is a CALIBRATION-CONSISTENCY check: `mirror_scale` and `e_fixed_per_op__fJ` are solved against exactly its two constraints, so it asserts that solve is jointly feasible and holds across both workloads, not that the model predicts the 470 fJ anchor.
+Four gates are INDEPENDENT — no free parameter is solved against the quantity they check. The RS-CSA energy gate is a CALIBRATION-CONSISTENCY check: `mirror_scale` and `energy_per_op__fJ` are solved against exactly its two constraints, so it asserts that solve is jointly feasible and holds across both workloads, not that the model predicts the 470 fJ anchor.
 
 ## Calibration inventory
 
@@ -16,7 +16,7 @@ Exactly five numbers are free. Three carry `[calibrated]` in `params.toml`, two 
 |---|--:|---|---|---|
 | `c_wl__fF` (the C_WL knob) | 1.504 | the 50% caliber-Y array pin (`array` + `.bl_cond` + `.bl_cap` vs 56.150 uW) | C_WL in [60, 200] fF/row | C_WL = 200.0 fF/row, the UPPER EDGE; array pin -4.08% (53.858 uW) over `n_w` 64 x `n_x` 256 x `repeat` 8 |
 | `mirror_scale` | 0.1446 | jointly: 470 fJ/conversion within +-10% at BOTH sparsity points AND per-code spread in [1.3, 1.8] | b = 16 * mirror_scale in [2.120, 2.742] | b = 2.3136; -8.7% / +8.1% flat, spread 1.319x |
-| `e_fixed_per_op__fJ` | 392.5 | (the same constraint pair) | (the same band) | (the same) |
+| `energy_per_op__fJ` | 392.5 | (the same constraint pair) | (the same band) | (the same) |
 | `mux_driver_config.leakage_per_inst__uW` | 5.63 | Fig.19 Mux & Driver block power, flat across both points | — | 1.00x at both points |
 | `timing_ctrl_config.leakage_per_inst__uW` | 14.03 | Fig.19 Timing & Mode Ctrl block power, flat across both points | — | 1.00x at both points |
 
@@ -24,7 +24,7 @@ Exactly five numbers are free. Three carry `[calibrated]` in `params.toml`, two 
 
 **Residuals are ensemble readings, and the deficit is not draw noise.** Every round redraws both sides — 64 weight matrices and 256 input vectors — so a residual is a mean over 8 x 256 x 64 accesses, and the round-to-round spread of the model total is 44.517 +- 0.188 uW at 87.5% and 94.969 +- 0.202 uW at 50% (std / sqrt(rounds)). Within a round the standard error is measured by a crossed two-way decomposition into input-side and weight-side components, checked against the closed-form input-side prediction (0.777% predicted vs 0.794% measured at the 50% point). The dominant channel `.bl_cond` carries 0.79% SE at the 50% point (0.78% input-side, 0.08% weight-side) and 2.07% at 87.5%, where the active-input count is Binomial(32, 0.125) and spreads 47% per vector. The conduction channels themselves are zero-tune: the analytic expectation built from the config's own tables matches all four of them within 1.75 sigma, the 50% `.bl_cond` anchor at +0.79 sigma. So the -4.08% on the 50% array pin is about five ensemble sigmas — it is the C_WL saturation deficit, not a draw.
 
-**The RS-CSA pair is nearly infeasible against its two constraints.** Writing `E = E_fixed + b * S` with `S` the per-conversion residue integral and `b = mirror_scale * v_rail * t_phase`, the model's `S` spans 38.5 uA (code 0001) to 105.0 uA (code 1111) over the deterministic mid-bin sweep while the ensemble workload means are 16.36 uA (87.5%) and 50.64 uA (50%). Flatness across the two workload points caps `b` from above and the code spread bounds it from below, leaving `b` in [2.120, 2.742] — a window only about 29% wider than the spread floor demands. Both ends bind twice over: `b_lo` on the 1.3 spread floor AND on `E`(87.5%) >= 423 fJ, `b_hi` on holding both points inside +-10%; the 1.8 spread ceiling never binds. `b = 2.3136` pins the spread at 1.3 x 1.015 = 1.3195, a 1.5% deterministic margin on that floor (the code sweep is sample-free), and spends the rest of the freedom on symmetric flatness.
+**The RS-CSA pair is nearly infeasible against its two constraints.** Writing `E = E_op + b * S` with `S` the per-conversion residue integral and `b = mirror_scale * v_rail * t_phase`, the model's `S` spans 38.5 uA (code 0001) to 105.0 uA (code 1111) over the deterministic mid-bin sweep while the ensemble workload means are 16.36 uA (87.5%) and 50.64 uA (50%). Flatness across the two workload points caps `b` from above and the code spread bounds it from below, leaving `b` in [2.120, 2.742] — a window only about 29% wider than the spread floor demands. Both ends bind twice over: `b_lo` on the 1.3 spread floor AND on `E`(87.5%) >= 423 fJ, `b_hi` on holding both points inside +-10%; the 1.8 spread ceiling never binds. `b = 2.3136` pins the spread at 1.3 x 1.015 = 1.3195, a 1.5% deterministic margin on that floor (the code sweep is sample-free), and spends the rest of the freedom on symmetric flatness.
 
 ## Hard gates — 5 / 5 PASS
 
@@ -48,7 +48,7 @@ The model bills five non-zero dynamic rows plus two static seats, the dynamic co
 | `.bl_cond` | macro, PER ACCESS: 0.3 V input-branch conduction over T_AC | 13.210 | 52.731 |
 | `.bl_cap` | macro, PER VECTOR: BL-column charge (levels held across the row scan) | 0.008 | 0.030 |
 | `.dl_cond` | macro, PER ACCESS: 0.8 V row branch (raw I_TBL) over T_AC | 4.045 | 13.752 |
-| `rscsa` | RS-CSA, PER CONVERSION: E_fixed + per-phase E_code | 6.501 | 7.698 |
+| `rscsa` | RS-CSA, PER CONVERSION: E_op + per-phase E_phase | 6.501 | 7.698 |
 | `mux_driver` | flat seat, STATIC leakage | 5.630 | 5.630 |
 | `timing_ctrl` | flat seat, STATIC leakage | 14.030 | 14.030 |
 | **TOTAL** | | **44.517** | **94.969** |
@@ -113,7 +113,7 @@ Read through caliber X, the 87.5% point draws 31.299 uW on chip = 2.066 pJ per o
 
 **BL held across the scan vs re-driven.** `.bl_cap` is billed once per input vector, because the BL levels are held across the whole output scan — that is the semantics of one `vec_mat_mul`. A scan is 64 accesses, one per output column, so re-driving the BL column at every access would scale the row by 64 (63 extra charge events per vector): 1.92 uW at the 50% point (+1.89 uW, +3.5% on the caliber-Y array pin) and 0.51 uW at 87.5%. The dual-caliber conclusion is unchanged either way.
 
-**The readout reference current is an operating point the paper does not pin for the measured run.** The `reference_config.i_refs__uA = [[7.0]]` value is `[derived]`: Fig.11(a) annotates I_LSB = 7 uA, and it closes against 224 max MAC units x 0.5 uA per unit = 112 uA full scale over 16 codes. The instrument setting used for the Fig.19 power measurement is unreported. The RS-CSA scales that one current into its whole decision ladder, so it moves both the transfer (which MAC magnitude reads which code) and the residue integrals that set `E_code`; the conduction channels, which dominate the array pin, do not depend on it.
+**The readout reference current is an operating point the paper does not pin for the measured run.** The `reference_config.values = [7.0]` value is `[derived]`: Fig.11(a) annotates I_LSB = 7 uA, and it closes against 224 max MAC units x 0.5 uA per unit = 112 uA full scale over 16 codes. The instrument setting used for the Fig.19 power measurement is unreported. The RS-CSA scales that one current into its whole decision ladder, so it moves both the transfer (which MAC magnitude reads which code) and the residue integrals that set the per-phase energy; the conduction channels, which dominate the array pin, do not depend on it.
 
 **Weight sparsity is read at VALUE level.** The draw is `P(w = 0) = 0.5`, otherwise uniform over [1, 7] — mean weight 2.0. Drawing each of the three binary planes independently at the same probability would instead give `P(w = 0) = 0.125` and mean weight 3.5, raising the per-active-input BL conductance from `24.0253 * 2 + 7.5975 * 5` to `24.0253 * 3.5 + 7.5975 * 3.5` uS — `.bl_cond` by about 29% and with it the caliber-Y array pin by about 28%. That overshoots the 50% array anchor the model is calibrated at, so the anchor itself discriminates the two readings and selects the value-level one.
 

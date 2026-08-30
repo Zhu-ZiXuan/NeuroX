@@ -1,8 +1,4 @@
-"""Imux transports pre-scheduled single-ended currents.
-
-The mux does not self-account rail energy or latency. Its caller owns the
-access/lane layout; the mux preserves that layout and applies transport gain.
-"""
+"""Imux elementwise transport tests."""
 
 from __future__ import annotations
 
@@ -28,7 +24,7 @@ def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
 
 
 @pytest.mark.parametrize("mux_gain", [1.0, 2.0])
-def test_transport_preserves_access_lane_layout(mux_gain: float) -> None:
+def test_transport_applies_gain_elementwise(mux_gain: float) -> None:
     mux = Imux(
         config=ImuxConfig(
             mux_ratio=4,
@@ -49,16 +45,3 @@ def test_transport_preserves_access_lane_layout(mux_gain: float) -> None:
     torch.testing.assert_close(out, mux_gain * i__uA)
 
     assert _energy_total(p.records, mux) == 0.0
-
-
-@pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])
-def test_transport_requires_access_lane_layout(shape: tuple[int, ...]) -> None:
-    mux = Imux(
-        config=ImuxConfig(mux_ratio=4, mux_gain=1.0),
-        policy=ImuxPolicy(),
-        inst_shape=(2,),
-        dtype=torch.float64,
-        T__K=300.0,
-    )
-    with pytest.raises(ValueError, match="trailing axes"):
-        mux.transport(torch.ones(shape))

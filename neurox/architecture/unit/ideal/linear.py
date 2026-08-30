@@ -79,21 +79,21 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         return self.config.x_value_range
 
     @property
-    def adc_max_bits(self) -> int | None:
+    def adc_bits(self) -> int | None:
         return None
 
-    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
-        del quantization_mode, adc_bits
+    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+        del quantization_mode, adc_active_bits
         return 1.0
 
-    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int) -> float:
         """Zero — an exact integer matmul occupies no execution interval.
 
         The unit holds neither a macro nor an engine schedule, so there is no
         schedule anywhere below it and the operand layout says nothing about
         an interval.
         """
-        del input_shape, adc_bits
+        del input_shape, adc_active_bits
         return 0.0
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
@@ -103,8 +103,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])
 
     @torch.no_grad()
-    def _matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
-        del quantization_mode, adc_bits
+    def _matmul(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+        del quantization_mode, adc_active_bits
         weight = self._weight
         if self._fp32_exact:
             # Shape: [..., M, K] @ [K, N] -> [..., M, N]

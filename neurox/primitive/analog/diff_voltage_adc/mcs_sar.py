@@ -11,7 +11,6 @@ from torch import Tensor
 
 from neurox.primitive.nonideality import (
     apply_gaussian,
-    apply_lsb_jitter,
     apply_pelgrom_mismatch,
 )
 from neurox.primitive.physics import K_BOLTZMANN__J_per_K
@@ -20,12 +19,9 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class McsSarDiffVadcConfig(DiffVadcConfig):
-    max_bits: int
-    """Physical bit width; the active array carries `max_bits - 1`
-    binary-weighted caps plus a dummy cap (MSB-free design)."""
-    clk_period__ns: float
-    """SAR comparator clock period; latency at `bits` active bits is
-    `(bits + 1) · clk_period`."""
+    latency_per_bit__ns: float
+    """SAR comparator clock period; latency at `active_bits` is
+    `(active_bits + 1) · latency_per_bit`."""
     c_unit__fF: float
     """CDAC unit capacitance the binary weights multiply."""
     cap_mismatch_sigma_relative: float
@@ -34,9 +30,9 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
     """Static Gaussian σ on the comparator threshold."""
     comparator_thermal_noise_sigma__V: float
     """Per-cycle Gaussian σ for thermal comparator noise, quoted at 300 K."""
-    e_bootstrap__fJ: float
-    """Bootstrapped sampling-switch overhead, charged once per conversion."""
-    e_constant_per_bit__fJ: float
+    energy_per_op__fJ: float
+    """Data-independent energy charged once per conversion."""
+    energy_per_bit__fJ: float
     """Per-cycle SAR strobe / logic / control overhead; charged `bits` times
     per conversion."""
 
@@ -45,8 +41,8 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
 
         # --- Topology and timing ---
 
-        self._require_ge(self.max_bits, "max_bits", 2)
-        self._require_pos(self.clk_period__ns, "clk_period__ns")
+        self._require_ge(self.bits, "bits", 2)
+        self._require_pos(self.latency_per_bit__ns, "latency_per_bit__ns")
 
         # --- CDAC and comparator ---
 
@@ -57,8 +53,8 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
 
         # --- Energy ---
 
-        self._require_non_neg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
-        self._require_non_neg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_non_neg(self.energy_per_bit__fJ, "energy_per_bit__fJ")
 
 
 class McsSarDiffVadcPolicy(DiffVadcPolicy):
@@ -81,11 +77,8 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
     The CDAC swings against one full-scale reference, so this converter's
     injected bank is single-tap: the sole tap sets `V_cm = V_ref / 2` and the
-    per-step switching energy.
+    per-bit switching energy.
 
-    A Bernoulli(0.5) 0/+1 LSB jitter rides on the emitted code in training
-    mode. `self.training` alone gates it, no policy source, so `eval()` is
-    what makes a conversion deterministic given the fabricated state.
     """
 
     # === Nominal buffers ===
@@ -124,38 +117,23 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
         self._register_fabrication_buffers(dtype=dtype)
 
-        # `bits` is a runtime argument, so `1 << bits` under dynamo lowers to a
-        # shift on a SymInt, which it miscompiles; the tables keep both bounds
-        # plain Python ints indexed by the requested resolution.
-        self._unsigned_max_table = tuple(((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1))
-        self._zero_offset_table = tuple((1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1))
-
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
-    def latency__ns(self, *, bits: int) -> float:
+    def latency__ns(self, *, active_bits: int) -> float:
         """One conversion — the sample cycle plus one comparator cycle per bit.
 
         The SAR cycles run sequentially inside the one converter, all on the
-        comparator clock, so the window is `(bits + 1) * clk_period`.
+        comparator clock, so the window is `(active_bits + 1) * clk_period`.
 
         Raises:
-            ValueError: `bits` is outside `[1, max_bits]`.
+            ValueError: `active_bits` is outside `[1, bits]`.
         """
-        if not (1 <= bits <= self.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
-        return self.config.clk_period__ns * (bits + 1)
+        self._check_active_bits(active_bits)
+        return self.config.latency_per_bit__ns * (active_bits + 1)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         config = self.config
         c_unit = config.c_unit__fF
         nominal_c__fF = torch.tensor(
-            [c_unit] + [c_unit * (2**k) for k in range(config.max_bits - 1)],
+            [c_unit] + [c_unit * (2**k) for k in range(config.bits - 1)],
             dtype=dtype,
         )
         self._register_nonpersistent_buffer("_nominal_c__fF", nominal_c__fF)
@@ -164,46 +142,20 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             torch.zeros((), dtype=dtype),
         )
 
-    def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Raw offset-binary code endpoints at `bits` — `(0, 2 ** bits - 1)`.
-
-        The CDAC's code count is `2 ** bits` by construction.
-
-        Raises:
-            ValueError: `bits` is outside `[1, max_bits]`.
-        """
-        if not (1 <= bits <= self.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
-        return 0, self._unsigned_max_table[bits]
-
-    def zero_offset(self, bits: int) -> int:
-        """Offset-binary zero code at `bits` — `2 ** (bits - 1)`.
-
-        Raises:
-            ValueError: `bits` is outside `[1, max_bits]`.
-        """
-        if not (1 <= bits <= self.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
-        return self._zero_offset_table[bits]
-
-    @property
-    def max_bits(self) -> int:
-        return self.config.max_bits
-
     def _sample_fabrication_variation(self) -> None:
         # Two independently-sampled cap arrays for the differential CDAC. The
         # floor keeps a Gaussian tail from sampling a non-positive cap, which
         # the step tables and the kT/C sigma both divide by.
         policy = self.policy
         self._c_p__fF = apply_pelgrom_mismatch(
-            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.max_bits),
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self._c_n__fF = apply_pelgrom_mismatch(
-            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.max_bits),
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
@@ -221,32 +173,28 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         v_neg__V: Tensor,
         *,
         v_refs__V: Tensor,
-        bits: int,
+        active_bits: int,
     ) -> Tensor:
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
-            v_pos__V: Positive-side input voltage — one physical converter per
-                instance, so the instance block is last and nothing trails it.
-                Shape: `[*leading, *middle, *inst_shape]`.
+            v_pos__V: Positive-side input voltage.
             v_neg__V: Negative-side input voltage, at the same shape.
-                Shape: `[*leading, *middle, *inst_shape]`.
             v_refs__V: Injected reference taps; the CDAC swings against one
                 full-scale reference, so the single tap is read off the last
                 axis and the leading dims broadcast against the inputs.
                 Shape: `[..., 1]`.
-            bits: Active resolution [bits] in `[1, max_bits]`.
+            active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
-            Raw offset-binary code tensor valued in `[0, 2 ** bits - 1]`, one
+            Raw offset-binary code tensor valued in `[0, 2 ** active_bits - 1]`, one
             code per `v_pos__V` element.
-            Shape: `[*leading, *middle, *inst_shape]`.
 
         Raises:
-            ValueError: `bits` is outside `[1, max_bits]`, or `v_refs__V` does
+            ValueError: `active_bits` is outside `[1, bits]`, or `v_refs__V` does
                 not hold exactly one tap on its last axis.
         """
-        self._validate_runtime_args(v_refs__V, bits)
+        self._validate_runtime_args(v_refs__V)
 
         # Shape: [..., 1] -> [...]
         v_ref__V = v_refs__V[..., 0]
@@ -284,11 +232,11 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         # --- 3: precompute loop-invariant per-bit constants ---
 
         # The active capacitor slice is indexed directly by the SAR bit.
-        cap_lo = self.config.max_bits - bits + 1
-        # Shape: [..., cap_num] -> [..., bits-1]
-        c_p_used__fF = c_p__fF[..., cap_lo : self.config.max_bits]
-        # Shape: [..., cap_num] -> [..., bits-1]
-        c_n_used__fF = c_n__fF[..., cap_lo : self.config.max_bits]
+        cap_lo = self.bits - active_bits + 1
+        # Shape: [..., cap_num] -> [..., active_bits-1]
+        c_p_used__fF = c_p__fF[..., cap_lo : self.bits]
+        # Shape: [..., cap_num] -> [..., active_bits-1]
+        c_n_used__fF = c_n__fF[..., cap_lo : self.bits]
         # Shape: [...] -> [..., 1]
         c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
         # Shape: [...] -> [..., 1]
@@ -298,10 +246,10 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
         # --- 4: run the SAR decisions ---
 
-        for k in range(bits - 2, -1, -1):
-            # Shape: [..., bits-1] -> [...]
+        for k in range(active_bits - 2, -1, -1):
+            # Shape: [..., active_bits-1] -> [...]
             v_p_step__V = v_p_step_table__V[..., k]
-            # Shape: [..., bits-1] -> [...]
+            # Shape: [..., active_bits-1] -> [...]
             v_n_step__V = v_n_step_table__V[..., k]
             v_p_top__V = torch.where(last_bit, v_p_top__V + v_p_step__V, v_p_top__V - v_p_step__V)
             v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
@@ -314,32 +262,26 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         if self._is_dynamic_energy_profile_active():
             e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
             e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
-            e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.e_bootstrap__fJ
+            e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.energy_per_op__fJ
 
             e_step_p_table__fJ = 0.5 * v_ref__V**2 * c_p_used__fF * (1 - c_p_used__fF / c_p_total_e__fF)
             e_step_n_table__fJ = 0.5 * v_ref__V**2 * c_n_used__fF * (1 - c_n_used__fF / c_n_total_e__fF)
             c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
 
-            shifts = torch.arange(1, bits, device=code.device, dtype=code.dtype)
-            # Shape: [...] -> [..., bits-1]
+            shifts = torch.arange(1, active_bits, device=code.device, dtype=code.dtype)
+            # Shape: [...] -> [..., active_bits-1]
             bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
-            # Shape: [..., bits-1] -> [...]
+            # Shape: [..., active_bits-1] -> [...]
             e_detect__fJ = (
                 torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
-                + bits * self.config.e_constant_per_bit__fJ
+                + active_bits * self.config.energy_per_bit__fJ
             )
-            # Shape: [..., bits-1] -> [...]
+            # Shape: [..., active_bits-1] -> [...]
             c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
             e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
             self._record_dynamic_energy(e_sample__fJ + e_detect__fJ + e_reset__fJ)
 
-        # --- 6: apply optional stochastic LSB jitter ---
-
-        return apply_lsb_jitter(
-            code,
-            unsigned_max=self._unsigned_max_table[bits],
-            enabled=self.training,
-        )
+        return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.
@@ -357,9 +299,7 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         )
         return v_diff__V > self._comparator_offset__V
 
-    def _validate_runtime_args(self, v_refs__V: Tensor, bits: int) -> None:
-        if not (1 <= bits <= self.config.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.config.max_bits}]")
+    def _validate_runtime_args(self, v_refs__V: Tensor) -> None:
         # One full-scale reference feeds the CDAC, so the bank is single-tap.
         tap_num = int(v_refs__V.shape[-1]) if v_refs__V.ndim else 0
         if tap_num != 1:

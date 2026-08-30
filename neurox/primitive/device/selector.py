@@ -74,6 +74,5 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
 
         Returns:
             Per-cell threshold voltage [V].
-            Shape: `[...]`.
         """
         return torch.broadcast_to(self._vth__V, reference.shape)

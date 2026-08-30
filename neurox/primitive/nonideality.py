@@ -252,7 +252,6 @@ def apply_pelgrom_mismatch(
 
     Returns:
         Tensor with the same dtype / device as `ideal`.
-        Shape: `[...]`.
     """
     if not enabled:
         return ideal
@@ -261,19 +260,3 @@ def apply_pelgrom_mismatch(
     if floor is not None:
         out = out.clamp_min(floor)
     return out
-
-
-def apply_lsb_jitter(
-    code: Tensor,
-    *,
-    unsigned_max: int,
-    enabled: bool,
-) -> Tensor:
-    """Add a Bernoulli(0.5) 0/+1 LSB jitter to an integer code.
-
-    Output is clamped to `[0, unsigned_max]`.
-    """
-    if not enabled:
-        return code
-    jitter = torch.randint(low=0, high=2, size=code.shape, dtype=code.dtype, device=code.device)
-    return (code + jitter).clamp(min=0, max=unsigned_max)

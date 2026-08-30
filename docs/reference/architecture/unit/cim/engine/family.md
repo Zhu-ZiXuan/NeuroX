@@ -36,7 +36,7 @@ Logical output block `b=dG+g` occupies input slot `[dL,(d+1)L)` of macro group `
 
 ## Execution order
 
-The macro instance axes use canonical order `[Sx,Sw,Tc,G]`; `D` and `P` are runtime schedule axes. After each macro read, the engine aggregates
+The macro-aligned leading block uses canonical order `[M,Sx,Sw,Tc,G]`; the macro state keeps singleton `M` and `Sx` slots, while the input supplies their runtime extents through ordinary broadcasting. `D` and `P` precede this block as runtime schedule axes. After each macro read, the engine aggregates
 
 $$P\rightarrow T_c\rightarrow S_w\rightarrow S_x,$$
 

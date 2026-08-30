@@ -75,13 +75,13 @@ class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
 
 class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     g_cell_on__uS: Tensor
-    """Branch chord conductance with the WL on. Shape: `[..., col, row]`."""
+    """Branch chord conductance with the WL on."""
     g_cell_off__uS: Tensor
-    """Branch chord conductance with the WL off. Shape: `[..., col, row]`."""
+    """Branch chord conductance with the WL off."""
     vx_ratio_on: Tensor
-    """BL-side drop fraction with the WL on. Shape: `[..., col, row]`."""
+    """BL-side drop fraction with the WL on."""
     vx_ratio_off: Tensor
-    """BL-side drop fraction with the WL off. Shape: `[..., col, row]`."""
+    """BL-side drop fraction with the WL off."""
 
 
 @XbarCell1t1r.register_neurox_module(

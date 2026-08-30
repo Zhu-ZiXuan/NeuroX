@@ -119,11 +119,11 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
 
         Args:
             v_in__V: Per-cap sampled voltages.
-                Shape: `[..., *inst_shape, cap_num]`.
+                Shape: `[..., cap_num]`.
 
         Returns:
             Charge-weighted mean the shared node settles to.
-            Shape: `[..., *inst_shape]`.
+            Shape: `[...]`.
         """
         c__fF = self._c__fF
         # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.
@@ -134,7 +134,7 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
         if self._is_dynamic_energy_profile_active():
-            # Shape: [..., *inst_shape, cap_num] -> [..., *inst_shape]
+            # Shape: [..., cap_num] -> [...]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
             # The cap axis is already summed above; the collector sums the
             # remaining work and instance axes past the call's leading dims.

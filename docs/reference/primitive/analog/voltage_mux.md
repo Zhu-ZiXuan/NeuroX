@@ -1,21 +1,19 @@
 # Voltage mux
 
-The voltage mux is a single-ended N:1 time-share transport. Its input carries explicit access and lane axes, which the mux preserves.
+The voltage mux is a single-ended N:1 time-share transport. The surrounding circuit arranges the serial accesses and parallel lanes before calling it.
 
 ## Physical model
 
-Each fabricated lane has a static fractional gain error. Each access also sees additive voltage noise. The mux records one dynamic-energy item per transported voltage, and its duration is one transport window per access of the $N{:}1$ ratio — the $N$ inputs of a lane reach it one at a time, while the lanes themselves are parallel.
+Each fabricated instance has a static fractional gain error. Each transported voltage also sees additive noise. The mux records one dynamic-energy item per transported voltage. It applies these effects elementwise to the layout supplied by the surrounding circuit.
 
 ## Governing equations
 
-For input shape $[\ldots,A,L]$, where $A$ is the number of serial accesses and $L$ is the number of parallel lanes, transport requires $A=N$, where $N$ is `mux_ratio`,
-
 $$
-V_{\mathrm{out}}[\ldots,a,l]
-= g(1+\varepsilon_{g,l})V_{\mathrm{in}}[\ldots,a,l] + n_{a,l},
+V_{\mathrm{out}}
+= g(1+\varepsilon_g)V_{\mathrm{in}} + n,
 $$
 
-where $a$ is the serial access, $l$ is the lane, $g$ is the nominal transport gain, $\varepsilon_g$ is fabrication-fixed gain mismatch, and $n$ is per-access additive noise. The output shape is unchanged.
+where $g$ is the nominal transport gain, $\varepsilon_g$ is fabrication-fixed gain mismatch, and $n$ is per-call additive noise. The primitive neither groups an input axis nor validates the caller's access layout.
 
 ## Numerical method
 
@@ -32,7 +30,7 @@ N/A — the transport is a closed-form per-call map; no iteration.
 
 | Parameter | Meaning | Constraint | Source |
 |---|---|---|---|
-| `mux_ratio` | N in the N:1 fan-in ratio and required access-axis length | $\geq 1$ | Design |
+| `mux_ratio` | N in the physical N:1 fan-in ratio | $\geq 1$ | Design |
 | `mux_gain` | nominal scalar transport gain | $> 0$ | Design |
 | `mux_gain_mismatch_sigma_relative` | per-instance fractional gain-mismatch sigma | $\geq 0$ | Measured |
 | `mux_noise_sigma__V` | additive transport-noise sigma | $\geq 0$ | Measured |
@@ -44,7 +42,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The model is single-ended. It does not model a differential pair, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, or crosstalk.
+The model is single-ended. Axis grouping and scheduling belong to the surrounding circuit. It does not model a differential pair, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, or crosstalk.
 
 ## Validation
 

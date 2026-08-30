@@ -92,33 +92,15 @@ class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
         self,
         v__V: Tensor,
     ) -> Tensor:
-        """Transport voltages already scheduled across mux accesses and lanes.
+        """Apply mux gain, mismatch, and noise elementwise.
 
         Args:
-            v__V: Single-ended input voltages, where `access_num` equals
-                `mux_ratio` and `lane_num` is the last extent of `inst_shape`.
-                Any outer instance axes broadcast to the left of the access
-                axis.
-                Shape: `[..., access_num, lane_num]`.
+            v__V: Single-ended input voltages.
 
         Returns:
             Transported voltages, gained and noised per element.
-            Shape: `[..., access_num, lane_num]`.
-
-        Raises:
-            ValueError: The trailing axes are not `(mux_ratio, lane_num)`.
         """
-        lane_num = self.inst_shape[-1] if self.inst_shape else 1
-        expected_trailing = (self.config.mux_ratio, lane_num)
-        if v__V.shape[-2:] != expected_trailing:
-            raise ValueError(
-                f"trailing axes must be (access_num={self.config.mux_ratio}, lane_num={lane_num}); "
-                f"got {tuple(v__V.shape[-2:])}"
-            )
-
-        # Shape: [*inst_shape] -> [..., access=1, lane_num]
-        eps_g = self._eps_g.reshape(*self.inst_shape[:-1], 1, lane_num)
-        gain = self.config.mux_gain * (1 + eps_g)
+        gain = self.config.mux_gain * (1 + self._eps_g)
         v_muxed__V = gain * v__V
         v_muxed__V = apply_gaussian(
             v_muxed__V,
@@ -127,7 +109,6 @@ class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
         )
 
         if self._is_dynamic_energy_profile_active():
-            # Shape: [] -> [*v_muxed__V.shape]
             e_access__fJ = torch.full(
                 (), self.config.energy_per_access__fJ, dtype=torch.float32, device=v_muxed__V.device
             )

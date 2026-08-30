@@ -51,29 +51,24 @@ class VoltageDriverPolicy(PolicyBase):
 
 class VoltageDriverDcop(DcopBase):
     v_clamp__V: Tensor
-    """Clamp voltage held at the evaluated port current.
-    Shape: `[..., *inst_shape]`."""
+    """Clamp voltage held at the evaluated port current."""
     dvclamp_di__MOhm: Tensor
     """Clamp slope against the port current — the NEGATED constant series
     output resistance, broadcast to the port current; ≤ 0 for r_out ≥ 0, and
-    exactly 0 in the ideal-source limit.
-    Shape: `[..., *inst_shape]`."""
+    exactly 0 in the ideal-source limit."""
 
 
 class VoltageDriverSnap(SnapBase):
     v_ref__V: Tensor
     """NOMINAL reference clamp voltage — the ideal value, carrying no offset
-    or thermal draw.
-    Shape: `[..., *inst_shape]`."""
+    or thermal draw."""
     v_perturb__V: Tensor
     """Driver-owned perturbation on top of the nominal reference — the static
     per-instance offset plus the per-call thermal draw, whichever the policy
-    enables; exactly zero under an all-off policy.
-    Shape: `[..., *inst_shape]`."""
+    enables; exactly zero under an all-off policy."""
     r_out__MOhm: Tensor
     """Series output resistance — a frozen constant broadcast to the call
-    shape.
-    Shape: `[..., *inst_shape]`."""
+    shape."""
 
 
 class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
@@ -87,7 +82,8 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
 
     # === Functional buffers ===
 
-    _frozen_r_out__MOhm: Tensor  # Shape: []
+    _r_out__MOhm: Tensor  # Shape: []
+    _energy_per_op__fJ: Tensor  # Shape: []
 
     # === Nominal buffers ===
 
@@ -109,8 +105,12 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
         self._register_nonpersistent_buffer(
-            "_frozen_r_out__MOhm",
+            "_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
+        )
+        self._register_nonpersistent_buffer(
+            "_energy_per_op__fJ",
+            torch.tensor(config.energy_per_op__fJ, dtype=dtype),
         )
         self._register_fabrication_buffers(dtype=dtype)
 
@@ -162,7 +162,6 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
                 Thevenin open-circuit voltage, broadcastable to `shape`.
             shape: Full per-call shape to expand the reference and the
                 fabricated offset onto and to draw the thermal noise at.
-                Shape: `[..., *inst_shape]`.
 
         Returns:
             Per-call snap of the fabricated state.
@@ -172,42 +171,16 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
         v_perturb__V = apply_gaussian(v_perturb__V, self.config.thermal_sigma__V, enabled=self.policy.thermal)
         # The slope is one number for every position, and the expand is the
         # stride-0 view that says so without storing it.
-        # Shape: [] -> [..., *inst_shape]
         return VoltageDriverSnap(
             v_ref__V=v_ref__V,
             v_perturb__V=v_perturb__V,
-            r_out__MOhm=self._frozen_r_out__MOhm.expand(shape),
+            r_out__MOhm=self._r_out__MOhm.expand(shape),
         )
 
-    def drive(self, i_port__uA: Tensor, v_clamp__V: Tensor) -> Tensor:
-        """Deliver the clamp at the converged port state and bill the drive.
-
-        The port state is the settled pair `(i_port__uA, v_clamp__V)`: the
-        Thevenin drop `i_port * r_out` is already inside the clamp node, so the
-        delivered voltage is that node itself and no snap is needed.
-
-        Call once per access, on the port state at the call's full leading:
-        the drive is billed per driven position, and only that layout states
-        which positions those are.
-
-        Args:
-            i_port__uA: Converged port current [uA] — one instance per column,
-                so the column axis is last.
-                Shape: `[*leading, ...]`.
-            v_clamp__V: Converged clamp voltage [V] at the same layout.
-                Shape: `[*leading, ...]`.
-
-        Returns:
-            Delivered clamp voltage [V] — the terminal voltage this driver
-            holds at `i_port__uA`.
-            Shape: `[*leading, ...]`.
-        """
-        # A flat per-port-op lump: the expanded constant holds no storage, so no
-        # energy tensor is materialized and the energy dtype is the constant's.
-        # Shape: [] -> [*i_port__uA.shape]
-        e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=i_port__uA.device)
-        self._record_dynamic_energy(e_op__fJ.expand(i_port__uA.shape))
-        return v_clamp__V
+    def drive(self, *, i_port__uA: Tensor) -> None:
+        """Record one access at the converged port-current layout."""
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(self._energy_per_op__fJ.expand(i_port__uA.shape))
 
     def solve_dc(
         self,

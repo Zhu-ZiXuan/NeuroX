@@ -49,7 +49,7 @@ class Conv2dUnit(UnitBase, ABC):
         raise NotImplementedError
 
     @torch.no_grad()
-    def conv2d(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def conv2d(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 
         A 3-D `[C_in, H, W]` input is treated as `B = 1` and returns a 3-D
@@ -59,8 +59,7 @@ class Conv2dUnit(UnitBase, ABC):
             input: Integer activation values.
                 Shape: `[B, C_in, H, W]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_bits: Runtime ADC resolution, or `None` for the lossless
-                oracle.
+            adc_active_bits: Active ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor.
@@ -78,7 +77,7 @@ class Conv2dUnit(UnitBase, ABC):
         x = input.unsqueeze(0) if unbatched else input
         out_hw = self._conv2d_out_hw(x.shape[-2], x.shape[-1])
         planes = self._conv2d_planes(x, out_hw=out_hw)
-        y = self._matmul(planes, quantization_mode=quantization_mode, adc_bits=adc_bits)
+        y = self._matmul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
         if int_bias is not None:

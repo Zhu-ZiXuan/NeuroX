@@ -36,15 +36,16 @@ class _MacroPolicy(PolicyBase):
 
 
 class _PhysicalMacro(Module):
-    adc_max_bits = 3
+    adc_bits = 3
+    inst_shape: tuple[int, ...] = ()
 
     def __init__(self) -> None:
         super().__init__()
         self.register_buffer("anchor", torch.empty(()))
 
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         assert quantization_mode == 0
-        assert adc_bits == self.adc_max_bits
+        assert adc_active_bits == self.adc_bits
         AdcProber.submit(IadcRecord(i_in__uA=x.transpose(0, 1)))
         return x
 
@@ -53,9 +54,9 @@ class _PhysicalMacro(Module):
 
 
 class _IdealMacro:
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         assert quantization_mode == 0
-        assert adc_bits is None
+        assert adc_active_bits == 0
         return x.to(torch.int64)
 
 

@@ -8,18 +8,16 @@ Covers the whole macro contract on the hand-built analytic witness
   * the logical geometry and the value-domain surface: the weight envelope spans
     the WEIGHT planes only while the PHYSICAL grid also carries the redundant
     (SUBA4) plane,
-  * the quantization surface: the declared mode is the only index accepted, the
-    rescale factor doubles per dropped bit, and the mapped input codes are the
-    identity of an unsigned window,
+  * the quantization surface: the declared mode is the only index accepted and
+    the rescale factor doubles per dropped bit,
   * every bit width rides the ONE injected reference: the code at `b` bits
     equals the max-bits code right-shifted by the bit deficit, and only
-    `adc_bits` in `[1, adc_max_bits]` is accepted (the readout has no
-    lossless oracle),
+    `adc_active_bits` in `[1, adc_bits]` is accepted,
   * the PH0 compensation is a REQUIRED macro config field the readout is handed
     verbatim; the witness seats it at the model's own all-off floor —
     `floor * row_num * sum(weight_radix + redundant_radix)`, the redundant
     plane included — so a zero-input access lands on code 0 exactly,
-  * `to_ideal()` publishes the macro's own windows and, driven losslessly,
+  * `to_ideal()` publishes the macro's own windows and its exact path
     equals the UNSIGNED integer MAC oracle (property self-consistency: the
     geometric radix ladder matches the scheme's `weight_radix`),
   * end-to-end: known weights + 1-bit inputs -> codes trailing `[output_num]`,
@@ -128,78 +126,59 @@ def test_geometry_and_properties(device: torch.device) -> None:
     # not part of the encodable range.
     assert macro.w_value_range == (0, W_MAX)
     assert macro.config.w_digit_num == len(TINY_WEIGHT_RADIX)
-    assert macro.adc_max_bits == TINY_ADC_BITS
-    # The witness declares the single mode its config carries.
-    assert len(macro.quantization_input_ranges) == len(macro.config.modes) == 1
+    assert macro.adc_bits == TINY_ADC_BITS
+    assert len(macro.config.rescale_factors) == 1
 
 
 def test_physical_grid_includes_the_redundant_plane(device: torch.device) -> None:
     """The physical column count is `row_num * (weight planes + redundant planes)`."""
     macro = build_macro(build_config(), device=device)
     phys_col_num = TINY_INPUT_NUM * TINY_PLANE_NUM
-    assert macro.array.weight_grid_shape == (phys_col_num, TINY_OUTPUT_NUM)
+    assert macro.array.cell.inst_shape == (1, phys_col_num, TINY_OUTPUT_NUM)
     assert len(TINY_REDUNDANT_RADIX) > 0
 
 
 def test_only_declared_modes_and_converting_bit_widths_are_accepted(device: torch.device) -> None:
-    """An undeclared mode, the lossless sentinel, and out-of-range bits are rejected."""
+    """An undeclared mode and out-of-range bit widths are rejected."""
     macro = build_macro(build_config(), device=device)
     w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
     macro.program(w)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
-    mode_num = len(macro.quantization_input_ranges)
+    mode_num = len(macro.config.rescale_factors)
     with pytest.raises(ValueError, match=rf"require: quantization_mode \({mode_num}\) in \[0, {mode_num}\)"):
-        macro.vec_mat_mul(x, quantization_mode=mode_num, adc_bits=TINY_ADC_BITS)
+        macro.vec_mat_mul(x, quantization_mode=mode_num, adc_active_bits=TINY_ADC_BITS)
     with pytest.raises(ValueError, match=r"require: quantization_mode \(-1\) in \[0, "):
-        macro.vec_mat_mul(x, quantization_mode=-1, adc_bits=TINY_ADC_BITS)
-    # The physical readout converts; it has no lossless oracle.
-    with pytest.raises(ValueError, match="require: adc_bits is an int"):
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=None)
-    with pytest.raises(ValueError, match=r"require: adc_bits \(0\) in \[1, adc_max_bits"):
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=0)
-    with pytest.raises(ValueError, match=rf"require: adc_bits \({TINY_ADC_BITS + 1}\) in \[1, adc_max_bits"):
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
+        macro.vec_mat_mul(x, quantization_mode=-1, adc_active_bits=TINY_ADC_BITS)
+    with pytest.raises(ValueError, match=r"require: adc_active_bits \(0\) in \[1, adc_bits"):
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=0)
+    with pytest.raises(ValueError, match=rf"require: adc_active_bits \({TINY_ADC_BITS + 1}\) in \[1, adc_bits"):
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS + 1)
 
 
 # ---------------------------------------------------------------------------
-# Quantization surface: windows, rescale chain, input-code map
+# Quantization scale
 # ---------------------------------------------------------------------------
 
 
-def test_published_windows_are_the_configured_ones(device: torch.device) -> None:
-    """`quantization_input_ranges` republishes the config's mode windows in order."""
+def test_rescale_factors_are_configured_by_mode(device: torch.device) -> None:
     macro = build_macro(build_config(), device=device)
-    assert macro.quantization_input_ranges == tuple(m.quantization_input_range for m in macro.config.modes)
+    assert macro.config.rescale_factors == (1.0,)
 
 
 def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
     """`r_b = r_B * 2**(B - b)`: one code carries twice as much per bit dropped."""
     macro = build_macro(build_config(), device=device)
     factors = [
-        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=b) for b in range(1, TINY_ADC_BITS + 1)
+        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=b)
+        for b in range(1, TINY_ADC_BITS + 1)
     ]
     for coarse, fine in itertools.pairwise(factors):
         assert coarse == pytest.approx(2.0 * fine)
     # The witness ladder steps one MAC unit per code, so max bits is the identity.
-    assert factors[-1] == pytest.approx(macro.config.modes[QUANTIZATION_MODE].max_bits_rescale_factor)
-    with pytest.raises(ValueError, match=r"require: adc_bits \(\d+\) in \[1, adc_max_bits \(\d+\)\] or None"):
-        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
-
-
-def test_quantization_input_code_map_is_the_unsigned_identity(device: torch.device) -> None:
-    """The scheme is unsigned: the zero-point map moves no code.
-
-    The published range is the mode's declared `adc_input_code_range` — the
-    calibration artifact itself, never a value recomputed from the window.
-    """
-    macro = build_macro(build_config(), device=device)
-    lower, upper = macro.quantization_input_ranges[QUANTIZATION_MODE]
-    assert lower == 0  # the scheme converts unsigned MACs only
-    code = torch.arange(lower, upper + 1, device=device)
-    mapped, code_range = macro.map_quantization_input_code(code, quantization_mode=QUANTIZATION_MODE)
-    assert torch.equal(mapped, code)
-    assert code_range == macro.config.modes[QUANTIZATION_MODE].adc_input_code_range
+    assert factors[-1] == pytest.approx(macro.config.rescale_factors[QUANTIZATION_MODE])
+    with pytest.raises(ValueError, match=r"require: adc_active_bits \(\d+\) in \[1, adc_bits \(\d+\)\]"):
+        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS + 1)
 
 
 def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
@@ -216,10 +195,10 @@ def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
     w = values.expand(TINY_INPUT_NUM, TINY_OUTPUT_NUM).contiguous().long()
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
-    full = decode(macro, w, x, adc_bits=TINY_ADC_BITS).long()
+    full = decode(macro, w, x, adc_active_bits=TINY_ADC_BITS).long()
     assert int(full.max()) > 1, f"the witness sweep must exercise the ladder: {full.tolist()}"
     for bits in range(1, TINY_ADC_BITS + 1):
-        lowered = decode(macro, w, x, adc_bits=bits).long()
+        lowered = decode(macro, w, x, adc_active_bits=bits).long()
         assert torch.equal(lowered, full >> (TINY_ADC_BITS - bits)), f"bits {bits}: {lowered.tolist()}"
 
 
@@ -263,8 +242,8 @@ def test_zero_input_decodes_code_zero(device: torch.device) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_to_ideal_lossless_matches_unsigned_oracle(device: torch.device) -> None:
-    """`to_ideal().vec_mat_mul(adc_bits=None)` equals the UNSIGNED integer MAC.
+def test_to_ideal_exact_matches_unsigned_oracle(device: torch.device) -> None:
+    """The ideal twin at `adc_active_bits = 0` equals the unsigned integer MAC.
 
     Validates that `to_ideal` preserves the logical weight contract.
     """
@@ -279,21 +258,20 @@ def test_to_ideal_lossless_matches_unsigned_oracle(device: torch.device) -> None
     x = torch.tensor([[1, 1], [1, 0], [0, 1], [0, 0]], dtype=torch.long, device=device)  # batch (4,)
 
     ideal.program(w_val)
-    got = ideal.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=None).cpu()
+    got = ideal.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=0).cpu()
     expected = ideal_mac(w_val, x, clamp=False)
     assert torch.equal(got.long(), expected)
 
 
-def test_to_ideal_twin_inherits_the_published_quantization_surface(device: torch.device) -> None:
-    """The twin quantizes the macro's own windows at the macro's own max bits."""
+def test_to_ideal_twin_inherits_the_quantization_scale(device: torch.device) -> None:
     macro = build_macro(build_config(), device=device)
     ideal = macro.to_ideal()
-    assert ideal.quantization_input_ranges == macro.quantization_input_ranges
-    assert ideal.adc_max_bits == macro.adc_max_bits
+    assert ideal.config.rescale_factors == macro.config.rescale_factors
+    assert ideal.adc_bits == macro.adc_bits
     assert ideal.x_value_range == macro.x_value_range
     assert ideal.w_value_range == macro.w_value_range
-    # The ideal codes are the rescale reference, so the twin's factor is the identity.
-    assert ideal.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS) == 1.0
+    # The tiny witness window has one MAC unit per output code.
+    assert ideal.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS) == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +403,7 @@ def test_energy_channels(device: torch.device) -> None:
     macro.program(w_val)
     stamp_names(macro)
     with Profiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
     by_name = Reporter(macro).by_name(prof)
 
     # Array block: self-billed per-access caps ("array") + the two converter
@@ -445,7 +423,7 @@ def test_energy_channels(device: torch.device) -> None:
 _DIE_NUM = 2
 _CROSS_BATCH = 3
 _CROSS_W = (((1, 2, 3, 0), (7, 0, 4, 1)), ((0, 7, 1, 5), (2, 3, 0, 6)))  # [die, in, out]
-_CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, 1, in] — the 1 broadcasts over the dies
+_CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, die=1, in]
 
 
 def _crossed_run(
@@ -462,12 +440,17 @@ def _crossed_run(
     scalar = build_macro(config, device=device)
     w = torch.tensor(_CROSS_W, dtype=torch.long, device=device)
     x = torch.tensor(_CROSS_X, dtype=torch.long, device=device)
+    x_ensemble = x.expand(_CROSS_BATCH, _DIE_NUM, TINY_INPUT_NUM)
     stamp_names(ensemble)
     stamp_names(scalar)
 
     with Profiler() as prof_cross, torch.no_grad():
         ensemble.program(w)
-        code_cross = ensemble.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
+        code_cross = ensemble.vec_mat_mul(
+            x_ensemble,
+            quantization_mode=QUANTIZATION_MODE,
+            adc_active_bits=TINY_ADC_BITS,
+        )
 
     code_ref = torch.empty_like(code_cross)
     with Profiler() as prof_ref, torch.no_grad():
@@ -475,7 +458,7 @@ def _crossed_run(
             scalar.program(w[die])
             for batch in range(_CROSS_BATCH):
                 code_ref[batch, die] = scalar.vec_mat_mul(
-                    x[batch, 0], quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+                    x[batch, 0], quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS
                 )
     return ensemble, code_cross, code_ref, (prof_cross, Reporter(ensemble)), (prof_ref, Reporter(scalar))
 

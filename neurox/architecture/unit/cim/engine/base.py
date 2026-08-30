@@ -92,7 +92,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             ideal_macro=ideal_macro,
         )
 
-    def initiation_interval__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, *, output_plane_num: int, adc_active_bits: int) -> float:
         """Schedule one logical matrix multiplication.
 
         Serial work spans the output planes `M` supplied per call, the input
@@ -116,8 +116,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
                 extent of the schedule the placement plan does not fix.
                 Unrelated to `macro_plane_num`, the Sw weight-slice planes one
                 macro instance holds.
-            adc_bits: Conversion resolution the macro accesses run at, or
-                `None` for the lossless oracle.
+            adc_active_bits: Active ADC resolution the macro accesses run at.
 
         Returns:
             Scheduled interval occupied by one logical matrix multiplication.
@@ -138,7 +137,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         # One block step retires when its phases have been accumulated.
         step_num = output_plane_num * slice_num * block_step_num
         access_num = step_num * phase_num
-        total__ns = access_num * self.cim_macro.initiation_interval__ns(adc_bits=adc_bits)
+        total__ns = access_num * self.cim_macro.initiation_interval__ns(adc_active_bits=adc_active_bits)
         total__ns += access_num * port_num * phase_accumulate__ns
         total__ns += step_num * port_num * contraction_accumulate__ns
         total__ns += step_num * aggregated_port_num * w_slice_recombine__ns
@@ -248,12 +247,12 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         return self.cim_macro.max_active_num
 
     @property
-    def adc_max_bits(self) -> int:
-        return self.cim_macro.adc_max_bits
+    def adc_bits(self) -> int:
+        return self.cim_macro.adc_bits
 
-    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
-        """Return the macro output code expressed in ideal-macro codes."""
-        return self.cim_macro.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
+    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+        """Return the ideal-macro codes represented by one output code."""
+        return self.cim_macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map logical weights into the programmed CIM-macro layout."""
@@ -285,15 +284,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self.cim_macro.program(self._organize_w(weight))
 
     @torch.no_grad()
-    def matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def matmul(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         """Multiply logical inputs by the programmed weight.
 
         Args:
             input: Integer activation values.
                 Shape: `[..., M, K]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_bits: Runtime ADC resolution, or `None` for the lossless
-                oracle.
+            adc_active_bits: Active ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor.
@@ -306,7 +304,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., D, P, M, Sx, Sw, Tc, G, input_num]
         code = self.placement.unroll_block_steps(phased)
         # Shape: [..., D, P, M, Sx, Sw, Tc, G, input_num] -> [..., D, P, M, Sx, Sw, Tc, G, output_num]
-        code = self.cim_macro.vec_mat_mul(code, quantization_mode=quantization_mode, adc_bits=adc_bits).to(torch.int64)
+        code = self.cim_macro.vec_mat_mul(
+            code,
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
+        ).to(torch.int64)
         # Shape: [..., D, P, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, Tc, G, output_num]
         code = self.input_activation.accumulate_phases(code)
         # Shape: [..., D, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, G, output_num]

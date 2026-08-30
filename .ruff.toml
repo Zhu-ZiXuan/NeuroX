@@ -143,6 +143,7 @@ extend-ignore-names = [
     "*__uS", # Micro-Siemens
     "*__MOhm", # MegaOhm
     "*__fF", # Femto-Farad
+    "*__fC", # Femto-Coulomb
     "*__ns", # Nano-Second
     "*__fJ", # Femto-Joule
     "*__uW", # Micro-Watt

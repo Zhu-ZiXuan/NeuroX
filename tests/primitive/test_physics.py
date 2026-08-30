@@ -15,11 +15,22 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.primitive.physics import e_cap_excursion__fJ
+from neurox.primitive.physics import e_cap_excursion__fJ, e_supply_charge__fJ, q_conduction__fC
 
 _DTYPE = torch.float64
 _V_RAIL__V = 0.9
 _C__fF = 1.7
+
+
+def test_conduction_charge_and_supply_energy_use_the_runtime_unit_scales() -> None:
+    i__uA = torch.tensor([0.5, 2.0], dtype=_DTYPE)
+    duration__ns = 3.0
+
+    q__fC = q_conduction__fC(i__uA, duration__ns)
+    e__fJ = e_supply_charge__fJ(_V_RAIL__V, q__fC)
+
+    torch.testing.assert_close(q__fC, i__uA * duration__ns)
+    torch.testing.assert_close(e__fJ, _V_RAIL__V * i__uA * duration__ns)
 
 
 def test_bill_is_the_rail_times_the_charge_moved() -> None:

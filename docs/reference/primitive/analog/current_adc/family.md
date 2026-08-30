@@ -33,8 +33,8 @@ Quantization against the reference levels is intrinsic to every member; all furt
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $I_{\mathrm{in}}$ | single-ended magnitude input current | uA | `i_in__uA` |
-| $b$ | ADC resolution (bits), per call | — | `bits` |
-| $b_{\max}$ | maximum supported resolution | — | `max_bits` |
+| $b$ | active conversion resolution, per call | — | `active_bits` |
+| $b_{\max}$ | physical output bit width | — | `bits` |
 | $I_{\mathrm{ref}}$ | per-call injected reference levels, $[\ldots,\ n_{\mathrm{ref}}]$ with the taps last | uA | `i_refs__uA` |
 | $n_{\mathrm{ref}}$ | reference count the converter's circuit takes | — | member-defined |
 

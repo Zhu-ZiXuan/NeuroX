@@ -61,10 +61,13 @@ def _run_paired(
 ) -> tuple[str, Tensor, Tensor]:
     device = next(physical.buffers()).device
     x = x.to(device)
+    inst_rank = len(physical.inst_shape)
+    prefix_shape = x.shape[: -(inst_rank + 1)] if inst_rank else x.shape[:-1]
+    x = x.expand(*prefix_shape, *physical.inst_shape, x.shape[-1])
     with AdcProber(sync_device=torch.device("cpu")) as prober, torch.no_grad():
-        physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=physical.adc_max_bits)
+        physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=physical.adc_bits)
     with torch.no_grad():
-        ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=None)
+        ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=0)
 
     if not prober.records:
         raise ValueError("the physical macro emitted no ADC input record")
@@ -213,7 +216,7 @@ def _prepare_probe(
     _require_all_policy_toggles_off(physical.policy)
     ideal = build_ideal_twin(physical, device=device)
     mode = cfg.probe.quantization_mode
-    mode_num = len(physical.quantization_input_ranges)
+    mode_num = len(physical.config.rescale_factors)
     if not (0 <= mode < mode_num):
         raise ValueError(f"require: quantization_mode ({mode}) in [0, {mode_num})")
 

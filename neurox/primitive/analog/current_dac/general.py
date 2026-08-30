@@ -83,7 +83,6 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
         )
 
         if self._is_dynamic_energy_profile_active():
-            # Shape: [] -> [*signal.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=signal.device)
             self._record_dynamic_energy(e_op__fJ.expand(signal.shape))
 

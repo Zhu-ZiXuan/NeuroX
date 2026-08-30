@@ -25,18 +25,18 @@ class XbarCell1t1rPolicy(PolicyBase, ABC):
 
 class XbarCell1t1rSnap(SnapBase):
     v_wl__V: Tensor
-    """Word-line drive voltage at each cell's own NMOS gate. Shape: `[..., col, row]`."""
+    """Word-line drive voltage at each cell's own NMOS gate."""
 
 
 class XbarCell1t1rDcop(DcopBase):
     i__uA: Tensor
-    """Branch current, positive bit-line into source-line. Shape: `[..., col, row]`."""
+    """Branch current, positive bit-line into source-line."""
     di_dvbl__uS: Tensor
-    """BL-side branch conductance ∂I/∂V_BL, non-negative. Shape: `[..., col, row]`."""
+    """BL-side branch conductance ∂I/∂V_BL, non-negative."""
     di_dvsl__uS: Tensor
-    """SL-side branch conductance ∂I/∂V_SL, non-positive. Shape: `[..., col, row]`."""
+    """SL-side branch conductance ∂I/∂V_SL, non-positive."""
     v_x__V: Tensor
-    """Access-node voltage at the NMOS drain / RRAM bottom. Shape: `[..., col, row]`."""
+    """Access-node voltage at the NMOS drain / RRAM bottom."""
 
 
 class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, SnapT: XbarCell1t1rSnap](

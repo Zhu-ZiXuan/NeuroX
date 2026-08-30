@@ -1,5 +1,4 @@
-# Xue2020 JSSC validation anchors. Provenance tags follow docs/validation/campaigns.md;
-# page numbers are the printed JSSC page numbers.
+# Xue2020 JSSC validation anchors. Tags follow docs/validation/campaigns.md; pages use printed numbering.
 
 # Total energy per access
 [target]
@@ -10,8 +9,7 @@ sub_array_num = 8                 # [reported p211 Fig.20(c)] independent 256x51
 input_bits = 2                    # [reported p210] power-evaluation input precision
 weight_bits = 3                   # [reported p210] power-evaluation weight precision
 vdd__V = 1.0                      # [reported p209] simulation supply; [measured p211] nominal test supply
-per_access__fJ = 32062.5          # [derived] 5.13 mW / 8 / 20 MHz = 32.0625 pJ per independent sub-array access.
-
+per_access__fJ = 32062.5          # [derived] 5.13 mW / 8 / 20 MHz = 32.0625 pJ per sub-array access
 
 # Hard gate
 [gate]
@@ -28,20 +26,6 @@ dswct = 11.5
 sinwp_sc = 8.0
 pn_isub = 3.4
 tmcsa = 9.3
-read_path_sum = 47.1              # cablc + dswct + sinwp_sc + pn_isub + tmcsa
-
-# Accounting conventions
-[conventions]
-# [simulated p210 Fig.18] Control and Reference are adopted seats. [assumed] Control is split 70% dynamic and 30% static; Reference is entirely static.
-adopt = ["control", "reference"]
-control_dynamic_fraction = 0.70
-control_static_fraction = 0.30
-reference_static_fraction = 1.00
-# [calibrated] Read-path activity and PN decision energy use the CABLC+DSWCT and SINWP-SC+PN-ISUB paired targets because their internal node voltages are unpublished.
-read_path = ["cablc", "dswct", "sinwp_sc", "pn_isub", "tmcsa"]
-read_path_static_basis = "declared_small_or_zero"
-static_time_base = "t_cycle"
-dynamic_normalization = "per_vmm_over_mux_factor"
 
 # Workload
 [data]
@@ -51,10 +35,3 @@ weight_nonzero_probability = 0.8      # [calibrated] Fig.18 paired read-path tar
 input_distribution = "zero_inflated_unsigned_uniform_nonzero"
 input_range = [0, 3]                  # [derived] 2-bit unsigned
 input_nonzero_probability = 0.28      # [calibrated] Fig.18 paired read-path targets; at most nine candidate rows
-
-# Open questions
-[open_questions]
-notes = [
-  "array node capacitances are unpublished, and the paired CABLC+DSWCT target leaves no positive residual at the calibrated workload -> the paper-reproduction preset declares them zero rather than claiming a physical extraction",
-  "TMCSA PH2/PH3 durations are unpublished -> their absolute windows are calibrated to Fig.18 while the held 0.18:0.30 ratio remains assumed",
-]

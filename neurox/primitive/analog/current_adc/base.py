@@ -7,6 +7,7 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import final
 
 import torch
 from torch import Tensor
@@ -17,8 +18,7 @@ from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 
 class IadcRecord(AdcRecord):
     i_in__uA: Tensor
-    """Input magnitude current the call was handed.
-    Shape: `[...]`."""
+    """Input magnitude current the call was handed."""
 
     def input_name(self) -> str:
         return "i_in__uA"
@@ -28,10 +28,15 @@ class IadcRecord(AdcRecord):
 
 
 class IadcConfig(ConfigBase, ABC):
+    bits: int
+    """Physical maximum conversion resolution."""
     area_per_inst__um2: float
+    """Physical area per ADC instance."""
     leakage_per_inst__uW: float
+    """Static leakage power per ADC instance."""
 
     def validate(self) -> None:
+        self._require_pos(self.bits, "bits")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -98,26 +103,36 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         )
 
     @property
-    @abstractmethod
-    def max_bits(self) -> int:
-        """Physical bit width — the maximum `bits` a `convert` call may request."""
-        raise NotImplementedError
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
 
-    def _check_bits(self, bits: int) -> None:
-        """Require a resolution this converter's own bit width supports.
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    @property
+    @final
+    def bits(self) -> int:
+        """Physical output bit width."""
+        return self.config.bits
+
+    def _check_active_bits(self, active_bits: int) -> None:
+        """Require an active resolution this converter supports.
 
         Raises:
-            ValueError: `bits` is outside `[1, max_bits]`.
+            ValueError: `active_bits` is outside `[1, bits]`.
         """
-        if not (1 <= bits <= self.max_bits):
-            raise ValueError(f"require: bits ({bits}) in [1, max_bits ({self.max_bits})]")
+        if not (1 <= active_bits <= self.bits):
+            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")
 
     @abstractmethod
-    def latency__ns(self, *, bits: int) -> float:
-        """Duration of one `convert` call at `bits` [ns].
+    def latency__ns(self, *, active_bits: int) -> float:
+        """Duration of one `convert` call at `active_bits` [ns].
 
         Args:
-            bits: Conversion resolution [bits] in `[1, max_bits]`.
+            active_bits: Active conversion resolution in `[1, bits]`.
         """
         raise NotImplementedError
 
@@ -126,7 +141,7 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         i_in__uA: Tensor,
         i_refs__uA: Tensor,
         *,
-        bits: int,
+        active_bits: int,
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
@@ -135,27 +150,25 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
 
         Args:
             i_in__uA: Non-negative magnitude current.
-                Shape: `[...]`.
             i_refs__uA: Reference ladder with the taps on the last axis and the
                 leading dims right-broadcasting against `i_in__uA`. The tap
                 count `n_ref` is the concrete converter's circuit property, not
                 a base-level contract.
                 Shape: `[..., n_ref]`.
-            bits: Conversion resolution [bits] in `[1, max_bits]`.
+            active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
             Unsigned integer code tensor, one code per `i_in__uA` element, in
-            the range `unsigned_range` reports for `bits`. For a deterministic
-            converter the code at `bits` is the code at `max_bits`
-            right-shifted by `max_bits - bits`. Dynamic energy is emitted
+            the range `unsigned_range` reports for `active_bits`. For a deterministic
+            converter the code at `active_bits` is the full-width code
+            right-shifted by `bits - active_bits`. Dynamic energy is emitted
             through the profiler side channel.
-            Shape: `[...]`.
 
         Raises:
-            ValueError: `bits` is outside `[1, max_bits]`.
+            ValueError: `active_bits` is outside `[1, bits]`.
         """
-        self._check_bits(bits)
-        code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
+        self._check_active_bits(active_bits)
+        code = self._convert_impl(i_in__uA, i_refs__uA, active_bits=active_bits)
         if AdcProber.active():
             AdcProber.submit(IadcRecord(i_in__uA=i_in__uA))
         return code
@@ -166,16 +179,16 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         i_in__uA: Tensor,
         i_refs__uA: Tensor,
         *,
-        bits: int,
+        active_bits: int,
     ) -> Tensor:
         """Convert inputs according to the `convert` contract."""
         raise NotImplementedError
 
-    @abstractmethod
-    def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `bits`.
+    @final
+    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
+        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
 
-        For ADCs whose code count matches `2 ** bits` exactly, this is
-        `(0, 2 ** bits - 1)`.
+        Every current ADC emits the family's full unsigned active-bit range.
         """
-        raise NotImplementedError
+        self._check_active_bits(active_bits)
+        return 0, (1 << active_bits) - 1

@@ -67,9 +67,9 @@ Leakage power and initiation interval stay separate figures rather than being mu
 
 The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Common API](../../api/common.md)).
 
-## Comparing against a lossless reference
+## Comparing against an idealized macro
 
-`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin — the faithful lossless reference of that same chip, sharing its geometry and value domains — while `--cim_macro physical` runs the macro as configured. Running the same command both ways isolates the analog loss from the QAT loss.
+`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining the selected quantization window and integer ADC resolution; `--cim_macro physical` runs the macro as configured. The twin removes circuit nonidealities but does not bypass quantization unless it is explicitly called with `adc_active_bits = 0`, a value accepted only by `IdealCimMacro`.
 
 A standalone ideal config is the other route: `macro_with_ideal_xbar.toml` for LeNet and `macro_ideal.toml` for BERT, each with its own policy file. These instantiate an ideal macro directly from hand-authored parameters tied to no fabricated chip, so they serve flow bring-up and carry no hardware provenance.
 
@@ -80,7 +80,7 @@ A run is described by two files, whose schema, `_neurox_*` directives, and prese
 - **`--config`** — the immutable circuit design. In the bundled files the top section is `[cim_unit]`, and the macro it drives sits at `[cim_unit.engine.cim_macro_config]`, either tagged with `_neurox_class` or pulled from a scheme's chip params by `_neurox_use`. To target a different chip, point that section at that chip's params.
 - **`--policy`** — the mutable nonideality switches, mirroring the config's section tree. The example policies pull in a scheme's all-off preset, so every nonideality starts off; enable one by overriding its `bool` inline after the `_neurox_use` line that pulls the preset in.
 
-Each quantization mode the chip declares carries its own calibrated rescale factor, derived by the [calibration guides](../calibration/README.md). That factor states an output code in ideal-macro codes; turning codes into MAC units is the model's own job and multiplies in the mode's window step, which is what `quant.py` folds into its per-channel scales. Train and evaluate against the same config pair, or the folded scales no longer match the codes the chip returns.
+Each quantization mode the chip declares has one calibrated entry in `rescale_factors`, derived by the [calibration guides](../calibration/README.md). The stored value applies at `adc_bits`; at runtime the macro combines it with `adc_active_bits` to express one physical output code in MAC units. `quant.py` folds the resulting `rescale_factor` into its per-channel scales. Train and evaluate against the same config pair, or the folded scales no longer match the codes the chip returns.
 
 ## Bounding memory on the physical path
 

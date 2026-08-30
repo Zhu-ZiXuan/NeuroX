@@ -37,6 +37,16 @@ def thermal_voltage__V(temperature__K: float) -> float:
     return K_BOLTZMANN__J_per_K * temperature__K / ELEM_CHARGE__C
 
 
+def q_conduction__fC(i__uA: Tensor, duration__ns: float) -> Tensor:
+    """Charge transferred by a constant branch current, `q = I · t`."""
+    return i__uA * duration__ns
+
+
+def e_supply_charge__fJ(v_rail__V: float, q__fC: Tensor) -> Tensor:
+    """Energy delivered by a supply rail with charge `q`, `E = V · q`."""
+    return v_rail__V * q__fC
+
+
 def e_cap_excursion__fJ(v_rail__V: float, c__fF: Tensor | float, delta_v__V: Tensor) -> Tensor:
     """Energy a supply delivers for one excursion of a grounded capacitance.
 
@@ -61,5 +71,7 @@ __all__ = [
     "K_BOLTZMANN__J_per_K",
     "T_ROOM__K",
     "e_cap_excursion__fJ",
+    "e_supply_charge__fJ",
+    "q_conduction__fC",
     "thermal_voltage__V",
 ]

@@ -16,6 +16,14 @@ All of it is implementation state of the owning module. A consumer reads it thro
 
 Functional buffers stand outside the nominal-to-fabricated-to-snap progression, and a module declares only the categories its model needs: a programmable leaf may have no nominal buffer, and a deterministic LUT leaf no fabricated state. A class header groups its tensor declarations under these same category names, in the banner form fixed by [code_style](../conventions/code_style.md).
 
+## Instance shape
+
+`inst_shape` is the hardware-instance shape and may contain two kinds of axes: physical axes encode real circuit multiplicity, while broadcast axes are explicitly fixed at one only to reserve the position of a runtime axis. A broadcast axis does not increase the hardware count, state size, sample count, or PPA; state retains the singleton so it can expand at that position during execution.
+
+When a composing module knows where a runtime axis belongs, reserve that position with a singleton broadcast axis in each affected child's `inst_shape`. Prefer this construction-time alignment to runtime axis moves, repeated insertion, index remapping, or contiguous copies; construction, programming, snapshots, and execution must retain the same layout.
+
+The composing parent also aligns every runtime input with those reserved slots before calling the child. Extra caller axes precede the complete `inst_shape`-aligned block, and an extent-one slot may broadcast to the extent selected by the parent; no slot is omitted. The child neither repairs the input layout nor resolves it against `inst_shape` with an explicit expansion. It relies on ordinary tensor broadcasting, treats the inherited leading block as an opaque whole, and appends only its own runtime axes. If a descendant consumes those axes, its `inst_shape` reserves matching singleton positions after the parent's instance block. This keeps the meaning and number of inherited axes unchanged across every boundary even when their extents change.
+
 ## Lifecycle
 
 ```text
@@ -61,13 +69,9 @@ The split also fixes which axes each end carries. A source spans its instance ax
 
 ### Snap shapes
 
-A snap's shape is `inst_shape`-compatible: axes are added around `inst_shape`, never resized. A time axis sits in the leading don't-care region and its positions are right-anchored, shape growth being prepend-only; a time axis that will later merge with axes to its right sits immediately left of them.
+A snap's shape is broadcast-compatible with `inst_shape`: physical axes retain their declared extents, broadcast axes may expand at their reserved positions, and unrelated caller axes are prepended. A runtime axis that will later merge with axes to its right sits immediately left of them; reserving that position in `inst_shape` keeps fabrication and programming state naturally aligned with the runtime layout.
 
 An inserted time axis lives only between the snapshot statement and the fold statement that merges it away. Every function boundary therefore carries the canonical `[..., *trailing]` shape, and no signature anywhere gains an argument for an axis that exists across two statements.
-
-Right-anchoring is stated for a fold target in the trailing region. Where the axes a time axis merges with are a suffix of the module's own `inst_shape`, "immediately left of the axes it merges with" places the time axis inside that instance prefix, which `inst_shape` compatibility does not admit; a module carrying both a fabrication prefix and a live static draw would mis-seat the axis or raise.
-
-TODO (mismatch modeling): resolve the placement for a suffix fold target once noise and mismatch modeling is frozen.
 
 ## Persistence and ownership
 

@@ -24,9 +24,8 @@ from .quant import QATConv2d, QATLinear, QuantConv2d, QuantLinear
 
 MacroFactory = Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]
 
-# Per-layer quantization-mode pick. An index selects one conversion window
-# from the macro's `quantization_input_ranges`; the shipped ideal configs
-# declare a single window, so every layer runs mode 0.
+# Per-layer quantization-mode pick. The shipped ideal configs declare one
+# calibrated output scale, so every layer runs mode 0.
 _LAYER_MODE: dict[str, int] = {
     "conv1": 0,
     "conv2": 0,

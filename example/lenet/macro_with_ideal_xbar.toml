@@ -61,6 +61,7 @@ x_slice_num = 4
 
 [cim_unit.engine.cim_macro_config]
 _neurox_class = "IdealCimMacroConfig"
+quantization_scheme = "zero_point"
 
 # --- Activation limit ---
 max_active_num = 64
@@ -75,16 +76,12 @@ w_value_range = [-1, 1]
 
 # --- Quantization metadata ---
 # Synthetic 8-bit ADC reference path (user-authorized sanity check) — wide
-# enough that per-cycle quantization noise is negligible. Max per-cycle
-# dot magnitude for LeNet <= 64 (full tile), well inside the window. Goal:
+# enough that per-cycle quantization noise is negligible. Goal:
 # confirm the pipeline (pure QAT + macro inference with rescale fold) is
 # mathematically correct end-to-end; gap vs QAT val_acc should be near zero.
-# quantization_input_ranges holds one canonical inclusive window
-# [lower, upper] in MAC units per quantization mode; the mid-zero window
-# [-128, 127] (256 targets) at 8 bits gives an lsb of 1 MAC unit, so codes
-# equal dots over the whole reachable dot span.
-quantization_input_ranges = [[-128, 127]]
-adc_max_bits = 8
+# One full-resolution code represents one MAC unit.
+adc_bits = 8
+rescale_factors = [1.0]
 
 
 [cim_unit.engine.input_activation.phase_accumulator_config]

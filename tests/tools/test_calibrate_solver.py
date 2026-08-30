@@ -42,7 +42,7 @@ class TestUnrollSubPhaseLaw:
     def _planes_active_mask(self, *, row_num: int, active_rows: int) -> torch.Tensor:
         """Return the per-plane boolean active mask."""
         x = torch.ones((1, row_num), dtype=torch.long)
-        out = unroll_sub_phase(x, row_num=row_num, active_rows=active_rows, inst_rank=0)
+        out = unroll_sub_phase(x, row_num=row_num, active_rows=active_rows, inst_shape=())
         # Ones where active, 0 where WL off.
         # Shape: [1, P, row_num] -> [P, row_num]
         return out[0].bool()
@@ -73,7 +73,7 @@ class TestUnrollSubPhaseLaw:
     def test_inst_span_slots_inserted(self) -> None:
         """The unroll inserts the P axis + inst-span size-1 slots left of row."""
         x = torch.ones((2, 8), dtype=torch.long)
-        out = unroll_sub_phase(x, row_num=8, active_rows=4, inst_rank=1)
+        out = unroll_sub_phase(x, row_num=8, active_rows=4, inst_shape=(1,))
         # Shape: [..., P, *inst_shape=1, row_num]
         assert tuple(out.shape) == (2, 2, 1, 8)
 

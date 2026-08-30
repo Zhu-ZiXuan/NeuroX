@@ -1,23 +1,17 @@
 from .base import (
     CimMacro,
     CimMacroConfig,
-    CimMacroMode,
     CimMacroPolicy,
-    map_magnitude_input_code,
-    map_zero_point_input_code,
-    validate_quantization_input_range,
+    CimMacroQuantizationScheme,
 )
 from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 __all__ = [
     "CimMacro",
     "CimMacroConfig",
-    "CimMacroMode",
     "CimMacroPolicy",
+    "CimMacroQuantizationScheme",
     "IdealCimMacro",
     "IdealCimMacroConfig",
     "IdealCimMacroPolicy",
-    "map_magnitude_input_code",
-    "map_zero_point_input_code",
-    "validate_quantization_input_range",
 ]

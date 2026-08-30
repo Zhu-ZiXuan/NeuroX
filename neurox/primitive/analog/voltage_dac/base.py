@@ -86,11 +86,9 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
 
         Args:
             code: Integer input codes in `[0, code_max]`.
-                Shape: `[...]`.
 
         Returns:
             Analog output voltage [V], one value per `code` element. Dynamic
             energy is emitted through the profiler side channel.
-            Shape: `[...]`.
         """
         raise NotImplementedError

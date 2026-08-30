@@ -30,7 +30,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
-from neurox.architecture.unit.cim import EngineBackedCimUnit
 from neurox.common import TensorDataClassBase
 
 # --- LeNet quantization grid ---
@@ -367,30 +366,14 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int | None]:
-    """Resolve the operating point: mode 0 by default, macro's max bits.
-
-    A unit without output quantization publishes `adc_max_bits is None`; the
-    resolved `adc_bits` is then `None`, the lossless oracle, whose rescale
-    factor is `1.0`.
-    """
-    return (0 if quantization_mode is None else quantization_mode, macro.adc_max_bits)
+def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int]:
+    """Resolve mode 0 by default and select the full ADC resolution."""
+    return (0 if quantization_mode is None else quantization_mode, macro.adc_bits or 0)
 
 
-def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | None) -> float:
-    """Return the MAC units one output code carries at this operating point.
-
-    The simulator exports codes plus `rescale_factor`, which states a code in
-    ideal-macro codes; turning those into MAC units is the algorithm's own job
-    and takes the ideal twin's window step `W / 2**B`. A unit that never
-    quantizes its output returns exact dots, so one code is one MAC unit.
-    """
-    factor = macro.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
-    if adc_bits is None or not isinstance(macro, EngineBackedCimUnit):
-        return factor
-    twin = macro.engine.cim_macro.to_ideal()
-    lower, upper = twin.quantization_input_ranges[quantization_mode]
-    return factor * (upper - lower + 1) / float(1 << twin.adc_max_bits)
+def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_active_bits: int) -> float:
+    """Return the MAC units one final output code carries."""
+    return macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
 
 class _FoldedScales(TensorDataClassBase):
@@ -545,7 +528,7 @@ class QuantConv2d(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
-        self.quantization_mode, self.adc_bits = _default_op(macro, quantization_mode)
+        self.quantization_mode, self.adc_active_bits = _default_op(macro, quantization_mode)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -553,7 +536,11 @@ class QuantConv2d(nn.Module):
             zp_x=zp_x,
             s_w=s_w,
             s_y=s_y,
-            mac_per_code=_mac_per_code(macro, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits),
+            mac_per_code=_mac_per_code(
+                macro,
+                quantization_mode=self.quantization_mode,
+                adc_active_bits=self.adc_active_bits,
+            ),
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)
@@ -570,9 +557,11 @@ class QuantConv2d(nn.Module):
         # Per-row linear through the macro.
         # Shape: [N, OH*OW, K]
         x_int = _quantize_input(cols, self.s_x, self.zp_x)
-        code = self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits).to(
-            torch.int32
-        )
+        code = self.macro.linear(
+            x_int,
+            quantization_mode=self.quantization_mode,
+            adc_active_bits=self.adc_active_bits,
+        ).to(torch.int32)
         # Apply the per-out-channel mult / rshift.
         # Shape: [N, OH*OW, out_channels]
         y = (code + self.bias_int.view(1, 1, -1)) * self.mult.view(1, 1, -1)
@@ -638,7 +627,7 @@ class QuantLinear(nn.Module):
         self.macro = macro
         self.in_features = in_features
         self.out_features = out_features
-        self.quantization_mode, self.adc_bits = _default_op(macro, quantization_mode)
+        self.quantization_mode, self.adc_active_bits = _default_op(macro, quantization_mode)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -646,7 +635,11 @@ class QuantLinear(nn.Module):
             zp_x=zp_x,
             s_w=s_w,
             s_y=s_y,
-            mac_per_code=_mac_per_code(macro, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits),
+            mac_per_code=_mac_per_code(
+                macro,
+                quantization_mode=self.quantization_mode,
+                adc_active_bits=self.adc_active_bits,
+            ),
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)
@@ -663,7 +656,11 @@ class QuantLinear(nn.Module):
         # Shape: [..., K] -> [..., 1, K]
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
         code = (
-            self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits)
+            self.macro.linear(
+                x_int,
+                quantization_mode=self.quantization_mode,
+                adc_active_bits=self.adc_active_bits,
+            )
             .to(torch.int32)
             .squeeze(-2)
         )

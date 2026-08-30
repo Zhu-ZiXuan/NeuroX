@@ -16,7 +16,7 @@ The hard gates:
 3. *RS-CSA energy* — per-conversion energy is flat at both sparsity points
    within tolerance of the anchor and the per-code energy spread lands in the
    measured window; a calibration-consistency check, since ``mirror_scale`` and
-   ``e_fixed_per_op__fJ`` are solved against exactly this constraint pair;
+   ``energy_per_op__fJ`` are solved against exactly this constraint pair;
 4. *zero input* — an all-zero input vector converts to code 0 on every output;
 5. *derived T_AC* — the readout's derived access window equals the measured
    value and is the per-access latency the macro reports.
@@ -124,7 +124,7 @@ _CHANNELS: tuple[tuple[str, str], ...] = (
     ("bl_dac", "BL converter, PER VECTOR: one drive event per column (levels held across the row scan)"),
     (".bl_cond", "macro, PER ACCESS: BL-rail input-branch conduction over T_AC"),
     (".dl_cond", "macro, PER ACCESS: core-rail row branch (raw I_TBL) over T_AC"),
-    ("rscsa", "RS-CSA, PER CONVERSION: E_fixed + per-phase E_code"),
+    ("rscsa", "RS-CSA, PER CONVERSION: E_op + per-phase E_phase"),
     ("mux_driver", "unmodeled block, configured flat per-operation energy"),
     ("timing_ctrl", "unmodeled block, configured flat per-operation energy"),
     ("bl_driver", "ideal BL source; the macro bills the whole input branch"),
@@ -262,7 +262,12 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     # implementation: the macro reaches its code through the physical solve, the
     # per-plane radix sum, the PH0 subtraction, and the RS-CSA's own
     # compare-phase ladder, none of which appears here.
-    i_ref__uA = config.reference_config.i_refs__uA[_QUANTIZATION_MODE][0]
+    reference_values = config.reference_config.values
+    if not isinstance(reference_values, tuple):
+        raise TypeError("reference_config.values must carry the quantization-mode axis")
+    i_ref__uA = reference_values[_QUANTIZATION_MODE]
+    if isinstance(i_ref__uA, tuple):
+        raise TypeError("one RS-CSA mode must select one scalar reference")
 
     x_f = x.to(torch.float64)
     mac = x_f @ w.to(torch.float64)  # [..., col]
@@ -477,7 +482,7 @@ def measure(
             # emitted, so the workload costs no per-round transfer.
             with Profiler(leading_rank=1) as prof:
                 macro.program(w)
-                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
             # One VMM is the macro's reported duration; a die runs the round's
             # `n_x` of them back to back on its single readout, while the dies
             # run in parallel and add nothing.
@@ -491,7 +496,7 @@ def measure(
                     total_dynamic__fJ=reporter.total_dynamic_energy__fJ(prof),
                     total_static__uW=reporter.static.leakage__uW / die_num,
                     window__ns=window__ns,
-                    total_latency__ns=n_x * macro.latency__ns(adc_bits=_ADC_BITS),
+                    total_latency__ns=n_x * macro.latency__ns(adc_active_bits=_ADC_BITS),
                     accesses=n_x * die_num * macro.col_num,
                 )
             )
@@ -610,7 +615,7 @@ def _asymmetric_value_codes(macro: Ye2023JsscCimMacro) -> tuple[list[int], list[
     x = torch.ones((1, macro.row_num), dtype=torch.long, device=device)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     expected, _ = _golden_transfer(macro, w, x)
     return code.long().flatten().tolist(), expected.flatten().tolist()
 
@@ -633,7 +638,7 @@ def gate_golden_transfer(macro: Ye2023JsscCimMacro, *, n: int, seed: int) -> Gat
     x = _draw_input(gen, shape=(n, macro.row_num), p_zero=0.5)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     expected, tap_distance__uA = _golden_transfer(macro, w, x)
 
     # Tap-boundary band [uA]. The macro solves in float32, whose resolution near
@@ -701,7 +706,12 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
     """Per-conversion RS-CSA energy [fJ] for every non-zero code, mid-bin driven."""
     buf = next(macro.buffers())
     device, dtype = buf.device, buf.dtype
-    i_ref__uA = macro.config.reference_config.i_refs__uA[_QUANTIZATION_MODE][0]
+    reference_values = macro.config.reference_config.values
+    if not isinstance(reference_values, tuple):
+        raise TypeError("reference_config.values must carry the quantization-mode axis")
+    i_ref__uA = reference_values[_QUANTIZATION_MODE]
+    if isinstance(i_ref__uA, tuple):
+        raise TypeError("one RS-CSA mode must select one scalar reference")
     # The readout takes the ONE reference current on a ``[1]`` tap axis and
     # derives its whole decision ladder from it; the code step is that current.
     i_refs__uA = torch.tensor([i_ref__uA], dtype=dtype, device=device)
@@ -721,7 +731,7 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
         # leading_rank=0 already collapses this single record to the scalar
         # this helper reads.
         with Profiler() as prof, torch.no_grad():
-            macro.rscsa.convert(i_in__uA, i_refs__uA, bits=_ADC_BITS)
+            macro.rscsa.convert(i_in__uA, i_refs__uA, active_bits=_ADC_BITS)
         out[code] = reporter.by_name(prof)["rscsa"]
     return out
 
@@ -766,7 +776,7 @@ def gate_zero_input(macro: Ye2023JsscCimMacro, *, seed: int) -> GateResult:
     x = torch.zeros((1, macro.row_num), dtype=torch.long, device=device)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     nonzero = int((code != 0).sum())
     return GateResult(
         name="zero input -> code 0",

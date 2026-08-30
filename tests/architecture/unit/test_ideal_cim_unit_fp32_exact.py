@@ -11,7 +11,7 @@ import torch
 from neurox.architecture.unit.ideal import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 
 _QUANTIZATION_MODE = 0
-_ADC_BITS: int | None = None
+_ADC_BITS = 1
 
 
 def _build_unit(
@@ -73,7 +73,7 @@ class TestFastPathBitExactness:
         unit = _build_unit(x_value_range=x_value_range, w_value_range=w_value_range, w_logical_shape=w_logical_shape)
         assert unit._fp32_exact is True
         weight, x = _random_program_and_input(unit, batch=7, seed=11, device=torch.device("cpu"))
-        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.dtype == torch.int64
         assert torch.equal(y, oracle)
@@ -90,7 +90,7 @@ class TestFastPathBitExactness:
         unit.to(device)
         weight, x = _random_program_and_input(unit, batch=7, seed=13, device=device)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
-        y = unit.linear(x.to(device), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        y = unit.linear(x.to(device), quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
@@ -99,7 +99,7 @@ class TestFastPathBitExactness:
         weight, _ = _random_program_and_input(unit, batch=1, seed=17, device=torch.device("cpu"))
         generator = torch.Generator().manual_seed(19)
         x = torch.randint(0, 2, (2, 3, 5, 32), dtype=torch.int32, generator=generator)
-        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.shape == (2, 3, 5, 4)
         assert torch.equal(y, oracle)
@@ -117,5 +117,5 @@ class TestFallbackTrigger:
         assert torch.tensor(2**24 + 1, dtype=torch.float32).item() == 2**24
         unit.program(torch.tensor([[2**23, 2**23, 1]], dtype=torch.int32))
         x = torch.ones(1, 3, dtype=torch.int32)
-        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        y = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
         assert y.item() == 2**24 + 1

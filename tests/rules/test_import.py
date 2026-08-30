@@ -315,8 +315,17 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
                     offender = f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}"
                     if relationship == "same package":
                         wrong_form.append(f"{offender} (sibling file requires a relative import)")
-                    else:
+                    elif (exports := _declared_exports(module)) is None:
                         concrete_crossings.append(f"{offender} ({relationship})")
+                    else:
+                        missing = sorted(
+                            alias.name for alias in node.names if alias.name != "*" and alias.name not in exports
+                        )
+                        if missing:
+                            unexported.append(
+                                f"{offender} (not in public module {module.relative_to(REPO_ROOT)}/__all__: "
+                                f"{', '.join(missing)})"
+                            )
                     continue
 
                 package = _package_face(node.module)
@@ -350,7 +359,7 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
                         offender = f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}"
                         if relationship == "same package":
                             wrong_form.append(f"{offender} (sibling file requires a relative import)")
-                        else:
+                        elif _declared_exports(module) is None:
                             concrete_crossings.append(f"{offender} ({relationship})")
                         continue
                     if _package_face(alias.name) is None:
@@ -366,15 +375,19 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
         if wrong_form:
             details.append("Imports using the wrong relative/absolute form:\n  " + "\n  ".join(wrong_form))
         if concrete_crossings:
-            details.append("Concrete files crossed outside their ownership case:\n  " + "\n  ".join(concrete_crossings))
+            details.append(
+                "Concrete files without a public module face crossed outside their ownership case:\n  "
+                + "\n  ".join(concrete_crossings)
+            )
         if unexported:
             details.append("Imports bypassing a package's `__all__` face:\n  " + "\n  ".join(unexported))
         pytest.fail(
             "Rule: sibling files and direct child packages use single-dot relative imports; a descendant "
             "uses a strict ancestor's directly owned file by absolute path; every other NeuroX dependency "
-            "uses the target package's absolute `__all__` face. The same rule applies to library, tool, "
-            "and validation callers.\nFix: choose the import form from the ownership relationship, and "
-            "export cross-package names from their owning package.\n" + "\n".join(details)
+            "uses an absolute package or public-module `__all__` face. The same rule applies to library, "
+            "tool, and validation callers.\nFix: choose the import form from the ownership relationship, "
+            "and export cross-package names from their owning package or an intentional public module.\n"
+            + "\n".join(details)
         )
 
 

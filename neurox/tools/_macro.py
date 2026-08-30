@@ -10,8 +10,8 @@ import torch
 from torch import Tensor
 
 from neurox.common import ValidateMixin
-from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
+from neurox.primitive.physics import T_ROOM__K
 
 from ._config import resolve_relative_path
 
@@ -73,7 +73,7 @@ def build_ideal_twin(
     *,
     device: torch.device,
 ) -> IdealCimMacro:
-    """Build the lossless ideal twin; weights remain independently programmed."""
+    """Build the ideal twin; weights remain independently programmed."""
     ideal = macro.to_ideal().to(device)
     ideal.eval()
     return ideal
@@ -84,11 +84,13 @@ def unroll_active_positions(
     *,
     input_num: int,
     max_active_num: int,
-    inst_rank: int,
+    inst_shape: tuple[int, ...],
 ) -> Tensor:
-    """Partition input positions into legal caller-side conversion planes."""
+    """Partition inputs into planes aligned to the called macro's instances."""
+    inst_rank = len(inst_shape)
     plane_num = -(-input_num // max_active_num)
     plane_of_input = torch.arange(input_num, device=x.device) // max_active_num
     mask = plane_of_input == torch.arange(plane_num, device=x.device).unsqueeze(-1)
     mask = mask.reshape(plane_num, *(1,) * inst_rank, input_num)
-    return torch.where(mask, x.unsqueeze(-(inst_rank + 2)), x.new_zeros(()))
+    planes = torch.where(mask, x.unsqueeze(-(inst_rank + 2)), x.new_zeros(()))
+    return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, input_num)

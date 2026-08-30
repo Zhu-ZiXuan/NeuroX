@@ -71,14 +71,14 @@ class RramPolicy(PolicyBase):
 
 class RramDcop(DcopBase):
     i__uA: Tensor
-    """Current through the cell at the evaluated voltage. Shape: `[...]`."""
+    """Current through the cell at the evaluated voltage."""
     di_dv__uS: Tensor
-    """Slope of the I-V law at the evaluated voltage. Shape: `[...]`."""
+    """Slope of the I-V law at the evaluated voltage."""
 
 
 class RramSnap(SnapBase):
     g__uS: Tensor
-    """Sampled per-cell conductance, read noise included. Shape: `[...]`."""
+    """Sampled per-cell conductance, read noise included."""
 
 
 class Rram(ModuleBase[RramConfig, RramPolicy]):

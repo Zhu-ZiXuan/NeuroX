@@ -55,9 +55,9 @@ def _wrap_entry(root: LinearUnit, shapes: dict[LinearUnit, tuple[int, ...]]) -> 
     """
     original = root.linear
 
-    def wrapped(input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def wrapped(input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         shapes[root] = tuple(input.shape)
-        return original(input, quantization_mode=quantization_mode, adc_bits=adc_bits)
+        return original(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
     vars(root)["linear"] = wrapped
 
@@ -115,7 +115,7 @@ def initiation_interval_per_sample__ns(model: nn.Module, root_shapes: dict[Linea
         shape = root_shapes.get(root)
         if shape is None:
             raise RuntimeError(f"no captured input shape for {type(root).__name__}; forward never ran")
-        total__ns += root.initiation_interval__ns(shape, adc_bits=layer.adc_bits)
+        total__ns += root.initiation_interval__ns(shape, adc_active_bits=layer.adc_active_bits)
     return total__ns
 
 

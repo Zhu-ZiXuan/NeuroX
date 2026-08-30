@@ -10,6 +10,7 @@ from .module import (
     stamp_names,
 )
 from .profiler import EnergyRecord, Profiler
+from .quantization import stochastic_round
 from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
 from .reporter import DynamicEntry, Reporter, StaticEntry, StaticMetrics
@@ -44,6 +45,7 @@ __all__ = [
     "check_unique_neurox_bindings",
     "fabricate",
     "stamp_names",
+    "stochastic_round",
     "torch_compiler_disable",
     "walk_tensor_fields",
 ]

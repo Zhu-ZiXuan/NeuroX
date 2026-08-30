@@ -49,14 +49,10 @@ class Ye2023Jssc2t1rCellPolicy(XbarCell1t1rLinearPolicy):
 class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
     i_t2_floor__uA: Tensor
     """Unit-scale (m = 1) T2 current at the floor operating point `V_X = 0`, pre-selected
-    for the programmed state.
-    Shape: `[..., col, row]`.
-    """
+    for the programmed state."""
     i_t2_drive__uA: Tensor
     """Unit-scale (m = 1) T2 current at the drive operating point `V_X > 0`, pre-selected
-    for the programmed state.
-    Shape: `[..., col, row]`.
-    """
+    for the programmed state."""
 
 
 class Ye2023Jssc2t1rCell(
@@ -130,7 +126,6 @@ class Ye2023Jssc2t1rCell(
 
         Args:
             control: Per-cell word-line drive voltage [V].
-                Shape: `[..., col, row]`.
             shape: Per-call broadcast shape `(..., col, row)` the per-cell fields fill.
             t_elapsed: Time elapsed since programming [s]; unused — the lookup model
                 holds no time-dependent read state.
@@ -166,12 +161,10 @@ class Ye2023Jssc2t1rCell(
         Args:
             dcop: Converged branch working point of this cell, whose `v_x__V` selects
                 the calibration point.
-                Shape: `[..., col, row]`.
             snap: Per-call snap of the programmed state.
 
         Returns:
             Unit-scale T2 current.
-            Shape: `[..., col, row]`.
         """
         on = snap.v_wl__V > self.config.v_wl_on_threshold__V
         return torch.where(on, torch.where(dcop.v_x__V > 0.0, snap.i_t2_drive__uA, snap.i_t2_floor__uA), 0.0)

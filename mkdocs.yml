@@ -88,10 +88,9 @@ nav:
         - Family: reference/primitive/analog/current_dac/family.md
         - General: reference/primitive/analog/current_dac/general.md
       - Current mux: reference/primitive/analog/current_mux.md
-      - Current reference: reference/primitive/analog/current_reference.md
+      - Reference source: reference/primitive/analog/reference.md
       - Differential voltage ADC:
         - Family: reference/primitive/analog/diff_voltage_adc/family.md
-        - General: reference/primitive/analog/diff_voltage_adc/general.md
         - MCS SAR: reference/primitive/analog/diff_voltage_adc/mcs_sar.md
       - Switch cap: reference/primitive/analog/switch_cap.md
       - Unmodeled block: reference/primitive/analog/unmodeled.md
@@ -100,7 +99,6 @@ nav:
         - General: reference/primitive/analog/voltage_dac/general.md
       - Voltage driver: reference/primitive/analog/voltage_driver.md
       - Voltage mux: reference/primitive/analog/voltage_mux.md
-      - Voltage reference: reference/primitive/analog/voltage_reference.md
     - Device:
       - MOSFET: reference/primitive/device/mosfet.md
       - RRAM: reference/primitive/device/rram.md

@@ -48,7 +48,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
             ideal_macro=ideal_macro,
         )
 
-    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int) -> float:
         """Schedule the matmul this linear call lowers to.
 
         The unit introduces no time axis of its own; it restates the call in
@@ -57,7 +57,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
         nothing the plane count needs, so it is not read.
         """
         del input_shape
-        return self.engine.initiation_interval__ns(output_plane_num=1, adc_bits=adc_bits)
+        return self.engine.initiation_interval__ns(output_plane_num=1, adc_active_bits=adc_active_bits)
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:

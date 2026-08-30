@@ -377,7 +377,6 @@ def main(argv: list[str] | None = None) -> int:
         log.info("    %-12s  %.3e  (reltol = %.1e)", k, v, cfg.sweep.reltol)
     log.info("")
     log.info("TOML fragment for the solver table at %s:", cfg.macro.solver_section)
-    log.info('    _neurox_class = "ColBlColSlSolverConfig"')
     log.info("    n_outer = %d", final_outer)
     log.info("    n_inner = %d", final_inner)
     log.info("=" * 80)

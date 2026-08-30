@@ -34,15 +34,15 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.analog import (
-    IrefConfig,
-    IrefPolicy,
+    ReferenceConfig,
+    ReferencePolicy,
     UnmodeledBlockConfig,
     UnmodeledBlockPolicy,
     VoltageDriverConfig,
     VoltageDriverPolicy,
 )
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
-from neurox.primitive.macro.cim import CimMacro, CimMacroMode
+from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 from neurox.works.macro.cim.ye2023jssc import (
     Ye2023JsscCimMacro,
@@ -82,7 +82,7 @@ T_PHASE__ns = (1.0, 2.0, 4.0, 8.0, 16.0)  # PH0 + one compare phase per bit, MSB
 T_INTRINSIC__ns = (0.5, 0.25, 0.75, 0.5)  # one latch delay per compare phase, deliberately unequal
 T_AC__ns = sum(T_PHASE__ns[:-1]) + T_INTRINSIC__ns[-1]  # the derived window at the FULL phase set
 MIRROR_SCALE = 0.25
-E_FIXED__fJ = 2.0
+ENERGY_PER_OP__fJ = 2.0
 
 # --- Total capacitance to ground seen at each node [fF] ---
 BL_NODE_C__fF = 0.3
@@ -171,20 +171,20 @@ def adc_config(*, adc_bits: int = TINY_ADC_BITS) -> RsCsaIadcConfig:
         t_phase__ns=T_PHASE__ns,
         t_intrinsic__ns=T_INTRINSIC__ns,
         mirror_scale=MIRROR_SCALE,
-        e_fixed_per_op__fJ=E_FIXED__fJ,
+        energy_per_op__fJ=ENERGY_PER_OP__fJ,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=4.0,
     )
 
 
-def reference_config() -> IrefConfig:
+def reference_config() -> ReferenceConfig:
     """The readout's single reference current — one tap, one row per mode.
 
     The reference IS the code step here (`I_REF = I_UNIT - FLOOR`), so the
     RS-CSA code equals the unsigned MAC.
     """
-    return IrefConfig(
-        i_refs__uA=((I_REF__uA,),),  # outer tuple = mode axis (single mode)
+    return ReferenceConfig(
+        values=(I_REF__uA,),
         tolerance_sigma_relative=0.0,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
@@ -239,15 +239,8 @@ def build_config(
         v_tbl__V=V_TBL__V,
         v_sl__V=V_SL__V,
         vdd__V=VDD__V,
-        # One code carries one MAC unit, so the window holds the 2**adc_bits
-        # codes the readout resolves and the rescale factor is the identity.
-        modes=(
-            CimMacroMode(
-                quantization_input_range=(0, (1 << adc_bits) - 1),
-                adc_input_code_range=(0, (1 << adc_bits) - 1),
-                max_bits_rescale_factor=1.0,
-            ),
-        ),
+        # One output code carries one MAC unit at full resolution.
+        rescale_factors=(1.0,),
     )
 
 
@@ -259,7 +252,7 @@ def build_all_off_policy() -> Ye2023JsscCimMacroPolicy:
             solve_chunk_size=0,
         ),
         adc_policy=RsCsaIadcPolicy(),
-        reference_policy=IrefPolicy(tolerance=False),
+        reference_policy=ReferencePolicy(tolerance=False),
         wl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         bl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         bl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
@@ -332,7 +325,7 @@ def decode(
     x: Tensor,
     *,
     quantization_mode: int = QUANTIZATION_MODE,
-    adc_bits: int = TINY_ADC_BITS,
+    adc_active_bits: int = TINY_ADC_BITS,
 ) -> Tensor:
     """Program logical unsigned weights and run one VMM.
 
@@ -341,5 +334,5 @@ def decode(
     device = macro_device(macro)
     macro.program(w_val.to(device))
     with torch.no_grad():
-        out = macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_bits=adc_bits)
+        out = macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
     return out.cpu()

@@ -106,7 +106,6 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
             y = y + init_val
 
         if self._is_dynamic_energy_profile_active():
-            # Shape: [] -> [*x.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
             self._record_dynamic_energy(e_op__fJ.expand(x.shape))
         return y

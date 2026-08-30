@@ -7,111 +7,47 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, final
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
 
 
-def validate_quantization_input_range(code_range: tuple[int, int]) -> None:
-    """Require one canonical quantization window.
+class CimMacroQuantizationScheme(Enum):
+    """Macro output quantization scheme."""
 
-    Two window shapes are legal, and only these two put the zero point on a
-    bin edge at every bit width: unsigned `[0, upper]` with `upper >= 1`, and
-    mid-zero `[-m, m - 1]` with `m >= 1`. A symmetric window `[-n, n]` holds
-    zero strictly inside a bin and its threshold ladders do not nest across
-    bit widths, so it is rejected rather than canonicalized.
-
-    Args:
-        code_range: Inclusive integer bounds `(lower, upper)` in MAC units.
-
-    Raises:
-        ValueError: The pair is not one of the two canonical shapes.
-    """
-    lower, upper = code_range
-    if lower == 0 and upper >= 1:
-        return
-    if lower < 0 and upper == -lower - 1:
-        return
-    raise ValueError(
-        f"require: quantization_input_range ({lower}, {upper}) is canonical — "
-        f"unsigned [0, upper] with upper >= 1, or mid-zero [-m, m - 1]"
-    )
-
-
-def map_magnitude_input_code(code: Tensor, *, code_range: tuple[int, int]) -> tuple[Tensor, tuple[int, int]]:
-    """Map quantization input codes onto a sign-magnitude ADC input grid.
-
-    Args:
-        code: Exact integer MAC-unit codes entering the quantizer.
-        code_range: The mode's canonical quantization input range.
-
-    Returns:
-        The magnitudes the converter discriminates, and the inclusive ADC
-        input code range `(0, upper)` its taps cover. A mid-zero window's
-        bottom value has magnitude `upper + 1`, one step outside the returned
-        range: the circuit resolves no tap there.
-    """
-    validate_quantization_input_range(code_range)
-    _, upper = code_range
-    return code.abs(), (0, upper)
-
-
-def map_zero_point_input_code(code: Tensor, *, code_range: tuple[int, int]) -> tuple[Tensor, tuple[int, int]]:
-    """Map quantization input codes onto a zero-point ADC input grid.
-
-    Args:
-        code: Exact integer MAC-unit codes entering the quantizer.
-        code_range: The mode's canonical quantization input range.
-
-    Returns:
-        The offset codes `code - lower`, and the inclusive ADC input code
-        range `(0, upper - lower)` they span. The map is the identity for an
-        unsigned window.
-    """
-    validate_quantization_input_range(code_range)
-    lower, upper = code_range
-    return code - lower, (0, upper - lower)
-
-
-@dataclass(frozen=True)
-class CimMacroMode(ValidateMixin):
-    """One quantization operating point of a physical CIM macro."""
-
-    quantization_input_range: tuple[int, int]
-    """Canonical inclusive MAC-unit window `(lower, upper)` the mode converts."""
-    adc_input_code_range: tuple[int, int]
-    """Inclusive range of the ADC input codes the mode's converter
-    discriminates — circuit knowledge calibrated per mode, not a restatement
-    of the conversion window."""
-    max_bits_rescale_factor: float
-    """This mode's output code at `adc_max_bits`, in ideal-macro codes."""
-
-    def __post_init__(self) -> None:
-        self.validate()
-
-    def validate(self) -> None:
-        validate_quantization_input_range(self.quantization_input_range)
-        lower, upper = self.adc_input_code_range
-        self._require_non_neg(lower, "adc_input_code_range lower")
-        self._require_gt(upper, "adc_input_code_range upper", lower)
-        self._require_pos(self.max_bits_rescale_factor, "max_bits_rescale_factor")
+    ZERO_POINT = "zero_point"
+    SIGN_MAGNITUDE = "sign_magnitude"
 
 
 class CimMacroConfig(ConfigBase, ABC):
+    rescale_factors: tuple[float, ...]
+    """MAC units represented by one output code at `adc_bits`, indexed by
+    `quantization_mode`."""
+
     area_per_inst__um2: float
+    """Macro-owned area per instance, excluding profiled child modules."""
+
     leakage_per_inst__uW: float
+    """Macro-owned leakage per instance, excluding profiled child modules."""
+
     max_active_num: int
     """Maximum number of input positions one conversion may select; positions
     outside the selected set must be zero."""
 
     def validate(self) -> None:
+
+        # --- Output scales ---
+
+        self._require_non_empty(self.rescale_factors, "rescale_factors")
+        for index, factor in enumerate(self.rescale_factors):
+            self._require_pos(factor, f"rescale_factors[{index}]")
 
         # --- Activation limit ---
 
@@ -169,6 +105,16 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         """Maximum number of input positions selected by one conversion."""
         return self.config.max_active_num
 
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
     @classmethod
     def from_config(
         cls,
@@ -197,29 +143,6 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
             T__K=T__K,
         )
 
-    @staticmethod
-    def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
-        """Split the trailing column axis into a lane grid.
-
-        The lane axis aligns with a fabricated instance axis — parallel circuit
-        copies — while the in-lane position is time-serial on its lane. Requires
-        exact divisibility.
-
-        Args:
-            t: Tensor whose trailing axis enumerates columns.
-                Shape: `[..., lane_num · col_per_lane]`.
-            col_per_lane: Columns sharing one lane.
-
-        Returns:
-            The same values regrouped, lane axis ahead of the in-lane
-            position.
-            Shape: `[..., lane_num, col_per_lane]`.
-        """
-        if t.shape[-1] % col_per_lane != 0:
-            raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
-        split: Tensor = t.unflatten(-1, (-1, col_per_lane))
-        return split
-
     @property
     @abstractmethod
     def x_value_range(self) -> tuple[int, int]:
@@ -234,47 +157,25 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
     @property
     @abstractmethod
-    def quantization_input_ranges(self) -> tuple[tuple[int, int], ...]:
-        """Canonical conversion window per mode, in MAC units.
-
-        The tuple position is the `quantization_mode` index and the tuple
-        length is the mode count.
-        """
+    def adc_bits(self) -> int:
+        """Maximum selectable ADC resolution."""
         raise NotImplementedError
 
     @property
     @abstractmethod
-    def adc_max_bits(self) -> int:
-        """Maximum supported `adc_bits` value."""
+    def _quantization_scheme(self) -> CimMacroQuantizationScheme:
         raise NotImplementedError
 
-    @abstractmethod
-    def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return the rescale factor of one mode at the maximum bit width.
+    @final
+    def _check_quantization_mode(self, quantization_mode: int) -> None:
+        mode_num = len(self.config.rescale_factors)
+        if not (0 <= quantization_mode < mode_num):
+            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
 
-        Args:
-            quantization_mode: Mode index in
-                `[0, len(quantization_input_ranges))`.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def map_quantization_input_code(self, code: Tensor, *, quantization_mode: int) -> tuple[Tensor, tuple[int, int]]:
-        """Map exact MAC-unit codes onto this macro's ADC input code grid.
-
-        The grid is the axis the macro's converter discriminates on: a
-        magnitude for a sign-magnitude scheme, a zero-point offset for an
-        offset scheme.
-
-        Args:
-            code: Exact integer plane dots — the quantizer's input codes.
-            quantization_mode: Mode index in
-                `[0, len(quantization_input_ranges))`.
-
-        Returns:
-            The mapped input codes and their inclusive range.
-        """
-        raise NotImplementedError
+    @final
+    def _check_adc_active_bits(self, adc_active_bits: int) -> None:
+        if not (1 <= adc_active_bits <= self.adc_bits):
+            raise ValueError(f"require: adc_active_bits ({adc_active_bits}) in [1, adc_bits ({self.adc_bits})]")
 
     @abstractmethod
     def restore_adc_layout(self, value: Tensor) -> Tensor:
@@ -286,17 +187,16 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
         Returns:
             The same values arranged like `vec_mat_mul` output.
-                Shape: `[..., *inst_shape, output_num]`.
+                Shape: `[..., output_num]`.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, *, adc_active_bits: int) -> float:
         """Scheduled interval occupied by one `vec_mat_mul` call [ns].
 
         Args:
-            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
-                or `None` for the lossless oracle.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
         """
         raise NotImplementedError
 
@@ -306,74 +206,57 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
         Args:
             w: Integer weight tensor matching the logical matrix geometry
-                supplied at construction. Entries must lie in
-                `w_value_range`.
+                supplied at construction. Entries must lie in `w_value_range`.
                 Shape: `[*inst_shape, input_num, output_num]`.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         """Run one conversion per word-line plane.
 
         Args:
-            x: Logical input tensor; leading axes are broadcast batch
-                dimensions. At most `max_active_num` positions may be
-                selected per conversion; unselected positions must be zero.
-                Entries must lie in `x_value_range`.
+            x: Logical input tensor whose leading axes end with the complete
+                `inst_shape`-aligned block. At most `max_active_num` positions
+                may be selected per conversion; unselected positions must be
+                zero. Entries must lie in `x_value_range`.
                 Shape: `[..., input_num]`.
-            quantization_mode: Mode index in
-                `[0, len(quantization_input_ranges))`; selects the
-                conversion window and its reference taps.
-            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
-                or `None` for the lossless oracle.
+            quantization_mode: Index selecting one reference operating point
+                and its calibrated output scale.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
 
         Returns:
-            Output-code tensor whose leading axes broadcast the input's
-            against `inst_shape`.
+            Final macro output-code tensor retaining the input's aligned leading axes.
             Shape: `[..., output_num]`.
         """
         raise NotImplementedError
 
-    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
-        """Return this macro's output code expressed in ideal-macro codes.
+    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+        """Return the MAC units represented by one output code.
 
-        One bit-width law holds for every macro, `r_b = r_B · 2^(B - b)` with
-        `B = adc_max_bits`, since dropping a bit doubles what one code
-        carries; a concrete class supplies `r_B` alone. Dequantization into
-        MAC units belongs to the algorithm side, which owns the window step.
+        A mode supplies the full-resolution factor. Dropping one ADC decision
+        bit doubles the MAC interval represented by one final output code.
 
         Args:
-            quantization_mode: Mode index in
-                `[0, len(quantization_input_ranges))`.
-            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
-                or `None` for the lossless oracle, which is outside the
-                bit-width chain.
+            quantization_mode: Index selecting the calibrated output scale.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
 
         Returns:
-            `1.0` for the lossless oracle; otherwise `r_b`.
+            The selected-resolution rescale factor `r_b`.
 
         Raises:
-            ValueError: Resolution is neither `None` nor in
-                `[1, adc_max_bits]`.
+            ValueError: Resolution is outside `[1, adc_bits]`.
         """
-        if adc_bits is None:
-            return 1.0
-        max_bits = self.adc_max_bits
-        if not (1 <= adc_bits <= max_bits):
-            raise ValueError(
-                f"require: adc_bits ({adc_bits}) in [1, adc_max_bits ({max_bits})] or None for the lossless oracle"
-            )
-        return self._max_bits_rescale_factor(quantization_mode) * float(1 << (max_bits - adc_bits))
+        self._check_quantization_mode(quantization_mode)
+        self._check_adc_active_bits(adc_active_bits)
+        factor = self.config.rescale_factors[quantization_mode]
+        return factor * float(1 << (self.adc_bits - adc_active_bits))
 
     def to_ideal(self) -> IdealCimMacro:
-        """Return an ideal twin quantizing over the published windows.
+        """Return an ideal twin using the calibrated output scales.
 
-        The twin inherits this macro's logical geometry, instance
-        multiplicity, value domains, published quantization windows and
-        `adc_max_bits`. A macro whose encoding resolves a wider signed code
-        range than its converter bit width overrides this to publish that
-        wider width.
+        The twin inherits this macro's logical geometry, instance multiplicity,
+        value domains, mode scales and quantization scheme.
         """
         # Local import — the `ideal` module imports from this file, so the
         # symbols are only safe to resolve at call time.
@@ -381,11 +264,14 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
         input_num, output_num = self._logical_shape
         config = IdealCimMacroConfig(
-            **{f.name: getattr(self.config, f.name) for f in fields(CimMacroConfig)},
+            rescale_factors=self.config.rescale_factors,
+            area_per_inst__um2=self.config.area_per_inst__um2,
+            leakage_per_inst__uW=self.config.leakage_per_inst__uW,
+            max_active_num=self.config.max_active_num,
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
-            quantization_input_ranges=self.quantization_input_ranges,
-            adc_max_bits=self.adc_max_bits,
+            adc_bits=self.adc_bits,
+            quantization_scheme=self._quantization_scheme,
         )
         return IdealCimMacro(
             config=config,

@@ -137,11 +137,6 @@ class _XbarArray1t1rSolveOperands[
 class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](ModuleBase[ConfigT, PolicyT]):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
-    Geometry arrives whole at construction: the standard `inst_shape`
-    replication prefix plus the two scalar counts. `weight_grid_shape`
-    concatenates them into the per-cell grid the cell sub-module is built at,
-    so geometry is never recovered from lifecycle-produced state.
-
     Args:
         scan_mode: Scan mode the capacitive billing follows.
         vdd__V: Core analog supply behind every array-node capacitance.
@@ -183,7 +178,7 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         self.cell = XbarCell1t1r.from_config(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
-            inst_shape=self.weight_grid_shape,
+            inst_shape=(*self.inst_shape, self._col_num, self._row_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -193,11 +188,6 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         """Number of programmable states exposed by each cell."""
         return self.cell.w_state_num
 
-    @property
-    def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid: `(*inst_shape, col_num, row_num)`."""
-        return (*self.inst_shape, self._col_num, self._row_num)
-
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
@@ -206,14 +196,12 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         slots onto physical columns lies outside this array.
 
         Args:
-            w_state_idx: State-index tensor in `[0, w_state_num - 1]` at
-                `self.weight_grid_shape`.
+            w_state_idx: State-index tensor in `[0, w_state_num - 1]`.
                 Shape: `[*inst_shape, col_num, row_num]`.
         """
-        if tuple(w_state_idx.shape) != self.weight_grid_shape:
-            raise ValueError(
-                f"program() expects w_state_idx.shape {self.weight_grid_shape}; got {tuple(w_state_idx.shape)}"
-            )
+        expected_shape = self.cell.inst_shape
+        if tuple(w_state_idx.shape) != expected_shape:
+            raise ValueError(f"program() expects w_state_idx.shape {expected_shape}; got {tuple(w_state_idx.shape)}")
         self.cell.program(w_state_idx)
 
     def solve_array[BLSnapT: ClampSnap, BLDcopT: ClampDcop, SLSnapT: ClampSnap, SLDcopT: ClampDcop](
@@ -300,7 +288,6 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
             # The cell's finer (column, row) axes are already folded by the
             # mode's energy function; the collector sums this array's own work
             # and instance axes past the call's leading dims.
-            # Shape: [...]
             self._record_dynamic_energy(projection.energy__fJ)
         return projection.steady_state
 

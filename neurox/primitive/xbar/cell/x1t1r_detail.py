@@ -32,7 +32,7 @@ from .x1t1r import (
 
 class XbarCell1t1rDetailRecord(RecordBase):
     cell__uA: Tensor
-    """`|I_NMOS - I_RRAM|` per cell at the condensed V_X. Shape: `[..., col, row]`."""
+    """`|I_NMOS - I_RRAM|` per cell at the condensed V_X."""
 
 
 class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):

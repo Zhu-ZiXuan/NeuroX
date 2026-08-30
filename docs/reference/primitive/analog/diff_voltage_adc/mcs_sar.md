@@ -33,7 +33,7 @@ Per-conversion energy is the sum of:
 - one-shot sampling energy: the bottom plates track $V_{\mathrm{in}}$ during sample and snap to $V_{\mathrm{cm}}$ on release;
 - per-cycle MCS switching energy (derived below);
 - reset energy dissipating the residual differential charge left on the two arrays (derived below);
-- a lump-sum overhead $E_{\mathrm{bootstrap}} + b\cdot E_{\mathrm{const}/\mathrm{bit}}$.
+- a lump-sum overhead $E_{\mathrm{op}} + b\cdot E_{\mathrm{bit}}$.
 
 ### Switching energy
 
@@ -99,17 +99,17 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
-| `max_bits` | physical CDAC depth $b_{\max}$ | — | $\geq 2$ | Design |
-| `clk_period__ns` | SAR clock period | ns | $> 0$ | Design |
+| `bits` | physical CDAC depth $b_{\max}$ | — | $\geq 2$ | Design |
+| `latency_per_bit__ns` | SAR clock period and latency per output bit | ns | $> 0$ | Design |
 | `c_unit__fF` | unit-cap capacitance | fF | $> 0$ | Design |
 | `cap_mismatch_sigma_relative` | per-cap Pelgrom mismatch sigma | — | $\geq 0$ | Measured |
 | `comparator_offset_sigma__V` | static comparator-offset sigma | V | $\geq 0$ | Measured |
 | `comparator_thermal_noise_sigma__V` | per-cycle comparator-noise sigma (at 300 K) | V | $\geq 0$ | Measured |
-| `e_bootstrap__fJ` | per-conversion bootstrap energy | fJ | $\geq 0$ | Design |
-| `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | $\geq 0$ | Design |
+| `energy_per_op__fJ` | per-conversion energy overhead | fJ | $\geq 0$ | Design |
+| `energy_per_bit__fJ` | per-bit energy overhead | fJ | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
-The reference voltage is not a parameter of this ADC — it is supplied per conversion (see [family](family.md)). This topology divides one full-scale reference internally, so its reference count is one: the injected bank carries a single tap. A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
+The reference voltage is not a parameter of this ADC — it is supplied per conversion (see [family](family.md)). This topology divides one full-scale reference internally, so its reference count is one: the injected bank carries a single tap. A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `latency_per_bit__ns`. Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -123,13 +123,13 @@ The reference voltage is not a parameter of this ADC — it is supplied per conv
 | $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |
 | $C_{\mathrm{unit}}$ | unit-cap capacitance | fF | `c_unit__fF` |
 | $C_{\mathrm{diff}}$ | residual differential capacitance after the SAR loop | fF | `c_diff__fF` |
-| $b$ | resolution (bits) | — | `bits` |
-| $b_{\max}$ | physical CDAC depth | — | `max_bits` |
+| $b$ | active resolution, per call | — | `active_bits` |
+| $b_{\max}$ | physical CDAC depth | — | `bits` |
 | $E_k$ | signed per-cycle MCS switching energy | fJ | energy accounting |
 | $\overline{E}_{\mathrm{sw}}$ | equiprobable-code-average switching energy | fJ | energy accounting |
 | $f_k$ | signed prior-bit factor in $E_k$ | — | energy accounting |
 | $E_{\mathrm{reset}}$ | reset-phase residual-charge dissipation | fJ | energy accounting |
-| $E_{\mathrm{bootstrap}}, E_{\mathrm{const}/\mathrm{bit}}$ | energy overheads | fJ | `e_bootstrap__fJ`, `e_constant_per_bit__fJ` |
+| $E_{\mathrm{op}}, E_{\mathrm{bit}}$ | energy overheads | fJ | `energy_per_op__fJ`, `energy_per_bit__fJ` |
 | $T$ | operating temperature | K | `T__K` |
 | $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
 | $\sigma_V$ | kT/C sampling-noise sigma on a held top plate | V | derived from $T$, $C_{\mathrm{total}}$ |

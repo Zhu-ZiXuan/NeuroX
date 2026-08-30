@@ -4,7 +4,7 @@
 # neurox/works/macro/cim/ye2023jssc/; measured outcomes: results.md.
 #
 # The SANCTIONED free-parameter set is exactly four numbers: the RS-CSA
-# `mirror_scale` and `e_fixed_per_op__fJ`, and the two transcribed seat powers.
+# `mirror_scale` and `energy_per_op__fJ`, and the two transcribed seat powers.
 # Every other value carries a non-[calibrated] tag and is pinned by it.
 #
 # PENDING RECAL. Two families of value below are unsolved, so the validate gate
@@ -52,16 +52,10 @@ leakage_per_inst__uW = 0.0
 
 
 # --- Quantization operating points (single nominal mode) ---
-# The RS-CSA is a 4-bit uniform current quantizer; the rescale maps its integer
-# code onto the ideal macro's code at the same bit width.
+# The RS-CSA is a 4-bit uniform current quantizer.
 # [derived] I_LSB = 7 uA against 0.5 uA per unit MAC -> a code carries 14 MAC
-# units, so the 16-code window spans [0, 223]. The unsigned readout rises with
-# the MAC itself, so its input code axis IS that window, and one code carries
-# exactly the window step the ideal macro resolves at 4 bits -> no rescale.
-[[cim_macro.modes]]
-quantization_input_range = [0, 223]
-adc_input_code_range = [0, 223]
-max_bits_rescale_factor = 1.0
+# units.
+rescale_factors = [14.0]
 
 
 # --- WH-2T1R array (works-local) -- chunk-fused step1 divider solve + step2 I_T2 sum ---
@@ -111,7 +105,6 @@ tbl_node_c__fF = 0.0355
 # R_T1 = sqrt(R_HRS * R_LRS) = 31.6 k [derived] -- the half-activated T1
 # geometric-mean bias point that maximizes dV_X (p4 Fig.5).
 [cim_macro.array_config.cell_config]
-_neurox_class = "Ye2023Jssc2t1rCellConfig"
 
 # --- Divider tables [uS] / ratios, indexed by weight-state (0 = HRS, 1 = LRS) ---
 # [derived] g_cell = 1 / (R_RRAM + R_T1): HRS = 1/131.6k, LRS = 1/41.6k;
@@ -143,7 +136,6 @@ i_t2_table__uA = [[0.002841, 0.002841], [0.0075, 0.50]]
 # One active row per output -> a light, near-linear solve; the nested counts are
 # still used (BL/SL wire coupling).
 [cim_macro.array_config.solver_config]
-_neurox_class = "ColBlColSlSolverConfig"
 # [assumed] step1 iteration counts; the run config for a formal sweep is under tools/.
 n_outer = 4
 n_inner = 3
@@ -153,7 +145,7 @@ n_inner = 3
 # The PH0 compensation current the readout subtracts is the macro-level
 # `i_ph0_comp__uA` seat above; the readout itself declares no field for it.
 [cim_macro.adc_config]
-# [derived] Structural zeros: the readout self-bills E_fixed + E_code as dynamic,
+# [derived] Structural zeros: the readout self-bills per-op and per-phase energy as dynamic,
 # so it carries no static seat.
 area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
@@ -168,20 +160,19 @@ t_phase__ns = [5.0, 20.0, 20.0, 20.0, 20.0]
 # [measured p7 Fig.18] t1..t4: each compare phase's start -> its own comparator
 # output valid, MSB-first; T_AC(4) = PH0+PH1+PH2+PH3+t4 = 66 ns, T_AC(1) = PH0+t1 = 10 ns.
 t_intrinsic__ns = [5.0, 1.0, 1.0, 1.0]
-# [calibrated] mirror_scale and e_fixed_per_op__fJ solve ONE shared constraint
+# [calibrated] mirror_scale and energy_per_op__fJ solve ONE shared constraint
 # pair (the Fig.19 per-conversion energy anchor and the Fig.11(b) code-spread
 # window); bounds, solved values and residuals live in results.md.
 mirror_scale = 0.1446             # [calibrated] comparator-side mirror scale: the fraction of the compared branch current the comparator draws over a phase
-e_fixed_per_op__fJ = 392.5        # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
+energy_per_op__fJ = 392.5         # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
 
 
-# --- RS-CSA reference source (Iref) -- the ONE current the compare phases scale ---
-# The readout takes a single reference current and weighs it by 2**(bits - p) in
-# compare phase p, so the bank is single-tap; one row per quantization mode (this
-# design point declares one), and the macro names the mode the source returns.
+# --- RS-CSA reference source ---
+# One value per quantization mode; the macro selects the active mode and gives
+# the selected current to the readout.
 [cim_macro.reference_config]
 # [derived] Structural zeros: the source is a bias branch of the readout, which
-# self-bills it inside E_fixed, and Fig.19 itemises no reference block of its own;
+# self-bills it inside its per-op energy, and Fig.19 itemises no reference block of its own;
 # this scheme models no mismatch.
 tolerance_sigma_relative = 0.0
 area_per_inst__um2 = 0.0
@@ -190,9 +181,9 @@ leakage_per_inst__uW = 0.0
 # [derived] simulation-consistent operating point: Fig.11(a) annotates I_LSB = 7 uA
 # and the measured-run instrument setting is unreported. Closes as
 # 224 max MAC units * 0.5 uA per unit = 112 uA full scale over 2**4 = 16 codes
-# -> 7 uA per code (top decision tap 15 * 7 = 105 uA). The 14 in rescale_factor
-# is a separate quantity: MAC units per code.
-i_refs__uA = [[7.0]]
+# -> 7 uA per code (top decision tap 15 * 7 = 105 uA), corresponding to
+# 14 MAC units per final output code.
+values = [7.0]
 
 
 # --- WL driver -- 1-bit ON/OFF DAC, one converter seat per word line ---

@@ -66,21 +66,20 @@ class MosfetPolicy(PolicyBase):
 class MosfetDcop(DcopBase):
     ids__uA: Tensor
     """Drain-source current, positive for drain → source flow; a p-channel
-    device in normal conduction is typically negative. Shape: `[...]`."""
+    device in normal conduction is typically negative."""
     did_dvg__uS: Tensor
-    """`∂I_ds/∂V_g`, the transconductance `gm`. Shape: `[...]`."""
+    """`∂I_ds/∂V_g`, the transconductance `gm`."""
     did_dvd__uS: Tensor
-    """`∂I_ds/∂V_d`, non-negative for both polarities. Shape: `[...]`."""
+    """`∂I_ds/∂V_d`, non-negative for both polarities."""
     did_dvs__uS: Tensor
-    """`∂I_ds/∂V_s`, non-positive for both polarities. Shape: `[...]`."""
+    """`∂I_ds/∂V_s`, non-positive for both polarities."""
 
 
 class MosfetSnap(SnapBase):
     beta__uA_per_V2: Tensor
-    """Per-cell transconductance-factor magnitude, polarity sign excluded.
-    Shape: `[...]`."""
+    """Per-cell transconductance-factor magnitude, polarity sign excluded."""
     vth__V: Tensor
-    """Per-cell signed threshold voltage. Shape: `[...]`."""
+    """Per-cell signed threshold voltage."""
 
 
 class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):

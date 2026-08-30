@@ -22,7 +22,11 @@ from neurox.architecture.unit.cim.engine import (
 from neurox.architecture.unit.conv2d import Conv2dUnit
 from neurox.architecture.unit.ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
 from neurox.primitive.digital import AccumulatorConfig
-from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
+from neurox.primitive.macro.cim import (
+    CimMacroQuantizationScheme,
+    IdealCimMacroConfig,
+    IdealCimMacroPolicy,
+)
 
 _UNIT_POLICY = Conv2dCimUnitPolicy(
     engine=CimEnginePolicy(
@@ -34,7 +38,7 @@ _UNIT_POLICY = Conv2dCimUnitPolicy(
     ),
 )
 _QUANTIZATION_MODE = 0
-_ADC_BITS: int | None = None
+_ADC_BITS = 0
 
 
 def _ideal_macro_config(
@@ -43,15 +47,14 @@ def _ideal_macro_config(
     x_value_range: tuple[int, int] = (0, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        rescale_factors=(1.0,),
         max_active_num=max_active_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
         w_value_range=(-3, 3),
-        # Only the lossless oracle is exercised here; the declared window and
-        # width just have to be legal.
-        quantization_input_ranges=((-256, 255),),
-        adc_max_bits=8,
+        adc_bits=8,
+        quantization_scheme=CimMacroQuantizationScheme.ZERO_POINT,
     )
 
 
@@ -221,8 +224,8 @@ def _assert_matches_ideal(
     x = _random_activation(unit, x_shape)
     unit.program(weight, bias)
     ideal.program(weight, bias)
-    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-    expected = ideal.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
+    expected = ideal.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected.to(torch.int64))
     return unit
@@ -259,7 +262,7 @@ def test_ideal_conv2d_exact(
     weight = _random_weight(unit, (c_out, c_in, kh, kw))
     x = _random_activation(unit, (2, c_in, h, w))
     unit.program(weight)
-    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)
@@ -384,8 +387,8 @@ def test_conv2d_combines_block_steps_and_input_phases() -> None:
 
 def _assert_unbatched_matches_batch_of_one(unit: Conv2dUnit, x: torch.Tensor) -> None:
     """A 3-D call returns 3-D and equals the `B = 1` call bit for bit."""
-    unbatched = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-    batched = unit.conv2d(x.unsqueeze(0), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    unbatched = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
+    batched = unit.conv2d(x.unsqueeze(0), quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     assert unbatched.ndim == 3
     assert batched.shape == (1, *unbatched.shape)
     assert torch.equal(unbatched.to(torch.int64), batched[0].to(torch.int64))
@@ -406,8 +409,8 @@ def test_unbatched_input_matches_batch_of_one() -> None:
     for candidate in units:
         candidate.program(weight, bias)
         _assert_unbatched_matches_batch_of_one(candidate, x)
-    assert unit.initiation_interval__ns((2, 7, 9), adc_bits=_ADC_BITS) == unit.initiation_interval__ns(
-        (1, 2, 7, 9), adc_bits=_ADC_BITS
+    assert unit.initiation_interval__ns((2, 7, 9), adc_active_bits=_ADC_BITS) == unit.initiation_interval__ns(
+        (1, 2, 7, 9), adc_active_bits=_ADC_BITS
     )
 
 
@@ -424,7 +427,7 @@ def test_rejects_input_outside_the_two_accepted_forms() -> None:
     unit.program(_random_weight(unit, (2, 1, 2, 2)))
     x = _random_activation(unit, (2, 3, 1, 5, 6))
     with pytest.raises(ValueError, match=r"\[C_in, H, W\] or \[B, C_in, H, W\]"):
-        unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
 
 
 def test_conv2d_cim_rejects_float_weight() -> None:

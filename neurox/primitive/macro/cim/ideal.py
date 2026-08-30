@@ -1,4 +1,4 @@
-"""Ideal CIM macro with window-driven output quantization.
+"""Ideal CIM macro with calibrated output quantization.
 
 See Also:
     docs/reference/primitive/macro/cim/ideal.md
@@ -9,12 +9,13 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from neurox.common import stochastic_round
+
 from .base import (
     CimMacro,
     CimMacroConfig,
     CimMacroPolicy,
-    map_zero_point_input_code,
-    validate_quantization_input_range,
+    CimMacroQuantizationScheme,
 )
 
 
@@ -23,13 +24,10 @@ class IdealCimMacroConfig(CimMacroConfig):
     """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
     """Inclusive integer weight range; `(0, 0)` is rejected."""
-    quantization_input_ranges: tuple[tuple[int, int], ...]
-    """One canonical inclusive conversion window `(lower, upper)` per
-    quantization mode, in MAC units. The tuple position is the
-    `quantization_mode` index and the tuple length is the mode count."""
-    adc_max_bits: int
-    """Largest supported `adc_bits` value. The lossless oracle `adc_bits is
-    None` lies outside this bound and is always accepted at runtime."""
+    adc_bits: int
+    """Maximum selectable virtual ADC resolution."""
+    quantization_scheme: CimMacroQuantizationScheme
+    """Macro output quantization scheme."""
 
     def validate(self) -> None:
         super().validate()
@@ -43,10 +41,7 @@ class IdealCimMacroConfig(CimMacroConfig):
 
         # --- Quantization ---
 
-        self._require_ge(self.adc_max_bits, "adc_max_bits", 1)
-        self._require_non_empty(self.quantization_input_ranges, "quantization_input_ranges")
-        for window in self.quantization_input_ranges:
-            validate_quantization_input_range(window)
+        self._require_ge(self.adc_bits, "adc_bits", 1)
 
 
 class IdealCimMacroPolicy(CimMacroPolicy):
@@ -55,16 +50,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 
 @CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)
 class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
-    """Ideal macro VMM with per-plane, window-driven output quantization.
-
-    One conversion reads the exact integer plane dot through the canonical
-    window `[lower, upper]` that `quantization_mode` selects, as the unsigned
-    reading `code_u = clamp(floor((dot - lower) · 2^b / W), 0, 2^b - 1)` with
-    `W = upper - lower + 1` and `b = adc_bits`, less the window zero code —
-    `0` unsigned, `2^(b-1)` mid-zero, always computed, never configured. A
-    window with `W > 2^b` is a legal lossy operating point, and the whole
-    conversion evaluates in integers without ever forming the fractional step.
-    """
+    """Ideal macro VMM with per-mode output quantization."""
 
     _w: Tensor  # Shape: [*inst_shape, input_num, output_num]
 
@@ -101,17 +87,10 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
 
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return 0.0
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return 0.0
-
-    def initiation_interval__ns(self, *, adc_bits: int | None) -> float:
+    def initiation_interval__ns(self, *, adc_active_bits: int) -> float:
         """Zero — an arithmetic oracle occupies no execution interval."""
-        del adc_bits
+        if adc_active_bits != 0:
+            self._check_adc_active_bits(adc_active_bits)
         return 0.0
 
     @property
@@ -123,42 +102,25 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self.config.w_value_range
 
     @property
-    def quantization_input_ranges(self) -> tuple[tuple[int, int], ...]:
-        return self.config.quantization_input_ranges
+    def adc_bits(self) -> int:
+        return self.config.adc_bits
 
     @property
-    def adc_max_bits(self) -> int:
-        return self.config.adc_max_bits
+    def _quantization_scheme(self) -> CimMacroQuantizationScheme:
+        return self.config.quantization_scheme
 
     def to_ideal(self) -> IdealCimMacro:
         """Return this already ideal macro."""
         return self
 
-    def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return `1.0`: the ideal macro's codes are the rescale reference.
-
-        Args:
-            quantization_mode: Window index in
-                `[0, len(quantization_input_ranges))`.
-
-        Raises:
-            ValueError: The mode index is outside the declared modes.
-        """
-        self._window(quantization_mode)
-        return 1.0
-
-    def map_quantization_input_code(self, code: Tensor, *, quantization_mode: int) -> tuple[Tensor, tuple[int, int]]:
-        """Map exact plane dots onto the window's zero-point input grid.
-
-        Args:
-            code: Exact integer plane dots.
-            quantization_mode: Window index in
-                `[0, len(quantization_input_ranges))`.
-
-        Returns:
-            The offset codes and their inclusive range `(0, W - 1)`.
-        """
-        return map_zero_point_input_code(code, code_range=self._window(quantization_mode))
+    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+        if adc_active_bits == 0:
+            self._check_quantization_mode(quantization_mode)
+            return 1.0
+        return super().rescale_factor(
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
+        )
 
     def restore_adc_layout(self, value: Tensor) -> Tensor:
         """Return the already-logical ideal output layout."""
@@ -170,97 +132,78 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
         self._w = w.detach().clone()
 
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
-        """Ideal per-plane VMM followed by one windowed conversion.
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+        """Ideal per-plane VMM followed by one calibrated conversion.
 
         Args:
             x: Logical input tensor; at most `max_active_num` positions may
                 be selected.
                 Shape: `[..., input_num]`.
-            quantization_mode: Window index in
-                `[0, len(quantization_input_ranges))`.
-            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
-                or `None` for the lossless oracle.
+            quantization_mode: Index selecting the full-resolution rescale factor.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`, or `0`
+                to bypass the virtual ADC and return the exact integer result.
 
         Returns:
-            Signed `int64` code tensor whose leading axes broadcast the
-            input's against `inst_shape`. The lossless oracle returns the
-            exact integer plane dots unmodified. Otherwise a mid-zero window
-            yields codes in `[-2^(b-1), 2^(b-1) - 1]` and an unsigned window
-            codes in `[0, 2^b - 1]`: dots below the window clip to the bottom
-            code, dots above it to the top one.
+            Integer code tensor whose leading axes broadcast the input's against
+            `inst_shape`. At `adc_active_bits = 0`, returns the exact `int64`
+            plane dots. Otherwise, zero-point mapping returns a centered signed
+            code in `[-2^(b - 1), 2^(b - 1) - 1]`, while sign-magnitude mapping
+            returns a signed magnitude in `[-(2^b - 1), 2^b - 1]` for `b = adc_active_bits`.
             Shape: `[..., output_num]`.
 
         Raises:
             ValueError: The mode index is outside the declared modes, or the
-                resolution is neither `None` nor in `[1, adc_max_bits]`.
+                resolution is outside `[0, adc_bits]`.
         """
-        lower, upper = self._window(quantization_mode)
-
+        self._check_quantization_mode(quantization_mode)
+        if adc_active_bits != 0:
+            self._check_adc_active_bits(adc_active_bits)
+        factor = self.config.rescale_factors[quantization_mode]
         w = self._w.to(torch.int64)
 
         if self._fp32_exact:
-            # Shape: [..., input_num] @ [..., input_num, output_num] -> [..., output_num]
+            # Shape: [..., input_num] -> [..., output_num]
             plane_dot = torch.einsum("...io,...i->...o", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
         else:
             # Shape: [..., input_num] -> [..., input_num, 1]
             x = x.to(torch.int64).unsqueeze(-1)
-            full_shape = torch.broadcast_shapes(w.shape, x.shape)
             # Shape: [..., input_num, output_num] -> [..., output_num]
-            plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-2)
+            plane_dot = (w * x).sum(dim=-2)
 
-        if adc_bits is None:
+        if adc_active_bits == 0:
             return plane_dot
 
-        self._check_bits(adc_bits)
-        return self._convert(plane_dot, lower=lower, upper=upper, adc_bits=adc_bits)
+        if self._quantization_scheme is CimMacroQuantizationScheme.SIGN_MAGNITUDE:
+            return self._convert_sign_magnitude(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
+        return self._convert_zero_point(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
 
-    def _window(self, quantization_mode: int) -> tuple[int, int]:
-        """Return the inclusive conversion window of one quantization mode."""
-        ranges = self.config.quantization_input_ranges
-        if not (0 <= quantization_mode < len(ranges)):
-            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {len(ranges)})")
-        return ranges[quantization_mode]
+    def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
+        code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)
+        return code.to(torch.int32).clamp(min_code, max_code) >> drop_bits
 
-    def _check_bits(self, adc_bits: int) -> None:
-        """Require a converting bit width; `None` is the lossless oracle."""
-        if not (1 <= adc_bits <= self.config.adc_max_bits):
-            raise ValueError(
-                f"require: adc_bits ({adc_bits}) in [1, adc_max_bits ({self.config.adc_max_bits})] "
-                f"or None for the lossless oracle"
-            )
+    def _convert_zero_point(
+        self,
+        plane_dot: Tensor,
+        *,
+        factor: float,
+        adc_active_bits: int,
+    ) -> Tensor:
+        """Quantize to a centered two's-complement code and truncate low bits."""
+        zero_point = 1 << (self.adc_bits - 1)
+        min_code = -zero_point
+        max_code = zero_point - 1
+        drop_bits = self.adc_bits - adc_active_bits
+        return self._quantize(plane_dot, factor, min_code, max_code, drop_bits)
 
-    def _convert(self, plane_dot: Tensor, *, lower: int, upper: int, adc_bits: int) -> Tensor:
-        """Convert exact plane dots into signed codes of one window.
-
-        In training mode a uniform integer jitter in `[0, W - 1]` is added
-        before the floor, firing its remainder as a Bernoulli trial: the
-        expected code equals the unrounded ratio wherever the window does not
-        clip, while on-grid dots keep their deterministic code. Evaluation
-        mode takes the bare floor, which rounds toward negative infinity.
-
-        Args:
-            plane_dot: Exact integer plane dots.
-                Shape: `[..., output_num]`.
-            lower: Window minimum, inclusive, in MAC units.
-            upper: Window maximum, inclusive, in MAC units.
-            adc_bits: ADC resolution [bits], at least `1`.
-
-        Returns:
-            Signed `int64` code tensor, one code per plane dot.
-            Shape: `[..., output_num]`.
-        """
-        level_num = 1 << adc_bits
-        width = upper - lower + 1
-        numerator = (plane_dot - lower) * level_num
-        if self.training:
-            numerator = numerator + torch.randint(
-                low=0,
-                high=width,
-                size=numerator.shape,
-                dtype=numerator.dtype,
-                device=numerator.device,
-            )
-        code_u = torch.div(numerator, width, rounding_mode="floor").clamp_(0, level_num - 1)
-        zero_code = 0 if lower == 0 else level_num >> 1
-        return code_u - zero_code
+    def _convert_sign_magnitude(
+        self,
+        plane_dot: Tensor,
+        *,
+        factor: float,
+        adc_active_bits: int,
+    ) -> Tensor:
+        """Quantize the magnitude, truncate it, then restore the sign."""
+        min_code = 0
+        max_code = (1 << self.adc_bits) - 1
+        drop_bits = self.adc_bits - adc_active_bits
+        return plane_dot.sign() * self._quantize(plane_dot.abs(), factor, min_code, max_code, drop_bits)

@@ -3,7 +3,7 @@
 The analytic witness (`_utils.build_config`) pairs a drive-point HRS leakage equal
 to the V_X = 0 floor with a seated PH0 compensation, so the RS-CSA sees exactly
 `(I_unit - floor) * MAC` and its injected reference is that same step: the code equals
-the UNSIGNED integer MAC bit-exactly (`clamp(sum_in w * x, 0, 2**adc_bits - 1)`)
+the UNSIGNED integer MAC bit-exactly (`clamp(sum_in w * x, 0, 2**adc_active_bits - 1)`)
 even though every physical column — the redundant SUBA4 plane included — carries
 a nonzero leakage floor. This file adds the transfer breadth the per-module smoke
 tests and `test_macro.py` do not cover — random input batches, zero-weight /
@@ -117,7 +117,7 @@ def test_zero_weight_and_zero_input_decode_zero(device: torch.device) -> None:
 
 
 def test_saturation_clips_at_code_max(device: torch.device) -> None:
-    """A MAC beyond `2**adc_bits - 1` saturates the unsigned code at the 4-bit ceiling.
+    """A MAC beyond `2**adc_active_bits - 1` saturates the unsigned code at the 4-bit ceiling.
 
     The default witness has only two inputs (max MAC 14 < 15), so this uses a
     widened witness (four inputs) whose true MAC (4 * 7 = 28) overruns the ceiling.

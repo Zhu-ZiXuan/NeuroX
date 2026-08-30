@@ -21,7 +21,11 @@ from neurox.architecture.unit.cim.engine import (
 )
 from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
-from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
+from neurox.primitive.macro.cim import (
+    CimMacroQuantizationScheme,
+    IdealCimMacroConfig,
+    IdealCimMacroPolicy,
+)
 
 # Logical problem, sized so every stage does real work: the contraction spans
 # two block slots (D), two weight slices (Sw), the input is serialized
@@ -76,13 +80,14 @@ def _build_unit(device: torch.device) -> LinearCimUnit:
             input_num=_INPUT_NUM,
             output_num=_OUTPUT_NUM,
             cim_macro_config=IdealCimMacroConfig(
+                rescale_factors=(1.0,),
                 max_active_num=_MAX_ACTIVE_NUM,
                 leakage_per_inst__uW=0.0,
                 area_per_inst__um2=0.0,
                 x_value_range=(0, 1),
                 w_value_range=(-1, 1),
-                quantization_input_ranges=((-256, 255),),
-                adc_max_bits=8,
+                adc_bits=8,
+                quantization_scheme=CimMacroQuantizationScheme.ZERO_POINT,
             ),
             placement=PlacementStageConfig(
                 contraction_accumulator_config=_accumulator_config(_CONTRACTION_E__FJ),
@@ -141,7 +146,7 @@ def _random_input(unit: LinearCimUnit, device: torch.device) -> Tensor:
 
 def _measure(unit: LinearCimUnit, x: Tensor, *, leading_rank: int = 0) -> Profiler:
     with Profiler(leading_rank=leading_rank) as profiler:
-        unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+        unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     return profiler
 
 

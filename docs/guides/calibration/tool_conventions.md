@@ -34,6 +34,6 @@ Each stage consumes what the stage before it seated, so run them in dependency o
 2. **Array solver** — the iteration counts of the DC solve the cell feeds ([solver iteration counts](solver_iteration_counts.md)).
 3. **Quantization mode set** — the macro's numerical operating windows ([macro calibration](calibrate_macro.md)).
 4. **ADC input characterization** — the nominal input clusters used to choose the mode's reference values manually ([ADC input characterization](calibrate_adc.md)).
-5. **Macro rescale factor** — the per-mode recovery coefficient derived from an exact declared code mapping, or fitted from complete macro outputs when that relationship is empirical ([macro calibration](calibrate_macro.md)).
+5. **Macro full-resolution rescale factor** — the per-mode recovery coefficient at `adc_bits`, derived from an exact declared code mapping or fitted from complete macro outputs when that relationship is empirical ([macro calibration](calibrate_macro.md)).
 
 The direction is fixed: a component-level numerical solve is calibrated before the composite solve that depends on it, and the ADC references are chosen from the characterized physical input before the macro's output-code rescale is fitted.

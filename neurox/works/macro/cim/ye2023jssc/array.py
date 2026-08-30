@@ -163,7 +163,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
         self.cell = Ye2023Jssc2t1rCell(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
-            inst_shape=self.weight_grid_shape,
+            inst_shape=(*self.inst_shape, self._col_num, self._row_num),
             dtype=dtype,
             T__K=T__K,
         )

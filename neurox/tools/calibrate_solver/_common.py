@@ -28,8 +28,8 @@ from torch import Tensor
 
 from neurox.common import ValidateMixin
 from neurox.common.serialize import load_config_dict
-from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.physics import T_ROOM__K
 from neurox.primitive.xbar.cell import (
     XbarCell1t1rDcop,
     XbarCell1t1rDetailProber,
@@ -225,7 +225,13 @@ def build_candidate_macro(
     )
 
 
-def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: int) -> Tensor:
+def unroll_sub_phase(
+    x: Tensor,
+    *,
+    row_num: int,
+    active_rows: int,
+    inst_shape: tuple[int, ...],
+) -> Tensor:
     """Serialize dense WL planes over the sub-phase axis, mirroring the engine.
 
     The sub-phase axis `P = ceil(row_num / active_rows)` is inserted immediately
@@ -243,12 +249,13 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
         active_rows: Simultaneously active word lines per plane, `1 <=
             active_rows <= row_num`. Any in-range value is legal — the plane
             partition uses a ceil count, so the rows are always fully covered.
-        inst_rank: Rank of the macro's fabricated `inst_shape`.
+        inst_shape: Fabricated instance shape of the called macro.
 
     Returns:
         Masked plane tensor; dtype and device follow `x`.
-        Shape: `[..., P, *inst_shape=1, row_num]`.
+        Shape: `[..., P, *inst_shape, row_num]`.
     """
+    inst_rank = len(inst_shape)
     n_planes = -(-row_num // active_rows)
     # Static row -> sub-phase ownership; plane p owns rows
     # [p * active_rows, (p + 1) * active_rows).
@@ -263,7 +270,9 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
     x_expanded = x.reshape(*x.shape[:-1], 1, *(1,) * inst_rank, x.shape[-1])
     # Zero-fill = WL off.
     # Shape: [..., P, *inst_shape=1, row_num]
-    return torch.where(mask, x_expanded, x.new_zeros(()))
+    planes = torch.where(mask, x_expanded, x.new_zeros(()))
+    # Shape: [..., P, *inst_shape=1, row_num] -> [..., P, *inst_shape, row_num]
+    return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, row_num)
 
 
 # `v_x__V` is the condensed access-node voltage carried on the cell DCOP
@@ -571,11 +580,15 @@ def _drive_candidate(
     trajectory plus one terminal record, array chunking running inside the real
     forward path.
     """
-    inst_rank = len(macro.inst_shape)
     trajectories: list[SolveResidualTrajectory] = []
     for w, x in workload:
         macro.program(w.to(device))
-        planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
+        planes = unroll_sub_phase(
+            x.to(device),
+            row_num=input_num,
+            active_rows=active_rows,
+            inst_shape=macro.inst_shape,
+        )
         # min_outer=0: the guard reads the residuals that drove each solve's
         # final recorded updates, and only the whole trajectory identifies
         # them. The records stay where they were solved: every reduction below
@@ -586,7 +599,7 @@ def _drive_candidate(
             XbarCell1t1rDetailProber() as cell_prober,
             torch.no_grad(),
         ):
-            macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=macro.adc_max_bits)
+            macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=macro.adc_bits)
         trajectories.extend(
             build_residual_trajectories(
                 solver_prober.records,

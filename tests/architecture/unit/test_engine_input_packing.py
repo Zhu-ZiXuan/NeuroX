@@ -33,14 +33,17 @@ from neurox.architecture.unit.cim.engine import (
 )
 from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
-from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
+from neurox.primitive.macro.cim import (
+    CimMacroQuantizationScheme,
+    IdealCimMacroConfig,
+    IdealCimMacroPolicy,
+)
 
 # All engines are built on IdealCimMacroConfig, so the embedded macro policy is
-# the empty marker. `adc_bits is None` selects the lossless oracle: no ADC
-# quantization, so engine outputs equal `torch.matmul` exactly.
+# the empty marker. `adc_active_bits = 0` bypasses its virtual ADC.
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _QUANTIZATION_MODE = 0
-_ADC_BITS: int | None = None
+_ADC_BITS = 0
 
 
 def _ideal_macro_config(
@@ -48,15 +51,14 @@ def _ideal_macro_config(
     max_active_num: int = 2,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        rescale_factors=(1.0,),
         max_active_num=max_active_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_value_range=(0, 1),
         w_value_range=(-3, 3),
-        # Only the lossless oracle is exercised here; the declared window and
-        # width just have to be legal.
-        quantization_input_ranges=((-256, 255),),
-        adc_max_bits=8,
+        adc_bits=8,
+        quantization_scheme=CimMacroQuantizationScheme.ZERO_POINT,
     )
 
 
@@ -235,7 +237,7 @@ def _randint_in_range(value_range: tuple[int, int], shape: tuple[int, ...]) -> t
 
 def _assert_engine_matches_torch(engine: CimEngine, weight: torch.Tensor, activation: torch.Tensor) -> None:
     engine.program(weight)
-    actual = engine.matmul(activation, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    actual = engine.matmul(activation, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
     expected = torch.matmul(activation.to(torch.int64), weight.transpose(-1, -2).to(torch.int64))
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)

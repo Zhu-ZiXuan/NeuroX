@@ -7,6 +7,7 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import final
 
 import torch
 from torch import Tensor
@@ -17,11 +18,9 @@ from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 
 class DiffVadcRecord(AdcRecord):
     v_pos__V: Tensor
-    """Positive-side input voltage the call was handed.
-    Shape: `[...]`."""
+    """Positive-side input voltage the call was handed."""
     v_neg__V: Tensor
-    """Negative-side input voltage the call was handed.
-    Shape: `[...]`."""
+    """Negative-side input voltage the call was handed."""
 
     def input_name(self) -> str:
         return "v_diff__V"
@@ -31,10 +30,15 @@ class DiffVadcRecord(AdcRecord):
 
 
 class DiffVadcConfig(ConfigBase, ABC):
+    bits: int
+    """Physical output bit width."""
     area_per_inst__um2: float
+    """Physical area per ADC instance."""
     leakage_per_inst__uW: float
+    """Static leakage power per ADC instance."""
 
     def validate(self) -> None:
+        self._require_pos(self.bits, "bits")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -63,9 +67,6 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     outside it, while `convert` receives only the electrical operating point
     and the bit width.
 
-    A member that rounds stochastically gates the draw on `self.training`, the
-    module's own train / eval state, rather than on a policy source or a
-    constructor flag, so `eval()` is what makes any member deterministic.
     """
 
     def __init__(
@@ -79,6 +80,16 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     ) -> None:
         del dtype, T__K
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     @classmethod
     def from_config(
@@ -105,17 +116,21 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         )
 
     @property
-    @abstractmethod
-    def max_bits(self) -> int:
-        """Physical bit width — the maximum `bits` value."""
-        raise NotImplementedError
+    @final
+    def bits(self) -> int:
+        """Physical output bit width."""
+        return self.config.bits
+
+    def _check_active_bits(self, active_bits: int) -> None:
+        if not (1 <= active_bits <= self.bits):
+            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")
 
     @abstractmethod
-    def latency__ns(self, *, bits: int) -> float:
-        """Duration of one `convert` call at `bits` [ns].
+    def latency__ns(self, *, active_bits: int) -> float:
+        """Duration of one `convert` call at `active_bits` [ns].
 
         Args:
-            bits: Active conversion resolution [bits].
+            active_bits: Active conversion resolution in `[1, bits]`.
         """
         raise NotImplementedError
 
@@ -125,35 +140,33 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         v_neg__V: Tensor,
         *,
         v_refs__V: Tensor,
-        bits: int,
+        active_bits: int,
     ) -> Tensor:
         """Digitise a differential analog voltage into a raw unsigned code.
 
         Args:
             v_pos__V: Positive-side analog input voltage.
-                Shape: `[...]`.
             v_neg__V: Negative-side analog input voltage, at the same shape as
                 `v_pos__V`.
-                Shape: `[...]`.
             v_refs__V: Injected reference taps, with the taps on the last axis.
                 The tap count `n_ref` is the concrete converter's circuit
                 property, not a base-level contract.
                 Shape: `[..., n_ref]`.
-            bits: Active conversion resolution [bits].
+            active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
             Raw unsigned integer code tensor, one code per `v_pos__V` element,
-            in the range `unsigned_range` reports for `bits`. For offset-binary
+            in the range `unsigned_range` reports for `active_bits`. For offset-binary
             codes, recover the signed value as
-            `(code - zero_offset(bits)) · rescale_factor` with a positive
+            `(code - zero_offset(active_bits)) · rescale_factor` with a positive
             `rescale_factor`.
-            Shape: `[...]`.
         """
+        self._check_active_bits(active_bits)
         code = self._convert_impl(
             v_pos__V,
             v_neg__V,
             v_refs__V=v_refs__V,
-            bits=bits,
+            active_bits=active_bits,
         )
         if AdcProber.active():
             AdcProber.submit(
@@ -171,29 +184,28 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         v_neg__V: Tensor,
         *,
         v_refs__V: Tensor,
-        bits: int,
+        active_bits: int,
     ) -> Tensor:
         """Convert inputs according to the `convert` contract."""
         raise NotImplementedError
 
-    @abstractmethod
-    def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `bits`.
+    @final
+    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
+        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
 
-        The code is raw (unsigned / offset-binary), so `min_code` is 0. For
-        ADCs whose code count matches `2 ** bits` exactly this is
-        `(0, 2 ** bits - 1)`; for ADCs whose code count is not a power of two
-        the upper bound reflects the actual realisable code count.
+        Every differential voltage ADC emits the family's full raw
+        offset-binary active-bit range.
         """
-        raise NotImplementedError
+        self._check_active_bits(active_bits)
+        return 0, (1 << active_bits) - 1
 
-    @abstractmethod
-    def zero_offset(self, bits: int) -> int:
-        """Return the raw code representing analog zero at `bits`.
+    @final
+    def zero_offset(self, active_bits: int) -> int:
+        """Return the raw code representing analog zero at `active_bits`.
 
         Subtract this offset before scaling:
-        `(code - zero_offset(bits)) · rescale_factor`. Sign and offset are not
-        folded into the emitted code. For a symmetric power-of-two design this
-        is `2 ** (bits - 1)`.
+        `(code - zero_offset(active_bits)) · rescale_factor`. Sign and offset
+        are not folded into the emitted code.
         """
-        raise NotImplementedError
+        self._check_active_bits(active_bits)
+        return 1 << (active_bits - 1)

@@ -1,75 +1,4 @@
-"""Energy-basis, total-only validation for the xue2020jssc CIM sub-array.
-
-Builds :class:`~neurox.works.macro.cim.xue2020jssc.Xue2020JsscCimMacro` from
-``params.toml`` + ``policy.toml``, drives it DIRECTLY (``max_active_num`` row
-positions sampled independently for every input, the rest zeroed) over a
-round-based random workload per the ``anchors.toml`` data conventions, and
-reduces the profiler to the ENERGY PER ACCESS. The one HARD
-GATE is the total energy per access against 32062.5 fJ/access (= 32.0625 pJ =
-the paper's simulated 5.13 mW / 8 sub-arrays / 20 MHz) within +-5% at the
-declared calibrated-activity workload.
-
-Energy-basis reduction. With ``accesses = n_samples * mux_factor`` (one VMM over
-all ``col_num`` logical columns is ``mux_factor`` serial accesses):
-  - static energy per access = ``leakage_power * leakage_window__ns`` (the
-    declared integration window; independent of the draw count and ``mux_factor``);
-  - dynamic energy per access = ``total_dynamic_energy / accesses`` = per-VMM
-    dynamic / ``mux_factor``.
-The total energy per access is their sum. 1 uA * 1 V * 1 ns = 1 fJ; 1 pJ = 1000 fJ.
-The macro's access time is reported beside them and integrates nothing.
-
-ACCOUNTING BASIS: the seats declared to reproduce a Fig.18 share are
-Control (29.2 %) + Reference (23.7 %) -- ADOPTED, because those two peripherals
-are not modeled explicitly. The read path follows an explicit circuit model under
-declared device, parasitic, timing, and workload assumptions; its static seats are
-declared small/zero. The effective input and weight nonzero probabilities are
-calibrated against the two read-path conduction seats; conditional on being
-nonzero, sign-magnitude weights and unsigned inputs are uniform. TMCSA energy
-follows its explicit branch-current and phase-duration model. With Control and Reference adopted from
-the remaining Fig.18 shares, agreement with the total is therefore a consistency
-check, not independent validation.
-
-PAIRED-SLICE caliber for the Fig.18 comparison: the model bills ONE series input
-branch across DSWCT and CABLC and one series sink branch across SINWP-SC and
-PN-ISUB. Fig.18 reports separate circuit-block shares, but the internal node
-voltages needed to reproduce that split are not published, so only the PAIR SUMS
-are well-defined model-comparison targets. The breakdown therefore compares ``cablc+dswct``
-against 14.9 + 11.5 = 26.4 % and ``sinwp_sc+pn_isub`` against 8.0 + 3.4 =
-11.4 %, with ``control`` / ``reference`` / ``tmcsa`` as singles; the four member
-rows stay visible (informational, no per-member target).
-
-The array module row bills only its wire / cell capacitive cycling, and the macro
-``cablc`` channel bills the whole input branch ``VDD * I_DL``; the ``cablc``
-slice SUMS the two.
-
-ROUND-based workload: ``--repeat`` rounds, each redrawing ``--n-w`` weight programs
-and, per program, ``--n-x`` input vectors, and each profiled in its OWN context;
-the per-access energies accumulate as an access-weighted mean and the report adds
-the round-total relative std. Peak profiler memory stays that of one round.
-``--solve-chunk`` bounds the array solve leading (a MACHINE knob; ``0`` solves all
-at once); its default is sized against the PRE-FLATTENING leading, which still
-carried the 32-slot column-MUX axis, so it needs retuning for the flattened
-shapes together with the policy's own ``solve_chunk_size``. ``--device auto`` is
-``cuda`` when a CUDA device is visible, else CPU serial; WHICH GPU that is stays
-the operator's choice, through ``CUDA_VISIBLE_DEVICES``.
-
-Per-block breakdown (INFORMATIONAL, not gated): each Fig.18 slice is reported in
-fJ/access next to its ``share * target`` reference; differences are labelled as
-convention / node-voltage effects, not gated.
-
-Run:
-    make validate_xue2020jssc
-
-The three TOML artifacts are fixed files beside this script; the CLI accepts
-runtime knobs and the output directory:
-
-    TORCH_COMPILE_DISABLE=1 uv run --extra calib python validations/xue2020jssc/validate.py \
-        --device auto --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096 \
-        --output-dir log/validation/xue2020jssc
-
-The report and an SVG breakdown comparison are written under ``--output-dir``;
-no generated Markdown report is kept in the repository.
-"""
+"""Validate Xue2020 sub-array energy against the paper's targets."""
 
 from __future__ import annotations
 
@@ -96,65 +25,42 @@ _PARAMS_PATH = _VAL_DIR / "params.toml"
 _POLICY_PATH = _VAL_DIR / "policy.toml"
 _ANCHORS_PATH = _VAL_DIR / "anchors.toml"
 
-# Informational Fig.18 slices (never gated). Read path uses the explicit model; control /
-# reference are the two ADOPTED peripheral seats.
 _READ_PATH_SLICES = ("cablc", "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 _ADOPTED_SLICES = ("control", "reference")
 _ALL_SLICES = (*_ADOPTED_SLICES, *_READ_PATH_SLICES)
 
-# Paired-slice caliber: the model bills one series input branch across DSWCT and
-# CABLC and one series sink branch across SINWP-SC and PN-ISUB; only the pair
-# sums are well-defined comparisons without unpublished internal node voltages. Members keep no
-# per-member target (rendered informationally).
+# Internal node voltages are unpublished, so series branches are compared in pairs.
 _PAIRED_SLICES: dict[str, tuple[str, ...]] = {
     "cablc+dswct": ("cablc", "dswct"),
     "sinwp_sc+pn_isub": ("sinwp_sc", "pn_isub"),
 }
 _PAIR_MEMBERS = tuple(name for members in _PAIRED_SLICES.values() for name in members)
 
-# Profiler energy-row keys per Fig.18 slice (dynamic side). A slice may pool
-# several rows. The ``cablc`` slice pools the ``array`` module energy row (the array
-# bills only its wire / cell capacitive cycling) PLUS the macro ``.cablc`` channel
-# (the whole input branch ``VDD * I_DL``). The DSWCT / SINWP-SC / PN-ISUB
-# modules self-bill on their own module rows; ``reference`` has no dynamic row
-# (100 % static); ``tmcsa`` is the scheme phase-billing MODULE row (the kernel
-# ``adc`` is energy-silent). ``control`` self-bills on its module row.
 _DYN_NAMES: dict[str, tuple[str, ...]] = {
     "cablc": (".cablc", "array"),
-    "dswct": ("dswct",),
-    "sinwp_sc": ("sinwp_sc",),
-    "pn_isub": ("pn_isub",),
+    "dswct": (".dswct",),
+    "sinwp_sc": (".sinwp_sc",),
+    "pn_isub": (".pn_isub",),
     "control": ("control",),
     "tmcsa": ("tmcsa",),
 }
-# Static-record qualified names per slice (static side). The ``array`` static seat
-# folds into ``cablc`` with the array's dynamic row (both belong to the input
-# branch); the DSWCT / SINWP-SC / PN-ISUB module seats fold into their own slices;
-# the ``tmcsa`` slice pools the billing-module seat and the kernel ``adc`` seat.
-# Everything unmapped (wl_dac, sl_driver, the macro root) is pooled into an
-# ``unmapped`` residual, kept visible in the breakdown so the slice sum reconciles
-# with the true total.
 _STATIC_NAMES: dict[str, tuple[str, ...]] = {
     "control": ("control",),
-    "reference": ("adc_current_reference",),
+    "reference": ("tmcsa_iref",),
     "cablc": ("cablc", "array"),
-    "dswct": ("dswct",),
-    "sinwp_sc": ("sinwp_sc",),
+    "dswct": (),
+    "sinwp_sc": (),
     "tmcsa": ("tmcsa", "adc"),
-    "pn_isub": ("pn_isub",),
+    "pn_isub": (),
 }
 
-# The framework transcoder program() consumes: sign-magnitude, radix 2, two
-# magnitude digits (LSB-first) -> a 3-bit signed weight.
 _QUANTIZATION_MODE = 0
 _ADC_BITS = 3
 # [reported p211 Fig.20(c)] 256 rows x 512 physical columns per sub-array.
 ROW_NUM = 256
-# [derived] Four physical columns encode each logical output: two magnitude
-# digits x two polarities, so 512 / 4 = 128 logical outputs.
+# [derived] 512 physical columns / two digits / two polarities.
 COL_NUM = 128
-# [assumed] Nominal ambient operating point; the paper does not publish a
-# temperature for the power simulation.
+# [assumed] The paper does not report simulation temperature.
 TEMPERATURE__K = 300.0
 
 
@@ -165,21 +71,7 @@ def build_macro(
     device: torch.device,
     solve_chunk_size: int,
 ) -> Xue2020JsscCimMacro:
-    """Build + fabricate the sub-array at ``inst_shape=()``, float32, eval mode.
-
-    A module never knows its own name, so the assembled tree is stamped here:
-    every energy record carries the name this walk hands out, and the reporter
-    resolves its rows against the same tree.
-
-    Args:
-        params_path: Fixed ``params.toml``.
-        policy_path: Fixed ``policy.toml``.
-        device: Device the macro lives on.
-        solve_chunk_size: Array solve chunk, a MACHINE knob overriding the policy
-            file's field: it splits the broadcast leading (the input batch, the K
-            WL sub-phases, and the serial MUX slots) to bound peak memory, and
-            changes no modelled quantity.
-    """
+    """Build and fabricate the configured macro."""
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
     policy = dataclasses.replace(
@@ -203,17 +95,7 @@ def build_macro(
 
 
 def leakage_window__ns(macro: Xue2020JsscCimMacro) -> float:
-    """Duration one access's static power integrates over [ns].
-
-    The simulated operating period ``t_cycle__ns`` = 1 / 20 MHz, the rate of the
-    paper's 5.13 mW power point. That period is a DUTY-CYCLE property, distinct
-    from the ACCESS TIME the macro's ``access_latency__ns`` reports (the span one
-    read chain settles over, the executed sensing included): a macro clocked at
-    20 MHz leaks for the whole period however
-    small a fraction of it the read occupies. The campaign therefore integrates
-    every declared static seat over the complete period; the active phase times
-    only govern dynamic conduction.
-    """
+    """Leakage integration window of one access [ns]."""
     return macro.config.t_cycle__ns
 
 
@@ -274,12 +156,7 @@ def _draw_input(
 
 @dataclass(frozen=True)
 class SliceEnergy:
-    """One Fig.18 slice: dynamic + static energy per access [fJ] vs its informational target.
-
-    A pair MEMBER slice (cablc / dswct / sinwp_sc / pn_isub) carries
-    ``target__fJ = 0.0`` — under the paired-slice caliber only the pair sums
-    have well-defined targets; members are reported informationally.
-    """
+    """One Fig.18 energy slice [fJ/access]."""
 
     name: str
     dynamic__fJ: float
@@ -296,13 +173,7 @@ class SliceEnergy:
 
 
 def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: float) -> tuple[SliceEnergy, ...]:
-    """Aggregate the member slices into the paired-caliber comparison rows.
-
-    Each pair row sums its members' dynamic / static energy and compares
-    against the SUM of the members' Fig.18 shares (the only well-defined
-    target: the paper splits one series branch between the two slices at an
-    unpublished internal node voltage).
-    """
+    """Aggregate series-branch members into comparable pairs."""
     by_name = {s.name: s for s in slices}
     return tuple(
         SliceEnergy(
@@ -329,43 +200,25 @@ def comparison_slices(m: Measurement, anchors: dict) -> tuple[SliceEnergy, ...]:
 
 @dataclass(frozen=True)
 class Measurement:
-    """Energy-per-access measurement: the gated total plus the informational breakdown."""
+    """Energy validation result."""
 
     total__fJ: float
-    """The gated total energy per access."""
     dynamic__fJ: float
-    """Dynamic share of the total."""
     static__fJ: float
-    """Static (leakage) share of the total."""
     slices: tuple[SliceEnergy, ...]
-    """The informational Fig.18 slice breakdown."""
     unmapped_static__fJ: float
-    """Static residual belonging to no slice."""
     access_latency__ns: float
-    """The macro's modelled access time, per output access. Reported beside the
-    energies; the static term integrates over `leakage_window__ns`, never over this."""
     window__ns: float
-    """The declared leakage integration window."""
     n_w: int
-    """Weight programs drawn per round."""
     n_x: int
-    """Input vectors drawn per weight program."""
     accesses: int
-    """Output accesses read over every pooled round."""
     seed: int
-    """Generator seed of the first round."""
     repeat: int = 1
-    """Pooled rounds, each redrawing the weights AND the inputs."""
     rel_std: float = 0.0
-    """Relative standard deviation of the round totals."""
     dyn_by_name: dict[str, float] = field(default_factory=dict)
-    """Every profiler dynamic-energy row in fJ PER ACCESS, keyed by qualified name.
-    The gate reads only the slice aggregation above; this raw row view preserves
-    the component-level accounting behind each reported slice."""
 
     @property
     def draws(self) -> int:
-        """Input draws over every pooled round: ``repeat * n_w * n_x``."""
         return self.repeat * self.n_w * self.n_x
 
     def slice(self, name: str) -> SliceEnergy:
@@ -379,15 +232,7 @@ def _per_access(
     accesses: int,
     window__ns: float,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Return ``(dynamic_by_name, static_by_name)`` energy PER ACCESS [fJ].
-
-    Dynamic: each accumulated energy row divided by ``accesses``. Static: each
-    block's ``leakage_power * window`` (the per-access integral of its leakage),
-    which is fabrication-fixed and therefore read from the reporter's static
-    rows, independently of any round. This is the SOLE static-energy derivation:
-    the reported total is the sum of these rows, so the breakdown and the gated
-    total cannot drift apart.
-    """
+    """Reduce profiler rows to energy per access."""
     dyn = {k: v / accesses for k, v in dynamic_by_name__fJ.items()}
     stat = {e.qualified_name: e.leakage__uW * window__ns for e in static_entries}
     return dyn, stat
@@ -402,21 +247,7 @@ def measure(
     seed: int,
     batch: int = 8,
 ) -> Measurement:
-    """Profile ONE round of ``n`` random draws and reduce to the energy per access.
-
-    Draws ``n_w = ceil(n / batch)`` random weight matrices, each programmed and then
-    driven by a fresh ``batch`` of random inputs, and reduces to the total / dynamic
-    / static energy per access plus the informational Fig.18 slice breakdown. In the
-    round vocabulary the two counts are ``n_w`` weight draws and ``n_x = batch``
-    input vectors per weight draw, so the round reads ``n_w * n_x`` (input, weight)
-    pairs.
-
-    Each weight draw is profiled in its OWN context at ``leading_rank=1``: the
-    caller's ``batch`` axis indexes independent unit operations, so each energy
-    event resolves to ``[batch]`` and the dynamic energy rows are accumulated
-    across the draws by hand. ``reporter`` is the one bound to ``macro``: it
-    names every context's rows and carries the static rows.
-    """
+    """Profile one round and reduce it to energy per access."""
     cfg = macro.config
     device = next(macro.buffers()).device
     gen = torch.Generator(device=device).manual_seed(seed)
@@ -427,12 +258,9 @@ def measure(
     target_total = anchors["target"]["per_access__fJ"]
     shares = anchors["fig18_shares"]
 
-    mux = cfg.mux_factor
+    scan_num = cfg.scan_num
     window__ns = leakage_window__ns(macro)
-    # One VMM serializes the `mux` column-MUX slots, so the duration the macro
-    # reports divided by `mux` is the access time. Config-fixed, hence identical
-    # for every draw.
-    access_latency__ns = macro.latency__ns(adc_bits=_ADC_BITS) / mux
+    access_latency__ns = macro.latency__ns(adc_active_bits=_ADC_BITS) / scan_num
 
     n_w = max(1, -(-n // batch))  # ceil
     n_samples = 0
@@ -456,26 +284,19 @@ def measure(
                 hi=x_hi,
                 nonzero_probability=float(data["input_nonzero_probability"]),
             )
-            # leading_rank=1: the `batch` axis indexes independent unit
-            # operations, so each energy event resolves to [batch], one element
-            # per input vector. The records stay where they were recorded: the
-            # reporter reduces a whole book in one transfer.
             with Profiler(leading_rank=1) as prof:
                 macro.program(w)
-                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
             for name, e__fJ in reporter.by_name(prof).items():
                 dyn_by_name__fJ[name] = dyn_by_name__fJ.get(name, 0.0) + e__fJ
             total_dynamic__fJ += reporter.total_dynamic_energy__fJ(prof)
             n_samples += batch
-    accesses = n_samples * mux
+    accesses = n_samples * scan_num
 
     dyn, stat = _per_access(reporter.static_entries, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
-    # The one static-energy derivation, shared by the total and the breakdown.
     static__fJ = sum(stat.values())
     dynamic__fJ = total_dynamic__fJ / accesses
     total__fJ = dynamic__fJ + static__fJ
-    # Pair MEMBERS carry no per-member target (paired-slice caliber); the pair
-    # rows derived by ``paired_slices`` carry the summed-share targets.
     slices = tuple(
         SliceEnergy(
             name=s,
@@ -505,14 +326,7 @@ def measure(
 
 
 def _pool_rounds(rounds: list[Measurement], *, seed: int) -> Measurement:
-    """Access-weighted mean of per-round measurements + the round-total relative std.
-
-    Each round is an independent draw profiled in its own context, so the
-    per-access energies combine as an access-weighted mean (= ``sum(energy) /
-    sum(accesses)``) and the round-to-round dispersion of the total per-access is
-    the statistical uncertainty. ``rel_std`` is the sample relative standard
-    deviation of the round totals (0 for a single round).
-    """
+    """Pool rounds by access count and compute their relative standard deviation."""
     first = rounds[0]
     total_accesses = sum(r.accesses for r in rounds)
     w = [r.accesses / total_accesses for r in rounds]
@@ -563,17 +377,7 @@ def measure_rounds(
     repeat: int,
     seed: int,
 ) -> Measurement:
-    """Profile ``repeat`` rounds of ``n_w`` weight draws x ``n_x`` inputs and pool them.
-
-    Every round redraws BOTH the weights and the inputs (its own seed, hence
-    independent draws) and is profiled in its own context, so the peak
-    event/tensor footprint stays that of ONE round however many rounds run, and
-    the round-to-round spread of the total is the reported uncertainty.
-
-    The reporter binds ``macro`` once, BEFORE any round runs: that walk is where
-    a missing or stale name stamp is caught, and one binding then names the rows
-    of every round and supplies the fabrication-fixed static rows.
-    """
+    """Profile and pool independent workload rounds."""
     reporter = Reporter(macro)
     rounds = [measure(macro, reporter, anchors, n=n_w * n_x, seed=seed + idx, batch=n_x) for idx in range(repeat)]
     return _pool_rounds(rounds, seed=seed)
@@ -588,14 +392,7 @@ def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
 
 
 def energy_table(m: Measurement, anchors: dict) -> str:
-    """Informational per-block breakdown (fJ/access) + the gated total row.
-
-    Paired-slice caliber: the target-bearing rows are the two pair sums
-    (``cablc+dswct`` vs 26.4 %, ``sinwp_sc+pn_isub`` vs 11.4 %) and the
-    singles ``control`` / ``reference`` / ``tmcsa``; the four member rows are
-    kept visible without a per-member target (the paper's internal split node
-    voltages are unpublished).
-    """
+    """Render the energy breakdown and gated total."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
     lines: list[str] = []
@@ -753,52 +550,11 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     lines.append("")
     lines.append(energy_table(m, anchors))
     lines.append("")
-    lines.append(
-        "The read-path slices follow the explicit circuit model under declared assumptions; "
-        "control + reference are the two ADOPTED Fig.18 seats. Paired-slice caliber: the model bills one "
-        "series input branch across DSWCT and CABLC and one series sink branch across SINWP-SC and PN-ISUB; "
-        "the internal node voltages needed to reproduce Fig.18's separate block shares are unpublished, so only "
-        "the pair sums "
-        "(cablc+dswct vs 26.4 %, sinwp_sc+pn_isub vs 11.4 %) are well-defined targets -- the member rows are "
-        "informational. Differences from Fig.18 x target are reported, not gated."
-    )
-    lines.append("")
-    lines.append("## Declared conventions")
-    lines.append("")
-    lines.append(f"- Hard gate: total energy per access within +-{tol * 100:.0f}% of {target} fJ.")
-    lines.append(
-        "- Adopted seats (declared to reproduce a Fig.18 share, not fitted to the total): "
-        "control 29.2 % (70 % per-op dynamic, 30 % leakage at 50 ns), reference 23.7 % (100 % static)."
-    )
-    lines.append(
-        "- Read path (cablc, dswct, sinwp_sc, pn_isub, tmcsa): explicit circuit model under declared "
-        "assumptions; static seats declared small/zero. Fig.18 comparison at the paired-slice caliber "
-        "(cablc+dswct, sinwp_sc+pn_isub)."
-    )
-    lines.append(
-        f"- Data: P(w!=0) = {weight_nonzero_probability:.4f}; conditional nonzero weights have equiprobable "
-        f"sign and magnitude 1..{data['weight_range'][1]}. P(x!=0) = {input_nonzero_probability:.4f} among "
-        f"at most nine candidate rows; conditional nonzero inputs are uniform over "
-        f"1..{data['input_range'][1]}."
-    )
-    lines.append(
-        f"- Energy basis: static/access = leakage_power * leakage window ({m.window__ns:.1f} ns = the 20 MHz "
-        f"simulated operating period, a duty-cycle property); dynamic/access = per-VMM dynamic / mux_factor; "
-        f"total/access "
-        f"= their sum. The macro's access time ({m.access_latency__ns:.2f} ns) is the separate duration one read "
-        f"chain settles over and integrates nothing."
-    )
-    lines.append("")
     return "\n".join(lines)
 
 
 def resolve_device(name: str) -> torch.device:
-    """Resolve a device name; ``auto`` is ``cuda`` when one is visible, else ``cpu``.
-
-    Any other name is handed to :class:`torch.device` verbatim. This harness
-    never chooses a GPU INDEX: which card the run lands on is the operator's
-    choice, made outside the process through ``CUDA_VISIBLE_DEVICES``.
-    """
+    """Resolve `auto` to CUDA when available, otherwise CPU."""
     if name == "auto":
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         _LOG.info("[auto device -> %s]", device)
@@ -808,28 +564,27 @@ def resolve_device(name: str) -> torch.device:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--n-w", type=int, default=64, help="Weight draws per round: the weight programs drawn per round.")
-    ap.add_argument("--n-x", type=int, default=256, help="Input vectors per weight draw.")
-    ap.add_argument("--repeat", type=int, default=8, help="Rounds; each redraws the weights AND the inputs.")
+    ap.add_argument("--n-w", type=int, default=64, help="Weight draws per round.")
+    ap.add_argument("--n-x", type=int, default=256, help="Inputs per weight draw.")
+    ap.add_argument("--repeat", type=int, default=8, help="Independent workload rounds.")
     ap.add_argument(
         "--solve-chunk",
         type=int,
         default=4096,
-        help="Array solve chunk (machine knob): leading instances solved per block; 0 solves all at once.",
+        help="Leading instances per array-solve chunk; 0 disables chunking.",
     )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument(
         "--device",
         type=str,
         default="auto",
-        help="cpu, cuda[:idx], or auto (cuda if visible else cpu); default auto. Pick the card with "
-        "CUDA_VISIBLE_DEVICES.",
+        help="cpu, cuda[:index], or auto.",
     )
     ap.add_argument(
         "--output-dir",
         type=Path,
         default=Path("log/validation/xue2020jssc"),
-        help="Directory for validation.log and energy_breakdown.svg.",
+        help="Output directory.",
     )
     args = ap.parse_args()
 

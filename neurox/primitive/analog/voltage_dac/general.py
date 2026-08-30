@@ -102,7 +102,6 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
         if self._is_dynamic_energy_profile_active():
             # Each element costs what its own level costs, so the energy LUT
             # is gathered exactly as the signal LUT is.
-            # Shape: [*code.shape]
             self._record_dynamic_energy(self._code_to_per_op_energy__fJ[code])
 
         return signal

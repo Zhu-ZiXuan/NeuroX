@@ -39,22 +39,21 @@ class LinearUnit(UnitBase, ABC):
         return output.squeeze(-2)
 
     @torch.no_grad()
-    def linear(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+    def linear(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 
         Args:
             input: Integer activation values.
                 Shape: `[..., K]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_bits: Runtime ADC resolution, or `None` for the lossless
-                oracle.
+            adc_active_bits: Active ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor. Leading dimensions are
             preserved, exactly as `torch.nn.functional.linear`.
             Shape: `[..., N]`.
         """
-        y = self._lower_matmul(input, quantization_mode=quantization_mode, adc_bits=adc_bits)
+        y = self._lower_matmul(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         int_bias = self._int_bias
         if int_bias is not None:
             # Shape: [..., N] + [N] -> [..., N]

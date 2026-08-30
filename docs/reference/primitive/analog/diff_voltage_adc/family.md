@@ -6,7 +6,7 @@ Every member digitizes a differential voltage into a raw unsigned integer code.
 
 An ADC digitizes a positive leg $V^{+}$ against a negative leg $V^{-}$. Both legs, every noise term, and the code boundaries are expressed in volts. The reference values $V_{\mathrm{ref}}$ are supplied per call along a trailing tap axis and set the full-scale range; the resolution $b$ sets the number of code levels within it. No member holds its own references, and no operating-mode identity reaches a converter.
 
-The number of reference values consumed by one conversion is topology-specific rather than a family law.
+The configured `bits` is the physical output width. A call selects `active_bits` in `[1, bits]`. The number of reference values consumed by one conversion is topology-specific rather than a family law.
 
 ## Governing laws
 
@@ -46,12 +46,13 @@ Quantization is intrinsic to every member; further non-idealities are topology-s
 | $V^{+},V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{ref}}$ | per-call injected reference taps, $[\ldots,\ n_{\mathrm{ref}}]$ with the taps last | V | `v_refs__V` |
 | $n_{\mathrm{ref}}$ | reference count the member's circuit takes | — | member-defined |
-| $b$ | ADC resolution | — | `bits` |
+| $b$ | active conversion resolution, per call | — | `active_bits` |
+| $b_{\max}$ | physical output bit width | — | `bits` |
 | $\mathrm{FSR}$ | full-scale input range | V | derived |
 | $\mathrm{LSB}$ | uniform code step | V | derived |
 | $B_c$ | code boundary at index $c$ | V | derived |
 | $n_{\mathrm{codes}}$ | number of raw code buckets | — | derived |
-| $z$ | zero-point offset | — | `zero_offset(bits)` |
+| $z$ | zero-point offset | — | `zero_offset(active_bits)` |
 
 ## Assumptions, scope & validity
 

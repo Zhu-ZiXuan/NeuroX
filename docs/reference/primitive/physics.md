@@ -1,8 +1,16 @@
 # Physics
 
-The physical axioms beneath every model: the canonical SI constants (CODATA 2018), and the closed-form laws over them — the thermal voltage $V_T = k_B T / q$, and the capacitive supply-draw billing law this document specifies. The constants are fixed by definition and carry no modelling content of their own. The billing law is single: every grounded node capacitance is billed by what its supply spends moving it — the atom, the rail each term is charged to, the access timing that fixes how many excursions one access contains, and how a level held across many accesses is spread over them. Each subsystem applies the law to the nodes it owns and cites it instead of restating it.
+The physical axioms beneath every model: the canonical SI constants (CODATA 2018), the thermal voltage $V_T = k_B T / q$, and the supply-draw laws for conduction and capacitance. The constants are fixed by definition and carry no modelling content of their own. Each subsystem applies the laws to the branches and nodes it owns.
 
-## Supply-draw atom
+## Conduction charge and energy
+
+A branch carrying constant current $I$ for a conduction window $t$ transfers charge $q = It$. The energy delivered by its supply rail is
+
+$$E = V_{\mathrm{rail}}q = V_{\mathrm{rail}}It.$$
+
+The runtime scales close directly: $1\,\mathrm{uA}\cdot1\,\mathrm{ns}=1\,\mathrm{fC}$ and $1\,\mathrm{V}\cdot1\,\mathrm{fC}=1\,\mathrm{fJ}$.
+
+## Capacitive supply draw
 
 Moving a grounded capacitance $C$ by $\Delta V$ transfers a charge $C\,\lvert\Delta V\rvert$, and that charge leaves the supply at the supply's own potential. The energy the supply delivers is therefore
 
@@ -50,6 +58,10 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
+| $q$ | charge transferred during a conduction window | fC | `q_conduction__fC` |
+| $I$ | branch current | uA | `i__uA` |
+| $t$ | conduction-window duration | ns | `duration__ns` |
+| $E$ | energy delivered with charge $q$ | fJ | `e_supply_charge__fJ` |
 | $E$ | energy a supply delivers for one excursion | fJ | `e_cap_excursion__fJ` |
 | $V_{\mathrm{rail}}$ | potential of the supply that delivers the charge | V | `v_rail__V` |
 | $C$ | node-to-ground capacitance | fF | `c__fF` |
@@ -62,4 +74,4 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 - Billing is quasi-static: each excursion is assumed to complete within its access, so the displacement and not the waveform shape sets the cost.
 - Rest levels are ideal declared levels, so the displacement an access bills is independent of the conduction that access carries.
 - Stored and dissipated energy are not separated; the whole supply draw is charged to the access that caused it.
-- The law covers capacitive draw alone. Conduction energy — a branch current over its conduction window — is the separate accounting basis in [notation_conventions](../../conventions/notation_conventions.md#energy-accounting-basis).
+- Conduction windows and capacitive excursions are billed separately; their ownership and time bases follow [energy accounting](../../conventions/notation_conventions.md#energy-accounting-basis).
