@@ -30,7 +30,7 @@ For ADC resolution `b`:
 The preset uses a 14.60 ns maximum-resolution access latency and the paper's 50 ns operating period as the leakage integration window.
 
 | Fig.18 slice | Model contribution |
-|---|---|
+| --- | --- |
 | Control | per-access event and leakage |
 | Reference | TMCSA reference leakage |
 | CABLC | complete input-branch conduction and array-node capacitance |

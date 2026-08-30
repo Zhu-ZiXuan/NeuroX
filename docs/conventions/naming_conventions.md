@@ -7,7 +7,7 @@ One identity names an object across code and documentation. A name read in isola
 Every documentation file is named in snake_case.
 
 | | Class | Code file | Title |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Standalone module** | `ModuleName` | `module_name.py` | Module name |
 | **Family member** | `SchemeFamily` | `family/scheme.py` | Scheme family |
 | **Family root base** | `Family` | `family/base.py` | Family base |

@@ -87,7 +87,7 @@ The formulation carries IR drop through the interconnect resistance of the wire 
 Shared electrical symbols are pinned in [notation_conventions](../../../../conventions/notation_conventions.md); the per-call cell branch quantities are defined in [cell](../cell/family.md).
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V_{\mathrm{BL}}$ | BL wire node voltage | V | `v_bl_node__V` |
 | $V_{\mathrm{SL}}$ | SL wire node voltage | V | `v_sl_node__V` |
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp__V` |

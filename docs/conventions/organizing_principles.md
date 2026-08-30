@@ -9,7 +9,7 @@ One question routes every statement:
 > Can one clear code abstraction wholly own this knowledge? If it can, the knowledge belongs to that abstraction — its structure, types, docstring, comments, validation, and tests. If no abstraction can own it and maintaining it requires understanding several components at once, it belongs to System Design. If it stays true after the whole implementation is rewritten, it belongs to Reference.
 
 | Carrier | Holds |
-|---|---|
+| --- | --- |
 | `docs/reference/**.md` | Researcher-voice scientific, mathematical, circuit, architecture, and algorithm principles and design; the golden truth code translates; independent of the concrete implementation |
 | `docs/validation/**.md` | The method by which a model and its implementation are shown faithful, and the route to the evidence the repository's campaign directory holds |
 | `docs/system_design/**.md` | Cross-component software design: a system contract no single code abstraction owns, which several components must be read together to maintain |

@@ -397,7 +397,7 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     tol = anchors["gate"]["hard_tolerance_relative"]
     lines: list[str] = []
     lines.append("| Slice | Energy [fJ/acc] | dyn | static | Fig.18 x target [fJ] | pred/ref | basis |")
-    lines.append("|---|--:|--:|--:|--:|--:|:--|")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | :--- |")
 
     def row(s: SliceEnergy, *, basis: str) -> str:
         target_cell = f"{s.target__fJ:8.3f}" if s.target__fJ else "    -   "

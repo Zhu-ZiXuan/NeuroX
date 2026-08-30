@@ -830,7 +830,7 @@ def _fmt_channels(measurements: list[PointMeasurement]) -> str:
         "### Per-channel power [uW] (caliber-independent)",
         "",
         f"| Channel | Owner / rate | {heads} |",
-        "|---|---|" + "--:|" * len(measurements),
+        "| --- | --- |" + " ---: |" * len(measurements),
     ]
     silent: list[str] = []
     for name, role in _CHANNELS:
@@ -939,7 +939,7 @@ def _fmt_caliber(m: PointMeasurement, anchors: dict, *, caliber: str) -> str:
         f"    off-pin   <- {' + '.join(mapping[_OFF_PIN])} = {p.off_pin__uW:.3f} uW, on no measured pin",
         "",
         "| Block | pred uW | dyn | static | anchor uW | share% | pred/anchor |",
-        "|---|--:|--:|--:|--:|--:|--:|",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     lines += [
         f"| {b.name:12s} | {b.total__uW:8.3f} | {b.dynamic__uW:7.3f} | {b.static__uW:6.3f} | "

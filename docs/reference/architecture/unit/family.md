@@ -33,7 +33,7 @@ Lowering, placement, accumulation, and shape restoration are exact integer opera
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $\mathbf{W}$ | logical weight matrix | — | `weight` |
 | $\mathbf{X}$ | logical activation matrix | — | input tensor |
 | $\mathbf{Y}$ | pre-requantize integer output | — | operator return |

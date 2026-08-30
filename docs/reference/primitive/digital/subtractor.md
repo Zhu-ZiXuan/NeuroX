@@ -35,7 +35,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `bit_width` | nominal output bit width (informational; no wrap applied) | — | $\geq 1$ | Design |
 | `energy_per_op__fJ` | dynamic energy per output element | fJ | $\geq 0$ | Design |
 | `latency_per_op__ns` | combinational window of one subtract | ns | $\geq 0$ | Design |
@@ -47,7 +47,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $a$ | minuend (runtime input) | — | `a` |
 | $b$ | subtrahend, broadcastable to $a$ (runtime input) | — | `b` |
 | $y$ | element-wise difference | — | return of `subtract` |

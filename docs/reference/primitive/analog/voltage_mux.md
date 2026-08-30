@@ -22,14 +22,14 @@ N/A — the transport is a closed-form per-call map; no iteration.
 ## Noise & non-idealities
 
 | Source | Statistical model | Parameter |
-|---|---|---|
+| --- | --- | --- |
 | gain mismatch | static fractional Gaussian mismatch sampled at fabricate | `mux_gain_mismatch_sigma_relative` |
 | transport noise | dynamic additive Gaussian noise sampled per access | `mux_noise_sigma__V` |
 
 ## Parameters
 
 | Parameter | Meaning | Constraint | Source |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `mux_ratio` | N in the physical N:1 fan-in ratio | $\geq 1$ | Design |
 | `mux_gain` | nominal scalar transport gain | $> 0$ | Design |
 | `mux_gain_mismatch_sigma_relative` | per-instance fractional gain-mismatch sigma | $\geq 0$ | Measured |

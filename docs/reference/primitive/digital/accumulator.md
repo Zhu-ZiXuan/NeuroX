@@ -39,7 +39,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `bit_width` | signed output register width | — | $\geq 1$ | Design |
 | `energy_per_op__fJ` | dynamic energy per operand element folded into the sum | fJ | $\geq 0$ | Design |
 | `latency_per_op__ns` | reduction window of one accumulate | ns | $\geq 0$ | Design |
@@ -51,7 +51,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $x$ | integer input tensor (runtime input) | — | `x` |
 | $y$ | modular-wrapped reduced output | — | return of `accumulate` |
 | $w$ | signed output register width | — | `bit_width` |

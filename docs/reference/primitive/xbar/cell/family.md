@@ -23,7 +23,7 @@ These definite signs are an invariant of the resistive branch: raising the bit-l
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl__V` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl__V` |
 | $\mathbf{V}_{\mathrm{int}}$ | internal-node voltage vector (condensed in the cell) | V | result of `ResistiveCell.solve_dc` |

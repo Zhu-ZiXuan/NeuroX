@@ -31,7 +31,7 @@ N/A — closed-form affine map and its constant derivative; no iteration.
 ## Noise & non-idealities
 
 | Source | Physical origin | Statistical model | Parameter |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | clamp offset | systematic per-instance mismatch of the clamp, fixed at fabrication | additive zero-mean Gaussian in $V_{\mathrm{pert}}$, state-independent (a single constant sigma) | offset sigma |
 | clamp thermal noise | thermal fluctuation at the clamp node, resampled per access | additive zero-mean Gaussian in $V_{\mathrm{pert}}$, state-independent (a single constant sigma) | thermal sigma |
 
@@ -42,7 +42,7 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance, whose negative is the constant clamp slope | MOhm | $\geq 0$ | Design |
 | `offset_sigma__V` | Gaussian sigma of the systematic clamp offset | V | $\geq 0$ | Measured |
 | `thermal_sigma__V` | Gaussian sigma of the clamp thermal noise | V | $\geq 0$ | Measured |
@@ -54,7 +54,7 @@ The reference $V_{\mathrm{ref}}$ is a supplied runtime input, not a config param
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V_{\mathrm{clamp}}$ | clamp voltage | V | `v_clamp__V` |
 | $V_{\mathrm{ref}}$ | nominal reference / zero-current clamp voltage (supplied input) | V | `v_ref__V` |
 | $V_{\mathrm{pert}}$ | clamp's own additive perturbation (offset plus thermal draw) | V | `v_perturb__V` |

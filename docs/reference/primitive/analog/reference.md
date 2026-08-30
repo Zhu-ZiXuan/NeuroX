@@ -15,7 +15,7 @@ The error is sampled once at fabrication and remains fixed for the instance life
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `values` | nominal scalar or rectangular value array | owner-defined | non-empty rectangular tuple tree or scalar | Design |
 | `tolerance_sigma_relative` | relative initial-accuracy sigma | — | $\geq 0$ | Measured |
 | leakage / area | standing power and silicon area | uW, um² | $\geq 0$ | Design |

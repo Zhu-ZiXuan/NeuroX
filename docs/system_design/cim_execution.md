@@ -13,7 +13,7 @@ What the engine reads off the macro is the logical face alone: the port counts i
 Between the engine's input face and the macro's, one tensor layout carries the whole schedule.
 
 | Axis | Inserted by | Removed by |
-|---|---|---|
+| --- | --- | --- |
 | `M` output planes | the unit's operator lowering | the same operator's aggregation-undo |
 | `Sx` input slices | the input-slice stage | that stage's shift adder |
 | `Sw` weight slices | the weight-slice stage | that stage's shift adder |

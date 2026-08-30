@@ -47,7 +47,7 @@ The logical matrix is contracted directly with the input vector: fp32 `einsum` w
 The [family symbols](family.md#symbols) apply, with:
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $M_p$ | exact integer dot for plane $p$ | — | `plane_dot` |
 | $q_B$ | factor-scaled full-resolution code before saturation | — | — |
 | $c_B$ | saturated centered two's-complement code | — | — |

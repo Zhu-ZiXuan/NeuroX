@@ -57,7 +57,7 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $q$ | charge transferred during a conduction window | fC | `q_conduction__fC` |
 | $I$ | branch current | uA | `i__uA` |
 | $t$ | conduction-window duration | ns | `duration__ns` |

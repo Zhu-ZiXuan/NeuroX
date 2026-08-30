@@ -34,7 +34,7 @@ because dropping one ADC decision bit doubles the full-resolution MAC span repre
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $\mathcal{X}$ | integer input grid | — | `x_value_range` |
 | $\mathcal{W}$ | integer weight grid envelope | — | `w_value_range` |
 | $M_p$ | ideal integer dot product of one WL plane | — | — |

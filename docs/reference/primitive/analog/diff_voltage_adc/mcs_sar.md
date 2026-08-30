@@ -78,7 +78,7 @@ It vanishes for perfectly matched legs ($C_{p,k} = C_{n,k}$): the term is nonzer
 ## Noise & non-idealities
 
 | Source | Physical origin | Statistical model | Parameter |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | cap mismatch | per-cap area/oxide variation | static per-cap Pelgrom Gaussian on $C_k$ (independent legs), at fabricate | `cap_mismatch_sigma_relative` |
 | comparator offset | static comparator input offset | static Gaussian threshold offset, at fabricate | `comparator_offset_sigma__V` |
 | comparator thermal noise | per-decision thermal noise | additive Gaussian per SAR cycle | `comparator_thermal_noise_sigma__V` |
@@ -98,7 +98,7 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `bits` | physical CDAC depth $b_{\max}$ | — | $\geq 2$ | Design |
 | `latency_per_bit__ns` | SAR clock period and latency per output bit | ns | $> 0$ | Design |
 | `c_unit__fF` | unit-cap capacitance | fF | $> 0$ | Design |
@@ -114,7 +114,7 @@ The reference voltage is not a parameter of this ADC — it is supplied per conv
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
 | $V_{\mathrm{ref}}$ | reference voltage, the bank's sole injected tap | V | `v_refs__V[..., 0]` |

@@ -23,7 +23,7 @@ None modelled. The block is functionally unmodeled and has no policy sources.
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `area_per_inst__um2` ($a_{\mathrm{inst}}$) | silicon area per fabricated instance | um^2 | $\geq 0$ | Design |
 | `leakage_per_inst__uW` ($p_{\mathrm{inst}}$) | static leakage per instance (carries the block's whole standing bias power) | uW | $\geq 0$ | Design |
 | `energy_per_op__fJ` ($e_{\mathrm{op}}$) | lumped dynamic energy per modeled operation | fJ | $\geq 0$ | Design |
@@ -33,7 +33,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $a_{\mathrm{inst}}$ | per-instance area | um^2 | `area_per_inst__um2` |
 | $p_{\mathrm{inst}}$ | per-instance leakage | uW | `leakage_per_inst__uW` |
 | $e_{\mathrm{op}}$ | dynamic energy per modeled operation | fJ | `energy_per_op__fJ` |

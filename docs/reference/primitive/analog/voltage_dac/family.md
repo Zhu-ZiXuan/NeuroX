@@ -7,7 +7,7 @@ A voltage DAC converts a non-negative integer code $c$ to an analog drive voltag
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $c$ | input code (non-negative integer) | — | `convert` input |
 | $c_{\max}$ | maximum valid code (inclusive) | — | `code_max` |
 | $V_{\mathrm{out}}$ | output drive voltage | V | `convert` output |

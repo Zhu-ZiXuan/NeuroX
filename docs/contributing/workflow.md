@@ -16,7 +16,7 @@ Do not commit directly to `main`. Do not bundle unrelated changes into one PR.
 ## Quality gates
 
 | Gate | Command | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Format | `make format` | Runs Ruff format and auto-fixable lint rules; rewrites files. |
 | Lint | `make lint` | Runs Ruff and writes `ruff_report.log`. |
 | Types | `make check` | Runs mypy and writes `mypy_report.log`. |

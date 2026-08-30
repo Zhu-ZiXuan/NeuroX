@@ -65,7 +65,7 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $\sigma$ | distribution spread (standard deviation) of a source | varies | — |
 | $\varepsilon$ | additive perturbation of a nominal quantity | same as the quantity | — |
 | $\eta$ | relative (multiplicative) perturbation of a nominal quantity | — | — |

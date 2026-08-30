@@ -7,7 +7,7 @@ $$W=\sum_{s=0}^{S_w-1}w_sR_w^s.$$
 Three layouts are available.
 
 | Configuration | Physical layout | Logical outputs per block |
-|---|---|---|
+| --- | --- | --- |
 | `DirectWeightSliceStageConfig` | no decomposition; structural `Sw=1` | `output_num` |
 | `InterWeightSliceStageConfig` | one macro plane per slice | `output_num` |
 | `IntraWeightSliceStageConfig` | adjacent output ports carry one weight's slices | `floor(output_num/Sw)` |

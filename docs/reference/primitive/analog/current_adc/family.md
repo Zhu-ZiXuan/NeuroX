@@ -31,7 +31,7 @@ Quantization against the reference levels is intrinsic to every member; all furt
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $I_{\mathrm{in}}$ | single-ended magnitude input current | uA | `i_in__uA` |
 | $b$ | active conversion resolution, per call | — | `active_bits` |
 | $b_{\max}$ | physical output bit width | — | `bits` |

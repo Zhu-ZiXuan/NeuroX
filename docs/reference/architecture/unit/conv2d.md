@@ -45,7 +45,7 @@ Window gather, weight flattening, output folding, and bias addition are exact in
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $B$ | batch size | — | runtime input axis |
 | $C_{\mathrm{in}}, C_{\mathrm{out}}$ | input / output channels | — | `w_logical_shape` |
 | $k_h, k_w$ | kernel extent | — | `w_logical_shape` |

@@ -48,7 +48,7 @@ After the read-time sources, the read conductance is re-clamped to $[G_{\min}, G
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `g_min__uS` | minimum programmable conductance $G_{\min}$ | uS | $\ge 0$ | Measured |
 | `g_max__uS` | maximum programmable conductance $G_{\max}$ (init kwarg, design ceiling) | uS | $> G_{\min}$ | Design |
 | `nonlinearity_alpha` | hyperbolic-sine I-V factor $\alpha$ | 1/V | $\ge 0$ | Measured |
@@ -64,7 +64,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $G$ | per-cell programmed conductance | uS | `_g__uS`; read as `RramSnap.g__uS` |
 | $G_{\min}, G_{\max}$ | working-range bounds | uS | `_g_min__uS`, `_g_max__uS` |
 | $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ | `prog_gamma` normalization bounds (independent of $G_{\min}, G_{\max}$) | uS | `prog_gamma.min_val`, `prog_gamma.max_val` |

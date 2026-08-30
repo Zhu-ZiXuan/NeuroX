@@ -19,7 +19,7 @@ N/A — direct table lookup, no iteration.
 ## Noise & non-idealities
 
 | Source | Physical origin | Statistical model |
-|---|---|---|
+| --- | --- | --- |
 | drive thermal | thermal noise on the steered output current | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$, constant across codes |
 
 The drive-thermal source is dynamic, resampled every conversion; the model carries no static mismatch.
@@ -29,7 +29,7 @@ TODO (domain author): physical derivation and citation for the drive-thermal sig
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `code_to_signal` ($L$) | LUT entry per integer code | uA | — | Design |
 | `drive_thermal__uA` ($\sigma_{\mathrm{drive}}$) | additive output-noise standard deviation | uA | $\geq 0$ | Measured |
 | `energy_per_op__fJ` | per-conversion dynamic energy | fJ | $\geq 0$ | Design |
@@ -40,7 +40,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $L$ | code-to-signal LUT | uA | `code_to_signal` |
 | $I_{\mathrm{out}}$ | output drive current | uA | `convert` output |
 | $n$ | output-noise sample | uA | sampled in `convert` |

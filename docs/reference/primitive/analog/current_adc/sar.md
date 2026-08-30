@@ -25,7 +25,7 @@ The conversion performs $b$ sequential comparisons. Each step is a closed-form p
 ## Noise & non-idealities
 
 | Source | Physical origin | Statistical model | Parameter |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | comparator offset | static input-referred threshold offset | static Gaussian threshold shift on the negative reference input, at fabricate | `comparator_offset_sigma__uA` |
 | quantization | intrinsic binary-search resolution | deterministic threshold compare | `i_refs__uA` (per call) |
 
@@ -34,7 +34,7 @@ The static offset is sampled once at fabricate and held constant across the $b$ 
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `bits` ($b_{\max}$) | physical magnitude output width | — | $> 0$ | Design |
 | `latency_per_bit__ns` | decision latency of one output bit | ns | $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred comparator-offset sigma | uA | $\geq 0$ | Measured |
@@ -45,7 +45,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $I_{\mathrm{in}}$ | single-ended magnitude input current | uA | `i_in__uA` |
 | $I_{\mathrm{ref},s}$ | mid-point reference selected at step $s$ | uA | `i_refs__uA` (per call) |
 | $I_{\mathrm{os}}$ | static input-referred threshold offset held across steps | uA | `comparator_offset__uA` |

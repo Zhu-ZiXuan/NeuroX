@@ -23,7 +23,7 @@ None. The transport is ideal; the neglected non-idealities are named in Assumpti
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `mux_ratio` ($N$) | N in the physical N:1 fan-in ratio | — | $\geq 1$ | Design |
 | `mux_gain` ($g$) | matched scalar transport gain | — | $> 0$ | Design |
 
@@ -32,7 +32,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $I_{\mathrm{in}}$ | single-ended column-current input | uA | `i__uA` |
 | $I_{\mathrm{out}}$ | transported current | uA | `transport` return |
 | $g$ | matched transport gain | — | `mux_gain` |

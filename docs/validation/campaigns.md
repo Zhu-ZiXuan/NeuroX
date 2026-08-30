@@ -28,7 +28,7 @@ Four conventions govern every campaign:
 Every key of `params.toml` and `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: registry dispatch keys (`_neurox_class`) and pure selectors. This table is the authoritative legend:
 
 | Tag | Meaning |
-|---|---|
+| --- | --- |
 | `[reported pN]` | a design fact, topology, or configured value stated by the paper on page N |
 | `[simulated pN]` | a result reported from the paper's simulation on page N |
 | `[measured pN]` | a result measured from fabricated silicon on page N |

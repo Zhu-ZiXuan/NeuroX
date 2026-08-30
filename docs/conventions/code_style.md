@@ -102,7 +102,7 @@ The class header is the object's state manifest for the human reader; a declarat
 Group declarations by lifecycle phase, under these names and in this order, omitting any group the class does not have:
 
 | Group | Holds |
-|---|---|
+| --- | --- |
 | Functional buffers | Registered tensors execution reads: lookup tables, ratio vectors, indices and masks, tensor-valued constants, and 0-D device/dtype or expansion seeds |
 | Nominal buffers | The registered fabrication sources `fabricate()` consumes |
 | Fabricated state | What `fabricate()` produces |

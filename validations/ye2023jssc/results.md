@@ -13,7 +13,7 @@ Four gates are INDEPENDENT — no free parameter is solved against the quantity 
 Exactly five numbers are free. Three carry `[calibrated]` in `params.toml`, two are `[transcribed]` paper block powers; every other field carries a non-free provenance tag and is pinned by it. Calibration inputs are an ENSEMBLE, not one draw: every residual below is quoted with its draw counts (`n_w` dies x `n_x` vectors x `repeat` rounds), never with a single seed.
 
 | Parameter | Value | Solved against | Bound | Residual |
-|---|--:|---|---|---|
+| --- | ---: | --- | --- | --- |
 | `c_wl__fF` (the C_WL knob) | 1.504 | the 50% caliber-Y array pin (`array` + `.bl_cond` + `.bl_cap` vs 56.150 uW) | C_WL in [60, 200] fF/row | C_WL = 200.0 fF/row, the UPPER EDGE; array pin -4.08% (53.858 uW) over `n_w` 64 x `n_x` 256 x `repeat` 8 |
 | `mirror_scale` | 0.1446 | jointly: 470 fJ/conversion within +-10% at BOTH sparsity points AND per-code spread in [1.3, 1.8] | b = 16 * mirror_scale in [2.120, 2.742] | b = 2.3136; -8.7% / +8.1% flat, spread 1.319x |
 | `energy_per_op__fJ` | 392.5 | (the same constraint pair) | (the same band) | (the same) |
@@ -29,7 +29,7 @@ Exactly five numbers are free. Three carry `[calibrated]` in `params.toml`, two 
 ## Hard gates — 5 / 5 PASS
 
 | Gate | Result |
-|---|---|
+| --- | --- |
 | golden transfer + asymmetric-value regression | 4096 / 4096 codes equal the closed-form transfer built from the config's own tables (0 tap-boundary samples excluded); the deterministic value sweep 0..7 reads codes [0, 2, 4, 6, 9, 11, 13, 15] |
 | I_TBL table + 30 nA bound | radix-scaled LRS currents 0.50 / 1.00 / 2.00 uA vs the measured 0.50 / 1.00 / 1.99 uA; worst-plane HRS 30.0 nA at the 30 nA bound |
 | RS-CSA 470 fJ flat + code spread (calibration consistency) | per-conversion 429.1 fJ (87.5%) and 508.1 fJ (50%) vs the 470 fJ anchor; per-code spread 1.319x inside [1.3, 1.8] |
@@ -43,7 +43,7 @@ The golden-transfer gate is the load-bearing one: it validates the whole functio
 The model bills five non-zero dynamic rows plus two static seats, the dynamic conduction rows as `E = V * I * t` branch atoms over the derived 66 ns access window. A row's power below is its per-access energy averaged over the DECLARED 66 ns leakage window (`anchors.toml`), the duty period the harness holds apart from the access time; the two seats are leakage powers already. Powers are quoted PER DIE: the ensemble's static leakage is divided by `n_w`, and the modelled latency is the per-die serial access time, the dies being parallel.
 
 | Channel | Owner / rate | 87.5% uW | 50% uW |
-|---|---|--:|--:|
+| --- | --- | ---: | ---: |
 | `array` | array + cell, PER ACCESS: WL wire + WL gate caps, selected-cell X dip | 1.092 | 1.097 |
 | `.bl_cond` | macro, PER ACCESS: 0.3 V input-branch conduction over T_AC | 13.210 | 52.731 |
 | `.bl_cap` | macro, PER VECTOR: BL-column charge (levels held across the row scan) | 0.008 | 0.030 |
@@ -60,7 +60,7 @@ Four further rows are structurally zero and are listed, not dropped, so a row th
 A caliber is a MOUNTING HYPOTHESIS about the measured setup: it names the one conduction branch the evaluation instrument feeds, which therefore draws from no macro supply and appears in NO measured power pin.
 
 | Caliber | Mounting | Array pin | RS-CSA pin | OFF-PIN (instrument-fed) |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | X | BL inputs driven off-chip by the board DAC array (Fig.15) | `array` + `.dl_cond` | `rscsa` | `.bl_cond` + `.bl_cap` |
 | Y | TBL clamp-driven from outside | `array` + `.bl_cond` + `.bl_cap` | `rscsa` | `.dl_cond` |
 
@@ -71,7 +71,7 @@ Neither branch's rail reaches the converter supply, so under both calibers the R
 Full model, every branch billed: 44.517 uW, 2.938 pJ/out (anchor 2.11), EF 21.78 TOPS/W. Draw spread over the 8 rounds: 44.517 +- 0.188 uW (std / sqrt(rounds)).
 
 | Block | caliber Y uW | caliber X uW | anchor uW |
-|---|--:|--:|--:|
+| --- | ---: | ---: | ---: |
 | Array | 14.310 (2.76x) | 5.138 (0.99x) | 5.178 |
 | RS-CSA | 6.501 (0.91x) | 6.501 (0.91x) | 7.127 |
 | Mux & Driver | 5.630 (1.00x) | 5.630 (1.00x) | 5.625 |
@@ -86,7 +86,7 @@ On-chip energy efficiency: 23.96 TOPS/W under caliber Y, 30.98 TOPS/W under cali
 Full model, every branch billed: 94.969 uW, 6.268 pJ/out (anchor 5.47), EF 10.21 TOPS/W. Draw spread over the 8 rounds: 94.969 +- 0.202 uW (std / sqrt(rounds)).
 
 | Block | caliber Y uW | caliber X uW | anchor uW |
-|---|--:|--:|--:|
+| --- | ---: | ---: | ---: |
 | Array | 53.858 (0.96x) | 14.849 (0.26x) | 56.150 |
 | RS-CSA | 7.698 (1.08x) | 7.698 (1.08x) | 7.133 |
 | Mux & Driver | 5.630 (1.00x) | 5.630 (1.00x) | 5.640 |

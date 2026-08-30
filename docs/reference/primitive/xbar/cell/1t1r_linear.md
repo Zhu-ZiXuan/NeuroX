@@ -35,7 +35,7 @@ The Linear cell is deterministic: it samples no device noise and carries no mism
 In addition to the [shared family parameters](1t1r.md):
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `g_cell_off_table__uS` | per-state branch chord conductance at WL off | uS | length = weight-state count ($\ge 1$); entries finite, $\ge 0$ | Calibrated (linearization) |
 | `g_cell_on_table__uS` | per-state branch chord conductance at WL on | uS | length = `g_cell_off_table__uS` length; entries finite, $\ge 0$ | Calibrated (linearization) |
 | `vx_ratio_off_table` | per-state BL-side drop fraction at WL off | — | length = `g_cell_off_table__uS` length; entries finite, in $[0, 1]$ | Calibrated (linearization) |
@@ -53,7 +53,7 @@ The Linear cell exposes the shared family node levels, with $V_{\mathrm{X}}$ tak
 In addition to the [shared family symbols](1t1r.md):
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $g_{\mathrm{cell}}$ | total branch chord conductance | uS | `g_cell_off_table__uS`, `g_cell_on_table__uS`, `di_dvbl__uS` |
 | $r_{\mathrm{X}}$ | BL-side drop fraction of the access-node divider | — | `vx_ratio_off_table`, `vx_ratio_on_table` |
 | $V_{\mathrm{BL}}^{\mathrm{op}}, V_{\mathrm{SL}}^{\mathrm{op}}$ | nominal extraction operating point | V | calibration-tool grid |

@@ -7,7 +7,7 @@ Symbols **reused across subsystems** are pinned so one physical quantity keeps o
 ## Electrical and physical quantities
 
 | Quantity | Symbol | Unit | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | voltage | $V$ | V | subscript names the node, e.g. $V_{\mathrm{BL}}$ |
 | current | $I$ | uA | subscript names the device, e.g. $I_{\mathrm{R}}$ |
 | conductance | $G$ | uS | |
@@ -24,7 +24,7 @@ Symbols **reused across subsystems** are pinned so one physical quantity keeps o
 Use a symbol only when the count enters an equation; otherwise refer to it by code field (`col_num`, `group_num`, `slice_num`).
 
 | Quantity | Symbol | Code field | When to use a symbol |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | rows | $N_{\mathrm{row}}$ | `row_num` | enters equations (e.g. ideal rescale) |
 | columns | $N_{\mathrm{col}}$ | `col_num` | only when in an equation |
 | reference groups | $N_{\mathrm{group}}$ | `group_num` | only when in an equation |
@@ -43,7 +43,7 @@ The slice radix $R$ is dimensionless and lives in this value-domain table; it is
 ## Mathematical notation
 
 | Use | Form |
-|---|---|
+| --- | --- |
 | matrix / vector | bold, $\mathbf{W}$, $\mathbf{x}$ |
 | index subscript | italic, $V_{\mathrm{BL},k}$ |
 | node-name subscript | upright, $\mathrm{BL}$ |
@@ -59,7 +59,7 @@ Named operators use `\operatorname{}`; reserve `\mathrm{}` for upright labels an
 One whitelist governs every layer — Markdown prose, docstrings, and comments share the **same** permitted non-ASCII set, written as the raw glyph. Inside a real formula a glyph takes its LaTeX form instead (last column, used within `$...$`); everything outside the set is ASCII.
 
 | Permitted | Use | In a formula |
-|---|---|---|
+| --- | --- | --- |
 | — | aside / parenthetical | prose only |
 | § | section reference (`§Parameters`) | prose only |
 | × | multiplication in running text (`5×`, `64×64`, `batch×inst`) | `\times` |
@@ -85,7 +85,7 @@ One Greek glyph can be a math variable or a physical unit / SI prefix, written d
 A string's notation follows who consumes it and whether a renderer sits between the source and that reader.
 
 | Class | The reader sees | Members | Notation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Executed as code | a machine parses, compares, or executes it | identifiers (variable/function/class/module/parameter names); dict and set keys; registry and enum keys; data or protocol string literals (config field names, TOML/JSON keys, serialization tags); einsum subscripts; regexes; format-spec placeholders; code and file paths; CLI flag and env-var names | ASCII only |
 | Shown raw to a human | the source text itself, unrendered | inline comments; docstrings; log and `print` output; exception, warning, and assert messages; CLI help; progress text | raw whitelisted unicode; never LaTeX; simple inline notation only |
 | Rendered for a human | a renderer produces the visual | Markdown docs; notebook Markdown cells; any string fed to a LaTeX, HTML, or markup renderer | a formula's symbols use the renderer's LaTeX (`$\sigma$`); units are ASCII |
@@ -129,7 +129,7 @@ The rules test reads Python definitions and bindings. It does not infer physical
 A quantity that is a derivative is named `d<y>_d<x>__<unit>`, all lowercase. Each of `<y>` and `<x>` is the quantity's own name with its internal underscores removed, so the run-together name leaves `_d` as the one separator in the identifier. Its suffix follows the same expression grammar as every other unit; the table uses the compact standard atom where one is convenient.
 
 | Derivative | Identifier | Unit |
-|---|---|---|
+| --- | --- | --- |
 | ∂a/∂b, a in V, b in uA | `da_db__MOhm` | MOhm |
 | ∂a/∂b, a in uA, b in V | `da_db__uS` | uS |
 | ∂a_out/∂b, a_out in V, b in uA | `daout_db__MOhm` | MOhm |
@@ -154,7 +154,7 @@ A module that conducts only briefly within a long cycle is therefore charged lea
 The canonical constants live in one place so device and analog modules pull them from a single source. The elementary charge $q$ and Boltzmann constant $k_B$ are exact by SI definition (zero uncertainty); the vacuum permittivity $\varepsilon_0$ is a measured / derived quantity carrying a relative uncertainty of $\sim 1.6 \times 10^{-10}$, listed at its CODATA-2018 value. $T_{\mathrm{room}}$ is the default operating temperature used whenever no explicit $T$ (`T__K`) is supplied. The thermal voltage $V_T = k_B T / q$ is derived from the first two constants at the given temperature.
 
 | Quantity | Symbol | Code | Value | Unit | Source |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | elementary charge | $q$ | `ELEM_CHARGE__C` | $1.602176634 \times 10^{-19}$ | C | Constant |
 | Boltzmann constant | $k_B$ | `K_BOLTZMANN__J_per_K` | $1.380649 \times 10^{-23}$ | J/K | Constant |
 | vacuum permittivity | $\varepsilon_0$ | `EPS_0__F_per_m` | $8.8541878128 \times 10^{-12}$ | F/m | CODATA-2018 |

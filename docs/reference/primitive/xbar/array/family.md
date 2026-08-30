@@ -31,7 +31,7 @@ Per access the array dissipates the capacitive energy of its nodes under the sup
 The array parameters are the repeated cell seat — its layout pitch, rail link resistance, and one capacitance total per node — plus the solver iteration counts. The model has no conduction-window parameter. Cell parameters are specified in [cell](../cell/family.md).
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | cell sub-module config | cell devices, sizing, state map, per-cell Newton count | — | — | see [cell](../cell/family.md) |
 | cell-seat pitch | layout spacing between adjacent cell seats along each axis | um | $> 0$ | Extracted |
 | bit-line / source-line link resistance | seat-to-seat rail interconnect | MOhm | $> 0$ | Extracted |
@@ -43,7 +43,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V_{\mathrm{BL},k}$ | bit-line node voltage at row $k$ | V | `v_bl_node__V` |
 | $V_{\mathrm{SL},k}$ | source-line node voltage | V | `v_sl_node__V` |
 | $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl__V` |

@@ -45,7 +45,7 @@ then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`. `
 ## Configuration
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `input_num` | logical input ports of one macro |
 | `output_num` | logical output ports of one macro |
 | `cim_macro_config` | owned macro configuration |
@@ -59,7 +59,7 @@ The policy has the same five owned-child fields. The engine's public `w_value_ra
 ## Symbols
 
 | Symbol | Meaning | Code |
-|---|---|---|
+| --- | --- | --- |
 | $M$ | activation-matrix row count | `input` row dim |
 | $S_w,S_x$ | weight and input slice counts | stage configuration |
 | $I$ | macro logical input capacity | `input_num` |

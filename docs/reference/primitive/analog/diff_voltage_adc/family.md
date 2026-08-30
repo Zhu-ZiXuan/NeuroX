@@ -42,7 +42,7 @@ Quantization is intrinsic to every member; further non-idealities are topology-s
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $V^{+},V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{ref}}$ | per-call injected reference taps, $[\ldots,\ n_{\mathrm{ref}}]$ with the taps last | V | `v_refs__V` |
 | $n_{\mathrm{ref}}$ | reference count the member's circuit takes | — | member-defined |

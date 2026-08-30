@@ -50,7 +50,7 @@ $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coeff
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `mu0__cm2_per_V_s` | low-field carrier mobility $\mu_0$ at $T_{\mathrm{ref}}$ | cm^2/V/s | $> 0$ | Process |
 | `c_ox__fF_per_um2` | gate-oxide capacitance per unit area $C_{\mathrm{ox}}$ | fF/um^2 | $> 0$ | Process |
 | `vth0__V` | signed nominal threshold $V_{\mathrm{th0}}$ at $T_{\mathrm{ref}}$ | V | — | Process |
@@ -68,7 +68,7 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $I_{\mathrm{ds}}$ | drain-source current (drain→source positive) | uA | `MosfetDcop.ids__uA` |
 | $\partial I_{\mathrm{ds}}/\partial V_g$ | gate transconductance $g_m$ | uS | `MosfetDcop.did_dvg__uS` |
 | $\partial I_{\mathrm{ds}}/\partial V_d$ | drain conductance $1/r_o$ ($\ge 0$) | uS | `MosfetDcop.did_dvd__uS` |

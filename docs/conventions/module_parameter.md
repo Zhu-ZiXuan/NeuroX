@@ -7,7 +7,7 @@ A module's parameters are classified along two orthogonal axes: **Source** (wher
 Every parameter in a Reference §Parameters table carries a Source drawn from this fixed taxonomy, which tells a reviewer how far to trust it.
 
 | Source | Definition |
-|---|---|
+| --- | --- |
 | **Constant** | Universal physical constant; fixed by SI definition, no uncertainty. |
 | **Measured** | Measured on a real device / silicon; carries a statistical distribution. |
 | **Process** | Given by the foundry process / PDK / datasheet (nominal). |

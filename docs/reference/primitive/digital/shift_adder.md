@@ -35,7 +35,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 ## Parameters
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `bit_width` | signed output register width | — | $> 0$ | Design |
 | `scale` | positional radix $r$ (init argument) | — | $\geq 2$ | Design |
 | `digit_count` | number of positional digits $D$ (init argument) | — | $\geq 1$ | Design |
@@ -49,7 +49,7 @@ The radix and digit count are bound when the physical block is constructed; the 
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $x$ | integer digit tensor (runtime input) | — | `x` |
 | $x_i$ | digit at position $i$ along the digit axis | — | slice of `x` |
 | $D$ | digit count (length of the digit axis) | — | `digit_count` |

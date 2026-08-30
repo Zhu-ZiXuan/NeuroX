@@ -33,7 +33,7 @@ The cell introduces no static mismatch of its own; non-idealities enter through 
 In addition to the [shared family parameters](1t1r.md):
 
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `rram_config` | RRAM storage-device configuration | — | — | see [reference/device/rram](../../device/rram.md) |
 | `nmos_config` | access-NMOS configuration | — | — | see [reference/device/mosfet](../../device/mosfet.md) |
 | `state_to_g_map__uS` | state-index to target conductance | uS | strictly increasing; length $\ge 2$; endpoints in $[G_{\mathrm{min}}, G_{\mathrm{RRAM,max}}]$ | Calibrated (physical data) |
@@ -53,7 +53,7 @@ The Detail cell exposes the shared family node levels, with $V_{\mathrm{X}}$ fro
 In addition to the [shared family symbols](1t1r.md):
 
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | $I_{\mathrm{R}}$ | RRAM current | uA | `Rram.solve_dc` |
 | $I_{\mathrm{N}}$ | access-NMOS current | uA | `Nmos.solve_dc` |
 | $g_{\mathrm{R}}$ | RRAM differential conductance | uS | `Rram.solve_dc` |

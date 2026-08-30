@@ -78,7 +78,7 @@ Every module document includes a Symbols table listing every symbol it uses, inc
 
 ```markdown
 | Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
+| --- | --- | --- | --- |
 ```
 
 ### Parameters
@@ -87,7 +87,7 @@ Use the five-column table below. Give every parameter a Constraint and a Source;
 
 ```markdown
 | Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 ```
 
 ### Noise
