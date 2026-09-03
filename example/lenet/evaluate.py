@@ -55,7 +55,12 @@ def _wrap_entry(root: LinearUnit, shapes: dict[LinearUnit, tuple[int, ...]]) -> 
     """
     original = root.linear
 
-    def wrapped(input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def wrapped(
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         shapes[root] = tuple(input.shape)
         return original(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
@@ -74,7 +79,7 @@ def capture_root_input_shapes(model: nn.Module) -> tuple[dict[LinearUnit, tuple[
     `__call__`, so no `forward()` hook can observe the input.
 
     Only the shape is recorded, an input that cannot be computed. The
-    initiation interval follows from shape plus config.
+    latency follows from shape plus config.
 
     Returns:
         The per-root shape dict, populated once the model's forward runs,
@@ -94,8 +99,8 @@ def capture_root_input_shapes(model: nn.Module) -> tuple[dict[LinearUnit, tuple[
     return shapes, restores
 
 
-def initiation_interval_per_sample__ns(model: nn.Module, root_shapes: dict[LinearUnit, tuple[int, ...]]) -> float:
-    """Modelled initiation interval of one sample across every macro-backed layer [ns].
+def latency_per_sample__ns(model: nn.Module, root_shapes: dict[LinearUnit, tuple[int, ...]]) -> float:
+    """Modeled latency of one sample across every macro-backed layer [ns].
 
     Each layer's root times the call it actually received, using the captured
     input shape — the one runtime extent (`M`, a convolution unit's
@@ -115,7 +120,7 @@ def initiation_interval_per_sample__ns(model: nn.Module, root_shapes: dict[Linea
         shape = root_shapes.get(root)
         if shape is None:
             raise RuntimeError(f"no captured input shape for {type(root).__name__}; forward never ran")
-        total__ns += root.initiation_interval__ns(shape, adc_active_bits=layer.adc_active_bits)
+        total__ns += root.latency__ns(shape, adc_active_bits=layer.adc_active_bits)
     return total__ns
 
 
@@ -204,7 +209,7 @@ def main() -> None:
     # energy is leakage times the duty-cycle period a deployment holds the macro
     # for, which is a property of that deployment rather than of the access time
     # below, so the two are reported separately.
-    initiation_interval__ns = initiation_interval_per_sample__ns(model, root_shapes)
+    latency__ns = latency_per_sample__ns(model, root_shapes)
     print(f"config:                   {args.config} (cim_macro={args.cim_macro})")
     print(f"policy:                   {args.policy}")
     print(f"samples:                  {total}")
@@ -214,7 +219,7 @@ def main() -> None:
     print(f"area_total_um2:           {static.area__um2:.4f}")
     print(f"leakage_power_total_uW:   {static.leakage__uW:.4f}")
     print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
-    print(f"modeled_initiation_interval_per_sample_ns: {initiation_interval__ns:.4f}")
+    print(f"modeled_latency_per_sample_ns: {latency__ns:.4f}")
     if energy_by_name__fJ:
         print("dynamic_energy_by_name_fJ:")
         width = max(len(name) for name in energy_by_name__fJ)

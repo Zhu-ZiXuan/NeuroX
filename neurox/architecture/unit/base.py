@@ -56,12 +56,18 @@ class UnitBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+    def rescale_factor(
+        self,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> float:
         """Return the ideal-unit codes represented by one output code.
 
         Args:
             quantization_mode: Index selecting the runtime quantization window.
-            adc_active_bits: Active ADC resolution.
+            adc_active_bits: Active ADC resolution; `None` requests the
+                unit's highest available precision.
         """
         raise NotImplementedError
 
@@ -71,28 +77,41 @@ class UnitBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int) -> float:
-        """Scheduled interval occupied by one operator call.
+    def latency__ns(
+        self,
+        input_shape: tuple[int, ...],
+        *,
+        adc_active_bits: int | None,
+    ) -> float:
+        """Latency of one complete operator call.
 
-        The unit derives runtime-dependent schedule extents from
+        The unit derives runtime-dependent serial extents from
         `input_shape`; construction fixes the remaining extents. An
-        implementation whose schedule is fully fixed may ignore the shape.
+        implementation whose latency is fully fixed may ignore the shape.
 
         Args:
             input_shape: Layout of the operand the unit's operator receives.
-            adc_active_bits: Active ADC resolution.
+            adc_active_bits: Active ADC resolution; `None` requests the
+                unit's highest available precision.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def _matmul(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def _matmul(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         """Multiply integer input planes by the programmed weight.
 
         Args:
             input: Integer activation planes.
                 Shape: `[..., M, K]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_active_bits: Active ADC resolution.
+            adc_active_bits: Active ADC resolution; `None` requests the
+                unit's highest available precision.
 
         Returns:
             Integer pre-requantize output tensor; leading order preserved.
@@ -117,7 +136,13 @@ class UnitBase(ABC):
         """Convert matmul output back to the operator output layout."""
         return output
 
-    def _lower_matmul(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def _lower_matmul(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         """Run one operator call through the unit's matmul contract."""
         planes = self._activation_to_planes(input)
         y = self._matmul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)

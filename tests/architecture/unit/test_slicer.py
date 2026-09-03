@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer, SerialSlicer, SimpleSlicer
-from neurox.common.encoding import Encoding, create_transcoder
+from neurox.common.encoding import Encoding, Transcoder
 
 
 def _decode_serial_slices(slices: torch.Tensor, weights: tuple[int, ...]) -> torch.Tensor:
@@ -65,7 +65,7 @@ def test_simple_slicer_value_range_delegates_to_full_length_transcoder(encoding:
         slice_value_range=(-7, 7),
         encoding=encoding,
     )
-    transcoder = create_transcoder(encoding=encoding, radix=8, digit_count=2)
+    transcoder = Transcoder.from_encoding(encoding=encoding, radix=8, digit_count=2)
     assert slicer.value_range == transcoder.value_range
 
 

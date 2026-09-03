@@ -6,7 +6,7 @@ Macro calibration determines the relationship between a physical macro's final o
 
 Every reference operating point has one corresponding entry in `rescale_factors`. The entry describes how many MAC units one final macro output code represents at the macro's maximum ADC resolution, `adc_bits`. The tuple index is `quantization_mode`.
 
-When the macro implements an exact integer mapping, derive the factor from that mapping and store it directly. Use `rescale_fit` only when the complete macro transfer makes the relationship empirical. The tool compares the physical macro's final output at `adc_bits` with its ideal twin at `adc_active_bits = 0`; it does not inspect the ADC type or use an ADC probe.
+When the macro implements an exact integer mapping, derive the factor from that mapping and store it directly. Use `rescale_fit` only when the complete macro transfer makes the relationship empirical. The tool requests each macro's highest available precision, comparing the physical macro's maximum-width output with its ideal twin's exact result; it does not inspect the ADC type or use an ADC probe.
 
 ```bash
 python -m neurox.tools.calibrate_macro.rescale_fit \
@@ -22,6 +22,6 @@ The command emits one complete `rescale_factors = [...]` assignment, preserving 
 
 ## Comparing against an idealized macro
 
-`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining its calibrated factors and integer ADC resolution. `--cim_macro physical` runs the macro as configured. The twin removes circuit nonidealities but does not bypass quantization unless called explicitly with `adc_active_bits = 0`, a value accepted only by `IdealCimMacro`.
+`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining its calibrated factors and finite integer ADC resolutions. `--cim_macro physical` runs the macro as configured. Passing `adc_active_bits = None` requests the selected macro's highest available precision: maximum-width physical conversion or exact ideal execution. Pass an explicit finite width when both paths must use the same quantization resolution.
 
 A standalone ideal config is another option. It instantiates an ideal macro from hand-authored parameters tied to no fabricated chip and is suitable for flow bring-up rather than hardware validation.

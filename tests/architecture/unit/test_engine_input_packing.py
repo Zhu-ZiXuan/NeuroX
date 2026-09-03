@@ -40,21 +40,32 @@ from neurox.primitive.macro.cim import (
 )
 
 # All engines are built on IdealCimMacroConfig, so the embedded macro policy is
-# the empty marker. `adc_active_bits = 0` bypasses its virtual ADC.
+# the empty marker. `adc_active_bits = None` bypasses its virtual ADC.
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _QUANTIZATION_MODE = 0
-_ADC_BITS = 0
+_ADC_BITS = None
 
 
 def _ideal_macro_config(
     *,
+    input_num: int = 8,
+    output_num: int = 8,
     max_active_num: int = 2,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        input_num=input_num,
         rescale_factors=(1.0,),
         max_active_num=max_active_num,
+        lane_num=1,
+        scan_num=output_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
+        w_digit_num=2,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM,
+        x_digit_num=1,
+        x_digit_radix=2,
+        x_encoding=Encoding.UNSIGNED,
         x_value_range=(0, 1),
         w_value_range=(-3, 3),
         adc_bits=8,
@@ -122,9 +133,7 @@ def _build_direct(
     max_active_num: int = 2,
 ) -> CimEngine:
     config = CimEngineConfig(
-        input_num=input_num,
-        output_num=8,
-        cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
+        cim_macro_config=_ideal_macro_config(input_num=input_num, max_active_num=max_active_num),
         placement=_placement_config(),
         input_activation=_input_activation_config(),
         weight_slice=DirectWeightSliceStageConfig(),
@@ -151,9 +160,7 @@ def _sliced_engine_config(
     weight_slice: WeightSliceStageConfig,
 ) -> CimEngineConfig:
     return CimEngineConfig(
-        input_num=input_num,
-        output_num=8,
-        cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
+        cim_macro_config=_ideal_macro_config(input_num=input_num, max_active_num=max_active_num),
         placement=_placement_config(),
         input_activation=_input_activation_config(),
         weight_slice=weight_slice,
@@ -273,8 +280,6 @@ def test_weight_and_input_slice_stages_compose_independently(
     torch.manual_seed(2)
     n, k, m = 17, 19, 5
     config = CimEngineConfig(
-        input_num=8,
-        output_num=8,
         cim_macro_config=_ideal_macro_config(max_active_num=3),
         placement=_placement_config(),
         input_activation=_input_activation_config(),
@@ -468,9 +473,7 @@ def test_block_schedule_routes_input_to_each_slot() -> None:
 def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
     engine = CimEngine(
         config=CimEngineConfig(
-            input_num=32,
-            output_num=1,
-            cim_macro_config=_ideal_macro_config(max_active_num=1),
+            cim_macro_config=_ideal_macro_config(input_num=32, output_num=1, max_active_num=1),
             placement=_placement_config(),
             input_activation=_input_activation_config(),
             weight_slice=DirectWeightSliceStageConfig(),

@@ -61,9 +61,9 @@ from neurox.primitive.macro.cim import (
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 
-# `adc_active_bits = 0` bypasses the virtual ADC, so unit outputs equal
+# `adc_active_bits = None` bypasses the virtual ADC, so unit outputs equal
 # `torch.matmul` exactly—the same behavior `IdealLinearUnit` provides natively.
-_TEST_ADC_BITS = 0
+_TEST_ADC_BITS = None
 _TEST_QUANTIZATION_MODE = 0
 _TEST_ADC_MAX_BITS = 8
 type _CimUnitType = type[CimUnit[CimUnitConfig, CimUnitPolicy]]
@@ -74,6 +74,8 @@ _TEST_RESCALE_FACTORS: tuple[float, ...] = (1.0,)
 
 def _ideal_macro_config(
     *,
+    input_num: int = 16,
+    output_num: int = 16,
     max_active_num: int | None = None,
     x_value_range: tuple[int, int] = (0, 1),
     w_value_range: tuple[int, int] = (-3, 3),
@@ -81,10 +83,19 @@ def _ideal_macro_config(
     adc_bits: int = _TEST_ADC_MAX_BITS,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        input_num=input_num,
         rescale_factors=rescale_factors,
         max_active_num=16 if max_active_num is None else max_active_num,
+        lane_num=1,
+        scan_num=output_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
+        w_digit_num=2,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM,
+        x_digit_num=2,
+        x_digit_radix=2,
+        x_encoding=Encoding.UNSIGNED,
         x_value_range=x_value_range,
         w_value_range=w_value_range,
         adc_bits=adc_bits,
@@ -151,8 +162,6 @@ def _direct_engine_config(
     phase_accumulator_config: AccumulatorConfig | None = None,
 ) -> CimEngineConfig:
     return CimEngineConfig(
-        input_num=16,
-        output_num=16,
         cim_macro_config=_ideal_macro_config(
             x_value_range=x_value_range,
             w_value_range=w_value_range,
@@ -211,8 +220,6 @@ def _sliced_engine_config(
     max_active_num: int | None = None,
 ) -> CimEngineConfig:
     return CimEngineConfig(
-        input_num=16,
-        output_num=16,
         cim_macro_config=_ideal_macro_config(
             x_value_range=x_value_range,
             w_value_range=w_value_range,
@@ -844,13 +851,20 @@ def test_unit_config_nested_engine_deserialization() -> None:
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
         "engine": {
-            "input_num": 16,
-            "output_num": 16,
             "cim_macro_config": {
                 "_neurox_class": "IdealCimMacroConfig",
+                "input_num": 16,
                 "max_active_num": 16,
+                "lane_num": 1,
+                "scan_num": 16,
                 "leakage_per_inst__uW": 0.0,
                 "area_per_inst__um2": 0.0,
+                "w_digit_num": 2,
+                "w_digit_radix": 2,
+                "w_encoding": "true_form",
+                "x_digit_num": 2,
+                "x_digit_radix": 2,
+                "x_encoding": "unsigned",
                 "x_value_range": [0, 1],
                 "w_value_range": [-3, 3],
                 "rescale_factors": [1.0],

@@ -46,6 +46,16 @@ def test_bill_is_the_rail_times_the_charge_moved() -> None:
     torch.testing.assert_close(got, expected, rtol=0.0, atol=0.0)
 
 
+def test_plain_numbers_return_plain_energy() -> None:
+    """A scalar circuit constant stays a Python number until tensor arithmetic needs it."""
+    delta_v__V = -0.25
+
+    got = e_cap_excursion__fJ(_V_RAIL__V, _C__fF, delta_v__V)
+
+    assert isinstance(got, float)
+    assert got == pytest.approx(_V_RAIL__V * _C__fF * abs(delta_v__V))
+
+
 def test_one_charging_leg_per_excursion_is_direction_blind() -> None:
     """Charging up and discharging down cost the same: one leg is billed, not two."""
     delta_v__V = torch.tensor([0.3, 0.05, 1.2], dtype=_DTYPE)

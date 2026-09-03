@@ -1,229 +1,89 @@
-# Paper-design params for the Ye et al. (JSSC 2023) WH-2T1R RRAM CIM macro — the
-# campaign's design point, every physical value provenance-tagged (legend in
-# docs/validation/campaigns.md). Spec: this file plus the scheme package
-# neurox/works/macro/cim/ye2023jssc/; measured outcomes: results.md.
-#
-# The SANCTIONED free-parameter set is exactly four numbers: the RS-CSA
-# `mirror_scale` and `energy_per_op__fJ`, and the two transcribed seat powers.
-# Every other value carries a non-[calibrated] tag and is pinned by it.
-#
-# PENDING RECAL. Two families of value below are unsolved, so the validate gate
-# runs RED until the recalibration campaign closes them:
-#   * the array's five per-node capacitances, one total to ground at each BL, X,
-#     SL, WL, or TBL node, of which the WL node total carries the C_WL knob;
-#   * the two converter energy tuples, which bill the WL and BL drive events.
-# The C_WL band and its saturation status are solved against the array pin and
-# must be re-established over these values.
-#
-# Pull this fragment from a user config with:
-#   [cim_macro]
-#   _neurox_use = "params.toml:cim_macro"   # (path relative to your file)
+# Ye et al., JSSC 2023, 1b-IN / 3b-W / 4b-O operating point.
 
 [cim_macro]
 _neurox_class = "Ye2023JsscCimMacroConfig"
 
-# --- Activation limit (owner supplies input_num=32 and output_num=64) ---
-max_active_num = 32               # [derived] input-parallel: every input selected at once
+input_num = 32                      # [reported p6 Table II] physical input capacity
+max_active_num = 32                 # [reported p6 Table II] full input parallelism
+lane_num = 1                        # [reported p3 Fig. 3(a)] one time-shared RS-CSA path
+scan_num = 64                       # [reported p3 Fig. 3(a)] output rows serialized per RS-CSA
+v_bl__V = 0.3                       # [reported p4 Fig. 7(a)]
+v_wl_on__V = 0.6                    # [reported p4 Fig. 7(a)] binary WL-drive high level
+v_tbl__V = 0.1                      # [reported p4 Fig. 7(a)]
+v_sl__V = 0.0                       # [reported p4 Fig. 7(a)]
+vdd__V = 0.8                        # [measured p6 Table II]
+rescale_factors = [14.0]            # [derived] 7 uA/code / 0.5 uA/MAC
+w_digit_num = 3                     # [reported p4 Fig. 7(a)] three weight digits
+w_digit_radix = 2                   # [reported p4 Fig. 7(a)] binary radix
+t_settle__ns = 5.0                  # [measured p7 Fig. 18] PH0 array-settling duration
 
-# --- Biases ---
-v_tbl__V = 0.1                    # [measured p4 Fig.7(a)] TBL clamp and per-access node excursion
-v_sl__V = 0.0                     # [measured p4 Fig.7(a)] source-line drive (grounded)
-
-# --- Readout PH0 compensation ---
-# [derived] continuity seat equal to the retired in-code derivation (floor x 352
-# radix units); the recalibration campaign will re-anchor it to the measured
-# 1.0 uA row leakage.
-i_ph0_comp__uA = 1.000032
-
-# --- Core analog supply ---
-# Every analog branch and array-node excursion draws from the reported core
-# supply. BL, WL, and TBL voltages are node levels, not independent supplies.
-vdd__V = 0.8                      # [measured p6 Table II] core supply
-
-# --- Flat peripheral per-op energies ---
-# [derived] Structural zeros: both seats are billed as PURE STATIC leakage (their
-# transcribed block powers are flat across the two Fig.19 points), so no per-op
-# dynamic share exists.
-
-# --- Macro-owned static PPA lump (every seat carries its own) ---
-# [derived] Structural zeros: the macro declares no static PPA of its own.
-area_per_inst__um2 = 0.0
+# [derived] Measured macro area minus the assumed array footprint below.
+area_per_inst__um2 = 110604.0
 leakage_per_inst__uW = 0.0
 
 
-# --- Quantization operating points (single nominal mode) ---
-# The RS-CSA is a 4-bit uniform current quantizer.
-# [derived] I_LSB = 7 uA against 0.5 uA per unit MAC -> a code carries 14 MAC
-# units.
-rescale_factors = [14.0]
-
-
-# --- WH-2T1R array (works-local) -- chunk-fused step1 divider solve + step2 I_T2 sum ---
-# Physical rows = logical outputs (64, the TBL / ladder direction); physical
-# columns = 32 * (3 weight planes + 1 redundant plane) = 128, plane-major. The
-# array bills EVERY cap inside it under the held-BL / scanned-WL law (per-access
-# displacement off the ideal rest level, plus one hold establishment amortized
-# over the row scan); the macro bills the conduction branches.
 [cim_macro.array_config]
 
-# --- Weight fan-out geometry ---
-weight_radix = [1, 2, 4]          # [measured p4 Fig.7(a)] SUBA1/2/3 T2 slice multipliers, LSB-first
-redundant_radix = [4]             # [measured p4 Fig.7(a)] SUBA4 redundant slice, m(T2) = 4
+# [assumed] Effective WH-2T1R cell pitches; total array footprint is 4096 um2.
+row_cell_space__um = 1.0
+col_cell_space__um = 0.5
 
-# --- Layout pitch [um] ---
-# One pitch per axis: the lattice is uniform and whatever lead-in a boundary
-# driver needs to reach its first seat is that driver's business.
-# [assumed] 28nm typical.
-row_cell_space__um = 0.040
-col_cell_space__um = 0.040
-
-# --- BL / SL rail links ---
-# Cell-to-cell segment resistance; solver physics, MUST be > 0. The WL is
-# gate-only (carries no DC current), so it has no R field.
-# [assumed] 28nm typical, both entries.
+# [assumed] Local metal segment resistance.
 bl_segment_r__MOhm = 5.0e-6
 sl_segment_r__MOhm = 5.0e-6
 
-# --- Per-node capacitance [fF] ---
-# One total to ground at each cell node. The BL and X nodes move away from the
-# held input level, the SL node moves away from grounded rest, and the selected
-# WL and TBL nodes complete one ground-to-drive excursion per access.
-# [derived] 28nm-typical node totals. PENDING RECAL: the WL node total carries
-# the C_WL knob, whose band and saturation status are solved against the array
-# pin.
+# [assumed] 28 nm local-node and interconnect capacitance totals.
 bl_node_c__fF = 0.305
 x_node_c__fF = 0.150
 sl_node_c__fF = 0.018
-wl_node_c__fF = 1.559
-# [assumed] Effective TBL total per cell site over the fixed mixed-radix row;
-# replace with the extracted node total in the recalibration campaign.
-tbl_node_c__fF = 0.0355
+wl_node_c__fF = 1.6654              # [calibrated] 213.16 fF per 128-cell WL closes the 50% Fig. 19 array anchor.
+t2_gate_unit_c__fF = 0.1            # [derived/assumed] Fig. 4(c) 100 nm/30 nm core T2 and 28 nm gate-capacitance scale.
+tbl_node_unit_c__fF = 0.1           # [assumed] Unit-width T2 diffusion plus local TBL interconnect.
 
 
-# --- WH-2T1R lookup cell = linear 1T1R divider (step1) + I_T2 table (step2) ---
-# Divider roots: R_LRS = 10 k, R_HRS = 100 k [measured p3 Fig.4(c)];
-# R_T1 = sqrt(R_HRS * R_LRS) = 31.6 k [derived] -- the half-activated T1
-# geometric-mean bias point that maximizes dV_X (p4 Fig.5).
 [cim_macro.array_config.cell_config]
+# [derived from reported p3 Fig. 4(c)] R_HRS=100 kohm, R_LRS=10 kohm,
+# R_T1=sqrt(R_HRS*R_LRS)=31.6 kohm.
+g_cell_on_table__uS = [7.5975, 24.025]
+vx_ratio_on_table = [0.75975, 0.24025]
 
-# --- Divider tables [uS] / ratios, indexed by weight-state (0 = HRS, 1 = LRS) ---
-# [derived] g_cell = 1 / (R_RRAM + R_T1): HRS = 1/131.6k, LRS = 1/41.6k;
-# vx_ratio = R_RRAM / (R_RRAM + R_T1): HRS = 0.760, LRS = 0.240.
-g_cell_off_table__uS = [0.001, 0.001]     # [assumed] WL off -> negligible conduction
-g_cell_on_table__uS = [7.5975, 24.0253]
-vx_ratio_off_table = [0.0, 0.0]           # [derived] unselected row, T1 off, V_X pinned to BL
-vx_ratio_on_table = [0.760, 0.240]
+# [assumed] T1-off BL-to-SL leakage; V_X remains at the BL-side potential.
+g_cell_off_table__uS = [0.001, 0.001]
+vx_ratio_off_table = [0.0, 0.0]
+v_wl_on_threshold__V = 0.3          # [derived] midpoint of 0/0.6 V WL levels
+v_x_on_threshold__V = 0.15          # [derived] midpoint of nominal HRS/LRS V_X
 
-# --- Analog WL level above which the access device counts as on ---
-v_wl_on_threshold__V = 0.3        # [derived] midpoint of WL_sel = 0.6 V and WL_off = 0 V
-
-# --- Step2 T2 compute current [uA], indexed [operating_point][weight_state] ---
-# I_T2 = f(V_X) sampled at two calibration operating points: index 0 the FLOOR at
-# V_X = 0, index 1 the DRIVE point at V_X > 0.
-# [0][*] = off-cell floor I_0 at V_X = 0 (the per-cell contribution to the row
-#   leakage). [derived]: 1.0 uA measured row leakage / 352 radix units, where
-#   352 = 32 inputs * (1+2+4+4) and the array radix-weights every cell, so an
-#   all-zero-input row sums to exactly the PH0 nominal (zero MAC -> code 0).
-# [1][HRS] = 0.0075 uA [bound-derived]: the radix multiplier is retained, so the
-#   m = 4 plane saturates the measured < 30 nA bound on the RAW per-plane HRS
-#   current.
-# [1][LRS] = 0.50 uA [measured p7 Fig.16(b)]: the unit-slice on-current I_unit at
-#   the drive point.
-i_t2_table__uA = [[0.002841, 0.002841], [0.0075, 0.50]]
+# [assumed/derived] Linear T2-width scaling: 1 uA / (32 * (1+2+4+4)).
+i_t2_leak__uA = 0.0028409
+# [measured p7 Fig. 16(b)] Unit-width LRS signal; the <30 nA HRS signal is neglected.
+i_t2_unit_signal__uA = 0.5
 
 
-# --- Parallel BL/SL array DC solver -- outer V_clamp / inner wire Newton ---
-# One active row per output -> a light, near-linear solve; the nested counts are
-# still used (BL/SL wire coupling).
 [cim_macro.array_config.solver_config]
-# [assumed] step1 iteration counts; the run config for a formal sweep is under tools/.
-n_outer = 4
-n_inner = 3
+n_outer = 2                         # [calibrated]
+n_inner = 3                         # [calibrated]
 
 
-# --- RS-CSA readout (RsCsaIadc) -- 4-bit uniform current quantizer + static PH0 ---
-# The PH0 compensation current the readout subtracts is the macro-level
-# `i_ph0_comp__uA` seat above; the readout itself declares no field for it.
 [cim_macro.adc_config]
-# [derived] Structural zeros: the readout self-bills per-op and per-phase energy as dynamic,
-# so it carries no static seat.
+bits = 4                            # [measured p6 Table II]
+latency_per_bit__ns = 20.0          # [measured p7 Fig. 18] PH1-PH4 test duration, 1ns for optimized
+comparator_offset_sigma__uA = 0.0   # [not reported] ideal comparison
+init__ns = 0.0                       # [derived] PH1-PH4 use equal test durations
+
+# [calibrated] 50% Fig. 19 RS-CSA power after its standing reference branch.
+energy_per_bit__fJ = 32.573
 area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
-bits = 4                          # [measured p6 Table II] 4bO; also fixes the compare-phase weights 8/4/2/1
-# [measured p6 Table II] the same core supply as `vdd__V` (the macro config
-# cross-checks them); Fig.12 shows the comparator input mirror conducting from it,
-# not from the 0.1 V data line.
-v_rail__V = 0.8
-# [measured p7 Fig.18] PH0 (leakage compensation) then the four compare phases, MSB..LSB.
-t_phase__ns = [5.0, 20.0, 20.0, 20.0, 20.0]
-# [measured p7 Fig.18] t1..t4: each compare phase's start -> its own comparator
-# output valid, MSB-first; T_AC(4) = PH0+PH1+PH2+PH3+t4 = 66 ns, T_AC(1) = PH0+t1 = 10 ns.
-t_intrinsic__ns = [5.0, 1.0, 1.0, 1.0]
-# [calibrated] mirror_scale and energy_per_op__fJ solve ONE shared constraint
-# pair (the Fig.19 per-conversion energy anchor and the Fig.11(b) code-spread
-# window); bounds, solved values and residuals live in results.md.
-mirror_scale = 0.1446             # [calibrated] comparator-side mirror scale: the fraction of the compared branch current the comparator draws over a phase
-energy_per_op__fJ = 392.5         # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
 
-
-# --- RS-CSA reference source ---
-# One value per quantization mode; the macro selects the active mode and gives
-# the selected current to the readout.
 [cim_macro.reference_config]
-# [derived] Structural zeros: the source is a bias branch of the readout, which
-# self-bills it inside its per-op energy, and Fig.19 itemises no reference block of its own;
-# this scheme models no mismatch.
+values = [7.0]                      # [simulated p6 Fig. 11(a)] I_LSB
 tolerance_sigma_relative = 0.0
 area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0
+# [derived] One 7 uA standing reference branch on the 0.8 V core supply.
+leakage_per_inst__uW = 5.6
 
-# [derived] simulation-consistent operating point: Fig.11(a) annotates I_LSB = 7 uA
-# and the measured-run instrument setting is unreported. Closes as
-# 224 max MAC units * 0.5 uA per unit = 112 uA full scale over 2**4 = 16 codes
-# -> 7 uA per code (top decision tap 15 * 7 = 105 uA), corresponding to
-# 14 MAC units per final output code.
-values = [7.0]
-
-
-# --- WL driver -- 1-bit ON/OFF DAC, one converter seat per word line ---
-# The scan pattern is digital: output o raises word line o and every other line
-# holds its off code, so a converter seat fires once per line per access.
-[cim_macro.wl_dac_config]
-_neurox_class = "GeneralVdacConfig"
-# [measured p4 Fig.7(a)] binary WL drive: deselected -> 0 V, selected -> 0.6 V.
-code_to_signal = [0.0, 0.6]
-drive_thermal__V = 0.0            # [derived] structural zero: this scheme models no noise
-# [assumed] PENDING RECAL: Fig.19 itemises no WL driver share, so both codes are
-# structural zeros until the recalibration campaign solves the drive event.
-code_to_per_op_energy__fJ = [0.0, 0.0]
-# [derived] Structural zeros: the driver carries no area model and no static seat.
-area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0
-
-
-# --- BL input driver -- 1-bit DAC, one converter seat per physical column ---
-# The input level is HELD across the whole row scan, so a converter seat fires
-# once per input vector, whichever level that vector puts on the column.
-[cim_macro.bl_dac_config]
-_neurox_class = "GeneralVdacConfig"
-# [measured p4 Fig.7(a)] binary BL drive: IN = 0 -> 0 V, IN = 1 -> 0.3 V.
-code_to_signal = [0.0, 0.3]
-drive_thermal__V = 0.0            # [derived] structural zero: this scheme models no noise
-# [assumed] PENDING RECAL: Fig.19 itemises no BL driver share, so both codes are
-# structural zeros until the recalibration campaign solves the drive event.
-code_to_per_op_energy__fJ = [0.0, 0.0]
-# [derived] Structural zeros: the driver carries no area model and no static seat.
-area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0
-
-
-# --- BL clamp -- ideal Thevenin VoltageDriver (r_out = 0), the array bl_driver ---
-# Ideal source: the wire IR drop lives in the ARRAY, not the clamp. The whole
-# input-branch conduction vdd__V * I_BL is macro-billed, so energy_per_op is 0.
 [cim_macro.bl_driver_config]
-# [derived] Structural zeros: this scheme models no mismatch and no noise, the
-# macro bills the whole input branch, and the clamp carries no static seat.
 r_out__MOhm = 0.0
 offset_sigma__V = 0.0
 thermal_sigma__V = 0.0
@@ -232,10 +92,7 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 
-# --- SL driver -- ideal ground clamp (VoltageDriver held at 0 V), the array sl_driver ---
 [cim_macro.sl_driver_config]
-# [derived] Structural zeros: grounded rail, no billed branch; this scheme models
-# no mismatch and no noise, and the clamp carries no static seat.
 r_out__MOhm = 0.0
 offset_sigma__V = 0.0
 thermal_sigma__V = 0.0
@@ -244,19 +101,15 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 
-# --- Mux & Driver -- flat seat, billed as pure static leakage ---
+# [derived] Mean Fig. 19 block powers split into 70% dynamic and 30% static.
+# Dynamic energy uses the complete 85 ns measurement cycle.
 [cim_macro.mux_driver_config]
-area_per_inst__um2 = 0.0          # [derived] the seat carries no area model
-energy_per_op__fJ = 0.0           # [derived] the adopted seat is purely static
-# [transcribed] Fig.19 Mux & Driver block power, flat across both sparsity points:
-# 17.6% of 31.96 uW = 5.625 at 87.5%, 6.8% of 82.94 uW = 5.640 at 50%.
-leakage_per_inst__uW = 5.63
+area_per_inst__um2 = 0.0
+energy_per_op__fJ = 335.13
+leakage_per_inst__uW = 1.6897
 
 
-# --- Timing & Mode Ctrl -- flat seat, billed as pure static leakage ---
 [cim_macro.timing_ctrl_config]
-area_per_inst__um2 = 0.0          # [derived] the seat carries no area model
-energy_per_op__fJ = 0.0           # [derived] the adopted seat is purely static
-# [transcribed] Fig.19 Timing & Mode Ctrl block power, flat across both sparsity
-# points: 43.9% of 31.96 uW = 14.030 at 87.5%, 16.9% of 82.94 uW = 14.017 at 50%.
-leakage_per_inst__uW = 14.03
+area_per_inst__um2 = 0.0
+energy_per_op__fJ = 834.41
+leakage_per_inst__uW = 4.2071

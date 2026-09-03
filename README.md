@@ -6,13 +6,7 @@ The supported library surface ends at `neurox.architecture.unit`. Model rewritin
 
 ## Get started
 
-NeuroX requires Python 3.12 or later. To prepare a source checkout with the dependencies used by the bundled examples:
-
-```bash
-uv sync --extra demo
-```
-
-Follow the [algorithm-engineer workflow](docs/guides/algorithm_engineer/workflow.md) to train and evaluate the LeNet or BERT pipeline.
+Follow [Get started](docs/get_started/README.md) to prepare a supported environment and run a bundled workflow.
 
 ## Documentation
 

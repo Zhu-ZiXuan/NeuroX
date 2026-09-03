@@ -121,6 +121,7 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         """Physical output bit width."""
         return self.config.bits
 
+    @final
     def _check_active_bits(self, active_bits: int) -> None:
         if not (1 <= active_bits <= self.bits):
             raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")

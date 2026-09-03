@@ -2,7 +2,7 @@
 
 ## Physical model
 
-The ideal model preserves the family value domain, output code mapping, calibrated mode factors, and ADC resolution while removing analog non-idealities. It computes an exact integer dot product for each WL plane and quantizes that dot using the selected mode's factor.
+The ideal model preserves the family value domain, output code mapping, calibrated mode factors, and finite ADC resolutions while removing analog non-idealities. It computes an exact integer dot product for each WL plane and quantizes that dot when a finite resolution is requested.
 
 ## Governing equations
 
@@ -36,7 +36,7 @@ $$\mathrm{code}_p=\operatorname{sgn}(M_p)\left(a_B\mathbin{\gg}(B-b)\right).$$
 
 Its output spans $[-(2^b-1),2^b-1]$. The two raw representations of zero collapse to integer zero at the macro boundary.
 
-On the ideal macro only, `adc_active_bits = 0` bypasses quantization and returns $M_p$ unchanged. The bypass has rescale factor one but still validates the quantization-mode index independently.
+With `adc_active_bits = None`, the ideal macro supplies its highest available precision: it returns $M_p$ unchanged and reports a rescale factor of one. A finite `adc_active_bits` applies the corresponding virtual quantization. Both paths validate the quantization-mode index.
 
 ## Numerical method
 

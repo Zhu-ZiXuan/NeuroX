@@ -8,7 +8,7 @@ The reference values $I_{\mathrm{ref}}$ are a runtime input, ascending along a t
 
 The number of reference values consumed by one conversion is topology-specific rather than a family law.
 
-The resolution $b$ sets the number of code levels; the maximum resolution $b_{\max}$ is fixed for a given ADC. The references describe physical wiring, not the requested resolution, so a conversion at $b < b_{\max}$ is realized inside the converter by running fewer decision cycles over the same taps.
+The resolution $b$ sets the number of code levels; the maximum resolution $b_{\max}$ is fixed for a given ADC. Every call supplies an integer `active_bits` in `[1, bits]`. The references describe physical wiring, not the requested resolution, so a conversion at $b < b_{\max}$ is realized inside the converter by running fewer decision cycles over the same taps.
 
 ## Governing laws
 

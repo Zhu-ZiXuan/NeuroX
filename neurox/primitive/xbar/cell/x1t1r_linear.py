@@ -84,14 +84,10 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """BL-side drop fraction with the WL off."""
 
 
-@XbarCell1t1r.register_neurox_module(
-    config_type=XbarCell1t1rLinearConfig,
-    policy_type=XbarCell1t1rLinearPolicy,
-)
-class XbarCell1t1rLinear[
-    ConfigT: XbarCell1t1rLinearConfig,
-    PolicyT: XbarCell1t1rLinearPolicy,
-](XbarCell1t1r[ConfigT, PolicyT, XbarCell1t1rLinearSnap]):
+@XbarCell1t1r.register_neurox_module(config_type=XbarCell1t1rLinearConfig, policy_type=XbarCell1t1rLinearPolicy)
+class XbarCell1t1rLinear[ConfigT: XbarCell1t1rLinearConfig, PolicyT: XbarCell1t1rLinearPolicy](
+    XbarCell1t1r[ConfigT, PolicyT, XbarCell1t1rLinearSnap]
+):
     # === Functional buffers ===
 
     _g_cell_off_table__uS: Tensor  # Shape: [w_state_num]
@@ -156,12 +152,9 @@ class XbarCell1t1rLinear[
         self._vx_ratio_off = self._vx_ratio_off_table[idx]
         self._vx_ratio_on = self._vx_ratio_on_table[idx]
 
-    def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
-        """WL-switched `(g_cell__uS, vx_ratio)` of the linear branch."""
-        on = snap.v_wl__V > self.config.v_wl_on_threshold__V
-        g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
-        vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
-        return g_cell__uS, vx_ratio
+    def is_wl_on(self, snap: XbarCell1t1rSnap) -> Tensor:
+        """Return whether the linear model selects its WL-on tables."""
+        return snap.v_wl__V > self.config.v_wl_on_threshold__V
 
     def solve_dc(
         self,
@@ -170,15 +163,15 @@ class XbarCell1t1rLinear[
         snap: XbarCell1t1rLinearSnap,
     ) -> XbarCell1t1rDcop:
         """Full branch working point including the divider V_X."""
-        g_cell__uS, vx_ratio = self._select_branch_params(snap)
+        on = self.is_wl_on(snap)
+        g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
+        vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
         dv__V = v_bl__V - v_sl__V
-        i__uA = g_cell__uS * dv__V
-        v_x__V = v_bl__V - vx_ratio * dv__V
         return XbarCell1t1rDcop(
-            i__uA=i__uA,
+            i__uA=g_cell__uS * dv__V,
             di_dvbl__uS=g_cell__uS,
             di_dvsl__uS=-g_cell__uS,
-            v_x__V=v_x__V,
+            v_x__V=v_bl__V - vx_ratio * dv__V,
         )
 
     def snapshot(

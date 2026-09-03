@@ -53,7 +53,6 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
     XbarArray1t1rPolicy,
-    XbarArray1t1rScanMode,
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
@@ -642,7 +641,6 @@ def _array(*, row_num: int, chunk_size: int) -> _Array:
         inst_shape=(),
         row_num=row_num,
         col_num=_ARRAY_COL,
-        scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
         vdd__V=_VDD__V,
         dtype=_DTYPE,
         T__K=300.0,
@@ -691,7 +689,8 @@ def _solve_array(array: _Array, v_wl: Tensor) -> XbarArray1t1rSteadyState:
     bl_ref = torch.full((*leading, _ARRAY_COL), _BL_V_REF__V, dtype=_DTYPE)
     sl_ref = torch.full((*leading, _ARRAY_COL), _SL_V_REF__V, dtype=_DTYPE)
     state = array.solve_array(
-        v_wl,
+        v_wl__V=v_wl,
+        wl_phase_dims=(-2,),
         bl_driver=bl_driver,
         bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref, shape=bl_ref.shape),
         sl_driver=sl_driver,
@@ -759,7 +758,7 @@ def _retained_bytes(*, row_num: int) -> int:
     storage-less tensors, which carry no bytes to count.
     """
     array = _array(row_num=row_num, chunk_size=_ARRAY_CHUNK)
-    v_wl = torch.rand(_ARRAY_LEADING, row_num, dtype=_DTYPE) * 1.2
+    v_wl = torch.rand(_ARRAY_LEADING, 1, row_num, dtype=_DTYPE) * 1.2
     with (
         torch._dynamo.config.patch(disable=True),
         _chunk_boundary_bytes() as samples,
@@ -771,7 +770,7 @@ def _retained_bytes(*, row_num: int) -> int:
 
 def test_chunk_size_moves_neither_the_port_state_nor_the_energy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Chunk size is a memory knob: every chunking of one call agrees bit for bit."""
-    v_wl = torch.rand(_VALUE_LEADING, _VALUE_ROW, dtype=_DTYPE) * 1.2
+    v_wl = torch.rand(_VALUE_LEADING, 1, _VALUE_ROW, dtype=_DTYPE) * 1.2
     folded: dict[int, tuple[Tensor, Tensor, Tensor]] = {}
 
     for chunk_size in (0, 2, 3, 5, 100):

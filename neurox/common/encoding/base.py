@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
+from typing import assert_never
 
 from torch import Tensor
 
 
 class Encoding(StrEnum):
-    """Supported signed-digit encoding algorithms."""
+    """Supported positional digit encodings."""
 
+    UNSIGNED = "unsigned"
     TRUE_FORM = "true_form"
     COMPLEMENT = "complement"
     CANONICAL = "canonical"
@@ -19,10 +21,11 @@ class Encoding(StrEnum):
 class Transcoder(ABC):
     """Fixed-length positional signed-digit transcoder.
 
-    `encode` and `decode` are mutual inverses inside `value_range`:
-    `decode(encode(x))` equals `x` exactly for every `x` in that band. Outside it
-    the encoded value wraps silently and no error is raised. `decode` is the
-    shared positional reduction and serves every encoding unchanged.
+    `encode` and `decode` are mutual inverses throughout the continuous
+    `value_range`: `decode(encode(x))` equals `x` exactly for every integer in
+    that range. Encodings may be redundant, but may not leave holes. Outside
+    the range the encoded value may wrap. `decode` is the shared positional
+    reduction and serves every encoding unchanged.
 
     Args:
         radix: Positional base `r` of the digit representation, `r >= 2`.
@@ -37,16 +40,46 @@ class Transcoder(ABC):
             raise ValueError(f"require: radix ({radix}) >= 2")
         if digit_count < 1:
             raise ValueError(f"require: digit_count ({digit_count}) >= 1")
-        self._radix = radix
-        self._digit_count = digit_count
+        self.__radix = radix
+        self.__digit_count = digit_count
+
+    @staticmethod
+    def from_encoding(*, encoding: Encoding, radix: int, digit_count: int) -> Transcoder:
+        """Construct the implementation selected by `encoding`."""
+        from .canonical import CanonicalTranscoder
+        from .complement import ComplementTranscoder
+        from .true_form import TrueFormTranscoder
+        from .unsigned import UnsignedTranscoder
+
+        match encoding:
+            case Encoding.UNSIGNED:
+                return UnsignedTranscoder(radix=radix, digit_count=digit_count)
+            case Encoding.TRUE_FORM:
+                return TrueFormTranscoder(radix=radix, digit_count=digit_count)
+            case Encoding.COMPLEMENT:
+                return ComplementTranscoder(radix=radix, digit_count=digit_count)
+            case Encoding.CANONICAL:
+                return CanonicalTranscoder(radix=radix, digit_count=digit_count)
+        assert_never(encoding)
 
     @property
     def radix(self) -> int:
-        return self._radix
+        return self.__radix
 
     @property
     def digit_count(self) -> int:
-        return self._digit_count
+        return self.__digit_count
+
+    @property
+    def place_values(self) -> tuple[int, ...]:
+        """LSB-first positional weights."""
+        return tuple(self.radix**digit for digit in range(self.digit_count))
+
+    @property
+    @abstractmethod
+    def value_range(self) -> tuple[int, int]:
+        """Inclusive continuous integer range the encoding represents."""
+        raise NotImplementedError
 
     @abstractmethod
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -81,11 +114,5 @@ class Transcoder(ABC):
         parts = digits.unbind(dim=dim)
         decoded = parts[-1]
         for part in reversed(parts[:-1]):
-            decoded = decoded * self._radix + part
+            decoded = decoded * self.radix + part
         return decoded
-
-    @property
-    @abstractmethod
-    def value_range(self) -> tuple[int, int]:
-        """Inclusive integer range one digit string can losslessly represent."""
-        raise NotImplementedError

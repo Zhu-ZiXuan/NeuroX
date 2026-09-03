@@ -46,15 +46,13 @@ then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`. `
 
 | Field | Meaning |
 | --- | --- |
-| `input_num` | logical input ports of one macro |
-| `output_num` | logical output ports of one macro |
-| `cim_macro_config` | owned macro configuration |
+| `cim_macro_config` | owned macro configuration, including its fixed input, lane, and scan geometry |
 | `placement` | geometric placement and `Tc` accumulator configuration |
 | `input_activation` | selected-input grouping and `P` accumulator configuration |
 | `weight_slice` | weight layout and optional `Sw` shift-adder configuration |
 | `x_slice` | input serialization and optional `Sx` shift-adder configuration |
 
-The policy has the same five owned-child fields. The engine's public `w_value_range` and `x_value_range` come from the two slice stages; ADC metadata and `max_active_num` delegate to the constructed macro. The file-level form of these tables is specified in [configuration](../../../../../api/configuration.md).
+The policy has the same five owned-child fields. The engine reads `input_num` and derived `output_num` from the constructed macro; its public `w_value_range` and `x_value_range` come from the two slice stages, while ADC metadata and `max_active_num` also delegate to the macro. The file-level form of these tables is specified in [configuration](../../../../../api/configuration.md).
 
 ## Symbols
 

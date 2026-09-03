@@ -54,6 +54,7 @@ Knowledge no single symbol owns — a contract two components must both honor �
 ## Inline comments
 
 - Use inline comments for local implementation help: non-obvious math, numerical intent, shape, and structural or procedural banners. One to three lines, saying why rather than what.
+- Do not add diagnostic-suppression comments: new `# noqa` and `# type: ignore` comments are forbidden.
 - A contract spanning files has no comment-sized home: it belongs to the owning symbol's docstring, or to a [System Design](../system_design/README.md) topic.
 
 ## Banner comments
@@ -164,7 +165,7 @@ At an emission site the shape annotation writes the caller block as a named grou
 - Annotate every parameter and the return type in a function or method signature. §Class state declarations fixes the type an attribute declaration carries.
 - A default is legal only where it is the identity value — the no-op, the neutral element, or the absent state — so that omitting the argument and passing the default are the same call. A parameter whose value picks behavior, selects a policy, or states a physical quantity carries no default and is named at every call site.
 - Annotate with `object` only an operation that genuinely never inspects the value. Anything that reads, converts, or dispatches on it takes `Any`, or better the abstract base it actually requires.
-- Treat mypy as a helper, not a gate. When a false positive comes from an external library or a pattern mypy cannot express — a TypeVar not re-bound after an `isinstance` narrowing, a `fields()` or `replace()` call needing a `DataclassInstance` — leave the error unsuppressed. Never write `# type: ignore`.
+- Treat mypy as a helper, not a gate. When a false positive comes from an external library or a pattern mypy cannot express — a TypeVar not re-bound after an `isinstance` narrowing, a `fields()` or `replace()` call needing a `DataclassInstance` — leave the error unsuppressed.
 - In reusable core code, fix a base-class-related narrowing in the generic contract rather than reach for `cast`. A final concrete implementation under `neurox.works` may cast at an override boundary when its own construction and dispatch uniquely fix the runtime subtype that the base signature erased. Keep that cast local to the boundary; never use this exception for registry results, external input, optional values, tensor properties, or unrelated types.
 - Never add a meaningless runtime conversion only to satisfy typing.
 - `ModuleBase` binds only `ConfigT` and `PolicyT`, the two roles every physical module owns. A family base adds a type parameter for each further associated type that appears in its interface; it does not burden unrelated module families with dummy `SnapT` or `DcopT` parameters.
@@ -194,14 +195,9 @@ A guard is split by cause, and its exception class follows what the guard checks
 
 ## Property vs method
 
-Use `@property` only for a value fixed by construction, computed with at most a cheap, side-effect-free expression over init-fixed inputs (e.g. a shape product). The allowed cases are:
+Use `@property` for an attribute-shaped observation: it takes no call arguments, is cheap and side-effect-free, and performs no action whose invocation a caller should see explicitly. The value may be fixed by construction, late-bound, or derived from current state. Config-field access, transparent delegation, cheap derived metadata, and an abstract attribute-shaped contract are ordinary cases.
 
-- Config-field accessor: exposes a field of the owned config.
-- Transparent delegation: forwards to an attribute of an owned object.
-- Abstract base or Protocol contract: declares an attribute-shaped interface point.
-- One-step arithmetic over init-fixed state: a single cheap expression.
-
-Anything that touches a runtime tensor, performs real computation, or has a side effect is a method, as is anything that depends on call arguments, runtime mode, or mutation.
+Use a method when the operation takes arguments, performs substantial computation, conversion, sampling, or I/O, mutates state, or represents an action rather than an observation. Do not cache or duplicate dynamic state merely to make an operation qualify as a property.
 
 ## Subclass vs configuration
 
@@ -214,7 +210,7 @@ A class family splits along structural diversity, not parameter diversity.
 
 ## Compile safety
 
-Library code is written to be traceable, so a caller's `torch.compile` gets a graph and the library's own compiled leaf traces cleanly. These invariants hold everywhere but at the declared eager boundaries, which [compile boundary](../system_design/compile.md) maps.
+Library code is written to be traceable, so a caller's `torch.compile` gets a graph and the library's own compiled leaves trace cleanly. These invariants hold everywhere but at the declared eager boundaries, which [compile boundary](../system_design/compile.md) maps.
 
 - **No host sync.** `.item()`, `.tolist()`, an `int`, `float`, or `bool` cast of a tensor, `.cpu()`, `.numpy()`, `.to("cpu")`, and printing a tensor all force a sync dynamo cannot trace. `tensor.shape[i]`, `.size(i)`, and `.ndim` return a Python `int` without a sync and are safe, as is a bare `.detach()`.
 - **No Python-state mutation.** No attribute assignment on `self`, no mutation of an externally reachable container, no buffer or parameter registration, and no training-mode toggle on a traced path. Accumulating into a list is legal only inside an eager island.

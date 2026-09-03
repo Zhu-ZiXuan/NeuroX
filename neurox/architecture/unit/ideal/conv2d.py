@@ -98,16 +98,25 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
     def adc_bits(self) -> int | None:
         return None
 
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+    def rescale_factor(
+        self,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> float:
         del quantization_mode, adc_active_bits
         return 1.0
 
-    def initiation_interval__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int) -> float:
-        """Zero — an exact integer convolution occupies no execution interval.
+    def latency__ns(
+        self,
+        input_shape: tuple[int, ...],
+        *,
+        adc_active_bits: int | None,
+    ) -> float:
+        """Zero — an exact integer convolution has no modeled latency.
 
-        The unit holds neither a macro nor an engine schedule, so there is no
-        schedule anywhere below it: the output positions the input resolution
-        implies are all evaluated at once.
+        The unit holds neither a macro nor an engine timing model; all output
+        positions are evaluated at once.
         """
         del input_shape, adc_active_bits
         return 0.0
@@ -152,7 +161,13 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         return patches.flatten(-3).flatten(-3, -2)
 
     @torch.no_grad()
-    def _matmul(self, planes: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def _matmul(
+        self,
+        planes: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         del quantization_mode, adc_active_bits
         # Shape: [B, L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [B, L, C_out]
         return planes.to(torch.int64) @ self._weight.transpose(-2, -1)

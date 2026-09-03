@@ -31,24 +31,11 @@ Two supplies are distinguished, and a term rides the one that actually delivers 
 
 The two are accounted separately even where they hold the same potential, because a term charged to the wrong rail is invisible while the two agree and wrong the moment they differ. The potentials themselves are per-scheme values declared in that scheme's configuration; this law fixes only which term rides which rail.
 
-## Access timing
+## Held boundaries and phases
 
-Access waveforms are return-to-zero on both axes, which is what fixes the excursion count of an access:
+A return-to-zero operation may establish a boundary level once, execute one or more control phases while holding it, and then release it. The establishment is one complete excursion. Each phase is another complete excursion from the held rest state to that phase's working point and back.
 
-- **Scan axis** — zero, drive, zero, once per access.
-- **Input axis** — zero, drive, hold across the full scan, zero, once per hold. A hold returns to zero before the next one is established.
-
-An access therefore contains one complete excursion of the scanned axis, and a scan of $N$ accesses contains one complete excursion of the input axis.
-
-## Displacement per access, establishment per hold
-
-An access bills the displacement between the rest level a node sits at between accesses and the level it settles to during the access. The rest level is the ideal one the boundary declares, never a solved quantity: an IR drop is a product of an access, not a state the array parks in.
-
-Where nothing is held across accesses — the input riding the scanned axis, every node returning to ground — the rest level is zero everywhere, an access is one complete excursion, and there is no establishment term at all.
-
-Where the conduction path holds the input across a scan, the rest level is that held level. An access then bills only the displacement away from it, and establishing the hold from ground is a separate, rarer excursion of its own.
-
-The establishment is charged by amortization rather than to one access of the scan. One hold covers exactly one full scan, so its cost divided by the accesses of that scan is what each access carries, and a complete scan bills exactly one establishment — no more and no less than the waveform contains. A scheme whose hold spans a different number of accesses states its own divisor.
+The rest level is the ideal one the boundary declares, never a solved quantity: an IR drop is a product of a phase, not a state the circuit parks in. The operation therefore bills the establishment once and sums the phase displacements. It neither repeats the establishment per phase nor divides it into an artificial per-phase share.
 
 ## Node capacitance
 

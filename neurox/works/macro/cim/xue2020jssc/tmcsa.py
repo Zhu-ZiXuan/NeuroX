@@ -59,8 +59,17 @@ class Tmcsa(SarIadc[TmcsaConfig, TmcsaPolicy]):
         )
         self._vdd__V = vdd__V
 
-    def _compute_bit_dynamic_energy__fJ(self, i_in__uA: Tensor, i_ref__uA: Tensor) -> Tensor:
+    def _compute_bit_dynamic_energy__fJ(
+        self,
+        i_in__uA: Tensor,
+        i_refs__uA: Tensor,
+        trial_code: Tensor,
+        *,
+        bit_position: int,
+    ) -> Tensor:
+        del bit_position
         config = self.config
+        i_ref__uA = self._select_reference(i_refs__uA, trial_code)
         i_common__uA = i_in__uA + i_ref__uA
         q_ph2__fC = q_conduction__fC(3.0 * i_common__uA, config.t_ph2__ns)
         q_ph3__fC = q_conduction__fC(2.0 * i_common__uA, config.t_ph3__ns)

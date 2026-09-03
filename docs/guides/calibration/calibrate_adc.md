@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=0 python -m neurox.tools.calibrate_adc \
 
 ## Run conditions
 
-One run names one physical macro and one `quantization_mode`. The physical path executes at `adc_bits`; the ideal twin executes at `adc_active_bits = 0` and retains every exact integer result without invoking an ADC. A different mode, activation limit, value domain, or circuit operating point requires a different run config.
+One run names one physical macro and one `quantization_mode`. Both paths explicitly pass `adc_active_bits = None`: the physical macro uses its maximum ADC width, while the ideal twin retains every exact integer result without invoking an ADC. A different mode, activation limit, value domain, or circuit operating point requires a different run config.
 
 Use an all-off policy. The probe is intended to expose the deterministic cluster spread produced by the nominal circuit, spatial placement, loading, and IR drop. Fabrication mismatch, runtime noise, stochastic rounding, and other sampled nonidealities would instead make the result conditional on random draws.
 
@@ -24,7 +24,7 @@ Every run first performs the unconstrained random scan. It derives the exact rea
 
 ## Paired observations
 
-Every ADC implementation submits its input record through the shared `AdcProber`. The record supplies a unit-bearing name and the scalar decision input: a single-ended converter returns its terminal quantity, while a differential converter returns its positive input minus its negative input. The macro restores the converter's internal axes to logical output order before the input samples are paired elementwise with the ideal twin's `adc_active_bits = 0` output.
+Every ADC implementation submits its input record through the shared `AdcProber`. The record supplies a unit-bearing name and the scalar decision input: a single-ended converter returns its terminal quantity, while a differential converter returns its positive input minus its negative input. Converter-facing tensors use the macro family's canonical lane-major, scan-minor order, so flattening pairs the input samples elementwise with the ideal twin's exact highest-precision output.
 
 The physical ADC output code is neither recorded nor used. The run is establishing the ADC's operating conditions, so a code produced by provisional references has no calibration meaning. Exact ideal values are likewise left unmodified: no clipping, saturation, magnitude fold, zero-point shift, input-code mapping, target-window shading, or overflow classification occurs. The theoretical exact-result support is derived only from the declared weight domain, input domain, and `max_active_num`; a finite random run is not expected to visit every value in that support.
 

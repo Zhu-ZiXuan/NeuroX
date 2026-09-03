@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox.common.encoding import Encoding
 from neurox.primitive.macro.cim import (
     CimMacroQuantizationScheme,
     IdealCimMacro,
@@ -23,18 +24,25 @@ def _make_macro(
 ) -> IdealCimMacro:
     macro = IdealCimMacro(
         config=IdealCimMacroConfig(
+            input_num=1,
             rescale_factors=factors,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
             max_active_num=1,
+            lane_num=1,
+            scan_num=1,
+            w_digit_num=1,
+            w_digit_radix=2,
+            w_encoding=Encoding.TRUE_FORM if w_value_range[0] < 0 else Encoding.UNSIGNED,
+            x_digit_num=1,
+            x_digit_radix=2,
+            x_encoding=Encoding.COMPLEMENT if x_value_range[0] < 0 else Encoding.UNSIGNED,
             x_value_range=x_value_range,
             w_value_range=w_value_range,
             adc_bits=adc_bits,
             quantization_scheme=scheme,
         ),
         policy=IdealCimMacroPolicy(),
-        input_num=1,
-        output_num=1,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -49,7 +57,7 @@ def _codes(
     dots: list[int],
     *,
     quantization_mode: int = 0,
-    adc_active_bits: int,
+    adc_active_bits: int | None,
 ) -> list[int]:
     x = torch.tensor(dots, dtype=torch.int64).unsqueeze(-1)
     return (
@@ -63,14 +71,14 @@ def _codes(
     )
 
 
-class TestExactBypass:
-    def test_zero_active_bits_returns_exact_dots(self) -> None:
+class TestHighestPrecision:
+    def test_none_returns_exact_dots(self) -> None:
         macro = _make_macro(factors=(13.0,))
-        assert _codes(macro, [-101, -1, 0, 7, 103], adc_active_bits=0) == [-101, -1, 0, 7, 103]
+        assert _codes(macro, [-101, -1, 0, 7, 103], adc_active_bits=None) == [-101, -1, 0, 7, 103]
 
-    def test_zero_active_bits_has_identity_factor(self) -> None:
+    def test_none_has_identity_factor(self) -> None:
         macro = _make_macro(factors=(13.0,))
-        assert macro.rescale_factor(quantization_mode=0, adc_active_bits=0) == 1.0
+        assert macro.rescale_factor(quantization_mode=0, adc_active_bits=None) == 1.0
 
 
 class TestZeroPoint:
@@ -171,4 +179,4 @@ class TestValidation:
 
     def test_rejects_invalid_mode_even_for_exact_bypass(self) -> None:
         with pytest.raises(ValueError, match=r"quantization_mode"):
-            _codes(_make_macro(), [0], quantization_mode=1, adc_active_bits=0)
+            _codes(_make_macro(), [0], quantization_mode=1, adc_active_bits=None)

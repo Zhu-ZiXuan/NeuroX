@@ -21,7 +21,7 @@ The device, analog, digital, and macro models under `neurox.primitive` are what 
 - **Recording** — `neurox.common.RecorderBase` and `RecordBase` are the side-channel collection family the profiler and the probers specialize.
 - **Operator interfaces** — `neurox.architecture.unit.UnitBase` and its `LinearUnit` / `Conv2dUnit` leaves define the lowering seams a new operator fills; `CimUnit` is the registry-dispatched base a new CIM unit registers into.
 - **Matmul planning** — `neurox.architecture.unit` also exports the substrate-independent placement plans `MatmulPlacementPlan`, `InputActivationPlan`, and `BlockSlotRouting` with their `make_*` builders, which turn one logical matrix multiply into the block geometry any fixed-capacity substrate maps it onto ([placement](../reference/architecture/unit/cim/engine/placement.md)).
-- **Digit encoding** — `neurox.common.encoding.Transcoder`, with `Encoding` naming the shipped algorithms and `create_transcoder` building one.
+- **Digit encoding** — `neurox.common.encoding.Transcoder`, with `Encoding` naming the shipped algorithms and `Transcoder.from_encoding` selecting one.
 
 A contract that no single one of these bases owns — the construction protocol, the state lifecycle, the PPA accounting axes, the compile boundary — is in [System design](../system_design/README.md).
 

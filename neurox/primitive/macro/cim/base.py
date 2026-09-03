@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.common.encoding import Encoding, Transcoder
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -27,6 +28,19 @@ class CimMacroQuantizationScheme(Enum):
 
 
 class CimMacroConfig(ConfigBase, ABC):
+    input_num: int
+    """Logical input capacity fixed by the macro hardware."""
+
+    lane_num: int
+    """Parallel readout-circuit groups along the logical output direction."""
+
+    scan_num: int
+    """Serial output positions served by each readout group."""
+
+    max_active_num: int
+    """Maximum number of input positions one conversion may select; positions
+    outside the selected set must be zero."""
+
     rescale_factors: tuple[float, ...]
     """MAC units represented by one output code at `adc_bits`, indexed by
     `quantization_mode`."""
@@ -37,21 +51,69 @@ class CimMacroConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Macro-owned leakage per instance, excluding profiled child modules."""
 
-    max_active_num: int
-    """Maximum number of input positions one conversion may select; positions
-    outside the selected set must be zero."""
+    @property
+    @abstractmethod
+    def w_digit_n(self) -> int:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def w_digit_r(self) -> int:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def w_enc(self) -> Encoding:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def x_digit_n(self) -> int:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def x_digit_r(self) -> int:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def x_enc(self) -> Encoding:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def quant_scheme(self) -> CimMacroQuantizationScheme:
+        raise NotImplementedError
+
+    @property
+    @final
+    def output_num(self) -> int:
+        """Logical output capacity fixed by the readout geometry."""
+        return self.lane_num * self.scan_num
 
     def validate(self) -> None:
+
+        # --- Port geometry ---
+
+        self._require_pos(self.input_num, "input_num")
+        self._require_pos(self.lane_num, "lane_num")
+        self._require_pos(self.scan_num, "scan_num")
+        self._require_pos(self.max_active_num, "max_active_num")
+        self._require_le(self.max_active_num, "max_active_num", self.input_num)
+
+        # --- Digit geometry ---
+
+        self._require_pos(self.w_digit_n, "w_digit_n")
+        self._require_ge(self.w_digit_r, "w_digit_r", 2)
+        self._require_pos(self.x_digit_n, "x_digit_n")
+        self._require_ge(self.x_digit_r, "x_digit_r", 2)
 
         # --- Output scales ---
 
         self._require_non_empty(self.rescale_factors, "rescale_factors")
         for index, factor in enumerate(self.rescale_factors):
             self._require_pos(factor, f"rescale_factors[{index}]")
-
-        # --- Activation limit ---
-
-        self._require_pos(self.max_active_num, "max_active_num")
 
         # --- PPA ---
 
@@ -75,8 +137,6 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     interface carries is integer codes and physical configuration.
 
     Args:
-        input_num: Logical input-vector length.
-        output_num: Logical output-vector length.
         inst_shape: Per-instance multiplicity prefix.
     """
 
@@ -85,20 +145,49 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         *,
         config: ConfigT,
         policy: PolicyT,
-        input_num: int,
-        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        if input_num < 1:
-            raise ValueError(f"require: input_num ({input_num}) >= 1")
-        if output_num < 1:
-            raise ValueError(f"require: output_num ({output_num}) >= 1")
-        self._logical_shape = (input_num, output_num)
+        self._w_digit_num = config.w_digit_n
+        self._w_digit_radix = config.w_digit_r
+        self._x_digit_num = config.x_digit_n
+        self._x_digit_radix = config.x_digit_r
+        self._w_transcoder = Transcoder.from_encoding(
+            encoding=config.w_enc,
+            radix=self._w_digit_radix,
+            digit_count=self._w_digit_num,
+        )
+        self._x_transcoder = Transcoder.from_encoding(
+            encoding=config.x_enc,
+            radix=self._x_digit_radix,
+            digit_count=self._x_digit_num,
+        )
         self._T__K = T__K
         self._dtype = dtype
+
+    @property
+    @final
+    def input_num(self) -> int:
+        return self.config.input_num
+
+    @property
+    @final
+    def output_num(self) -> int:
+        return self.config.output_num
+
+    @property
+    @final
+    def lane_num(self) -> int:
+        """Parallel readout-circuit groups."""
+        return self.config.lane_num
+
+    @property
+    @final
+    def scan_num(self) -> int:
+        """Output positions serialized onto each readout lane."""
+        return self.config.scan_num
 
     @property
     def max_active_num(self) -> int:
@@ -121,8 +210,6 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         *,
         config: CimMacroConfig,
         policy: CimMacroPolicy,
-        input_num: int,
-        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -136,34 +223,25 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         return impl(
             config=config,
             policy=policy,
-            input_num=input_num,
-            output_num=output_num,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
 
     @property
-    @abstractmethod
     def x_value_range(self) -> tuple[int, int]:
         """Inclusive single-cycle integer input range the macro accepts."""
-        raise NotImplementedError
+        return self._x_transcoder.value_range
 
     @property
-    @abstractmethod
     def w_value_range(self) -> tuple[int, int]:
         """Inclusive integer weight range the macro can program directly."""
-        raise NotImplementedError
+        return self._w_transcoder.value_range
 
     @property
     @abstractmethod
     def adc_bits(self) -> int:
         """Maximum selectable ADC resolution."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def _quantization_scheme(self) -> CimMacroQuantizationScheme:
         raise NotImplementedError
 
     @final
@@ -173,30 +251,21 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
             raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
 
     @final
-    def _check_adc_active_bits(self, adc_active_bits: int) -> None:
-        if not (1 <= adc_active_bits <= self.adc_bits):
+    def _check_adc_active_bits(self, adc_active_bits: int | None) -> None:
+        if adc_active_bits is not None and not (1 <= adc_active_bits <= self.adc_bits):
             raise ValueError(f"require: adc_active_bits ({adc_active_bits}) in [1, adc_bits ({self.adc_bits})]")
 
-    @abstractmethod
-    def restore_adc_layout(self, value: Tensor) -> Tensor:
-        """Restore a converter-aligned tensor to the logical output layout.
-
-        Args:
-            value: One value per physical conversion position, in the layout
-                used by the concrete macro's converter call.
-
-        Returns:
-            The same values arranged like `vec_mat_mul` output.
-                Shape: `[..., output_num]`.
-        """
-        raise NotImplementedError
+    @final
+    def _resolve_adc_active_bits(self, adc_active_bits: int | None) -> int:
+        return self.adc_bits if adc_active_bits is None else adc_active_bits
 
     @abstractmethod
-    def initiation_interval__ns(self, *, adc_active_bits: int) -> float:
-        """Scheduled interval occupied by one `vec_mat_mul` call [ns].
+    def latency__ns(self, *, adc_active_bits: int | None) -> float:
+        """Circuit latency of one complete `vec_mat_mul` call [ns].
 
         Args:
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
+                requests this macro's highest available precision.
         """
         raise NotImplementedError
 
@@ -205,14 +274,20 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         """Program the macro from a logical weight matrix.
 
         Args:
-            w: Integer weight tensor matching the logical matrix geometry
-                supplied at construction. Entries must lie in `w_value_range`.
+            w: Integer weight tensor matching the configured logical matrix
+                geometry. Entries must lie in `w_value_range`.
                 Shape: `[*inst_shape, input_num, output_num]`.
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    @final
+    def vec_mat_mul(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         """Run one conversion per word-line plane.
 
         Args:
@@ -223,15 +298,53 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
                 Shape: `[..., input_num]`.
             quantization_mode: Index selecting one reference operating point
                 and its calibrated output scale.
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
+                requests this macro's highest available precision.
 
         Returns:
             Final macro output-code tensor retaining the input's aligned leading axes.
             Shape: `[..., output_num]`.
         """
+        self._check_quantization_mode(quantization_mode)
+        self._check_adc_active_bits(adc_active_bits)
+        if x.ndim == 0 or x.shape[-1] != self.input_num:
+            raise ValueError(
+                f"require: x.shape[-1] ({x.shape[-1] if x.ndim else None}) == input_num ({self.input_num})"
+            )
+        output = self._vec_mat_mul_impl(
+            x,
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
+        )
+        expected_shape = (self.lane_num, self.scan_num)
+        if tuple(output.shape[-2:]) != expected_shape:
+            raise ValueError(
+                f"require: vec_mat_mul implementation output trailing shape {expected_shape}; got {tuple(output.shape)}"
+            )
+        return output.flatten(-2)
+
+    @abstractmethod
+    def _vec_mat_mul_impl(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
+        """Return the canonical readout layout before output flattening.
+
+        Returns:
+            Macro output codes with the readout axes kept separate.
+            Shape: `[..., lane, scan]`.
+        """
         raise NotImplementedError
 
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+    def rescale_factor(
+        self,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> float:
         """Return the MAC units represented by one output code.
 
         A mode supplies the full-resolution factor. Dropping one ADC decision
@@ -239,7 +352,8 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
         Args:
             quantization_mode: Index selecting the calibrated output scale.
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`.
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
+                requests this macro's highest available precision.
 
         Returns:
             The selected-resolution rescale factor `r_b`.
@@ -249,6 +363,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         """
         self._check_quantization_mode(quantization_mode)
         self._check_adc_active_bits(adc_active_bits)
+        adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         factor = self.config.rescale_factors[quantization_mode]
         return factor * float(1 << (self.adc_bits - adc_active_bits))
 
@@ -262,22 +377,28 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         # symbols are only safe to resolve at call time.
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
-        input_num, output_num = self._logical_shape
         config = IdealCimMacroConfig(
+            input_num=self.config.input_num,
+            lane_num=self.config.lane_num,
+            scan_num=self.config.scan_num,
+            max_active_num=self.config.max_active_num,
             rescale_factors=self.config.rescale_factors,
             area_per_inst__um2=self.config.area_per_inst__um2,
             leakage_per_inst__uW=self.config.leakage_per_inst__uW,
-            max_active_num=self.config.max_active_num,
+            w_digit_num=self.config.w_digit_n,
+            w_digit_radix=self.config.w_digit_r,
+            w_encoding=self.config.w_enc,
+            x_digit_num=self.config.x_digit_n,
+            x_digit_radix=self.config.x_digit_r,
+            x_encoding=self.config.x_enc,
+            quantization_scheme=self.config.quant_scheme,
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
             adc_bits=self.adc_bits,
-            quantization_scheme=self._quantization_scheme,
         )
         return IdealCimMacro(
             config=config,
             policy=IdealCimMacroPolicy(),
-            input_num=input_num,
-            output_num=output_num,
             inst_shape=self.inst_shape,
             dtype=self._dtype,
             T__K=self._T__K,

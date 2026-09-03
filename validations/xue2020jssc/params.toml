@@ -3,11 +3,13 @@
 [cim_macro]
 _neurox_class = "Xue2020JsscCimMacroConfig"
 
+input_num = 256                  # [reported p211 Fig.20(c)] physical array rows
 max_active_num = 9                # [reported p206] Maximum active rows for a 3x3 kernel block.
 w_digit_num = 2                   # [reported p206] 2 magnitude digits (MSB/LSB two-mirror)
 w_digit_radix = 2                 # [reported p206] single-bit magnitude cell (LRS/HRS)
 x_bit_num = 2                     # [reported p206] K=2 input bits -> 2 serial WL sub-phases, LSB first
-scan_num = 32                     # [reported p207] 32:1 column MUX; lane_num = col_num // scan_num = 4
+lane_num = 4                      # [derived p207] 128 outputs / reported 32:1 column MUX
+scan_num = 32                     # [reported p207] serial positions per readout lane
 
 dswct_ratio_msb = 0.5             # [derived] [reported p206 Fig.6(a)] 2/k at k = 4
 sc_ratio_msb = 0.5                # [derived] [reported p206 Fig.7] normalized live-leg ratio
@@ -15,7 +17,7 @@ sc_ratio_msb = 0.5                # [derived] [reported p206 Fig.7] normalized l
 # [assumed] One uniform 3.11 ns ADC decision period represents the simulated 3.16/3.07/3.11 ns steps.
 t_sample__ns = 2.85               # [derived] [measured p211] 14.60 - 11.75 ns
 t_settle__ns = 2.42               # [derived] 11.75 - 3 * 3.11 ns under the uniform-step assumption
-t_cycle__ns = 50.0                # [reported p210] 1 / 20 MHz
+v_wl_on__V = 1.0                 # [reported p206] Binary WL-drive high level
 vdd__V = 1.0                      # [reported p209,p211] simulation supply, nominal test supply
 
 pn_isub_energy_per_op__fJ = 47.7  # [calibrated] Three-inverter and sign-latch event from the [simulated p210 Fig.18] SINWP-SC+PN-ISUB paired target.
@@ -58,19 +60,6 @@ v_wl_on_threshold__V = 0.5              # [derived] Midpoint of the declared 0.0
 [cim_macro.array_config.solver_config]
 n_outer = 4                       # [calibrated] with neurox tools
 n_inner = 2                       # [calibrated] with neurox tools
-
-
-
-[cim_macro.wl_dac_config]
-_neurox_class = "GeneralVdacConfig"
-
-code_to_signal = [0.0, 1.0]       # [reported p206] Binary WL drive
-drive_thermal__V = 0.0            # [assumed] do not care for energy
-code_to_per_op_energy__fJ = [0.0, 0.0]  # [assumed] merged into control energy
-area_per_inst__um2 = 0.0          # [assumed] unreported
-leakage_per_inst__uW = 0.0        # [assumed] merged into control energy
-
-
 
 [cim_macro.cablc_config]
 r_out__MOhm = 1e-4                # [derived Fig.14] 100 Ohm Thevenin resistance around the 30-a.u. operating region.

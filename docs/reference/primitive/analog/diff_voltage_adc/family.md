@@ -6,7 +6,7 @@ Every member digitizes a differential voltage into a raw unsigned integer code.
 
 An ADC digitizes a positive leg $V^{+}$ against a negative leg $V^{-}$. Both legs, every noise term, and the code boundaries are expressed in volts. The reference values $V_{\mathrm{ref}}$ are supplied per call along a trailing tap axis and set the full-scale range; the resolution $b$ sets the number of code levels within it. No member holds its own references, and no operating-mode identity reaches a converter.
 
-The configured `bits` is the physical output width. A call selects `active_bits` in `[1, bits]`. The number of reference values consumed by one conversion is topology-specific rather than a family law.
+The configured `bits` is the physical output width. Every call supplies an integer `active_bits` in `[1, bits]`. The number of reference values consumed by one conversion is topology-specific rather than a family law.
 
 ## Governing laws
 

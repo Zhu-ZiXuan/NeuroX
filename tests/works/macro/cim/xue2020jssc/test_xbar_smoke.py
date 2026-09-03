@@ -79,14 +79,12 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
 
     cfg = macro.config
     for bits in range(1, TINY_ADC_BITS + 1):
-        expected__ns = cfg.access_latency__ns(bits) * cfg.scan_num
+        access__ns = (
+            (cfg.x_bit_num - 1) * cfg.t_sample__ns + cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=bits)
+        )
+        expected__ns = access__ns * macro.scan_num
         assert macro.latency__ns(adc_active_bits=bits) == pytest.approx(expected__ns)
-        assert macro.initiation_interval__ns(adc_active_bits=bits) == pytest.approx(cfg.t_cycle__ns * cfg.scan_num)
-        assert macro.initiation_interval__ns(adc_active_bits=bits) >= macro.latency__ns(adc_active_bits=bits)
     assert macro.latency__ns(adc_active_bits=TINY_ADC_BITS - 1) < macro.latency__ns(adc_active_bits=TINY_ADC_BITS)
-    assert macro.latency__ns(adc_active_bits=TINY_ADC_BITS) == pytest.approx(
-        cfg.access_latency__ns(TINY_ADC_BITS) * cfg.scan_num
-    )
 
 
 def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:

@@ -1,6 +1,6 @@
 """Which axis of the macro access schedule `(M, Sx, D, P)` multiplies which digital block's window.
 
-In `CimEngine.initiation_interval__ns`.
+In `CimEngine.latency__ns`.
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ from neurox.primitive.macro.cim import (
     IdealCimMacroPolicy,
 )
 
-# The ideal macro's own initiation interval is zero, so every term the engine adds is a
+# The ideal macro's own latency is zero, so every term the engine adds is a
 # digital one and stays separable.
-_ADC_BITS = 0
+_ADC_BITS = None
 _QUANTIZATION_MODE = 0
 
 _INPUT_NUM = 8
@@ -67,10 +67,19 @@ _INTRA_AGGREGATED_PORT_NUM = 2
 
 def _macro_config(*, max_active_num: int) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        input_num=_INPUT_NUM,
         rescale_factors=(1.0,),
         max_active_num=max_active_num,
+        lane_num=1,
+        scan_num=_OUTPUT_NUM,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
+        w_digit_num=2,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM,
+        x_digit_num=1,
+        x_digit_radix=2,
+        x_encoding=Encoding.UNSIGNED,
         x_value_range=(0, 1),
         w_value_range=(-3, 3),
         adc_bits=8,
@@ -108,8 +117,6 @@ def _engine_config(
     phase_energy__fJ: float = 0.0,
 ) -> CimEngineConfig:
     return CimEngineConfig(
-        input_num=_INPUT_NUM,
-        output_num=_OUTPUT_NUM,
         cim_macro_config=_macro_config(max_active_num=max_active_num),
         placement=PlacementStageConfig(
             contraction_accumulator_config=_accumulator_config(latency_per_op__ns=contraction__ns),
@@ -210,7 +217,7 @@ def test_direct_layout_times_the_two_accumulators() -> None:
     assert engine.x_slice.shift_adder is None
 
     expected__ns = _BLOCK_STEP_NUM * _OUTPUT_NUM * (phase__ns + contraction__ns)
-    assert unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
+    assert unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
 
 
 def test_phase_accumulator_runs_once_per_arrival() -> None:
@@ -228,7 +235,7 @@ def test_phase_accumulator_runs_once_per_arrival() -> None:
                 phase__ns=1.0,
             )
         )
-        return unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
+        return unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
 
     def _contraction_only(max_active_num: int) -> float:
         unit = _build_linear(
@@ -239,7 +246,7 @@ def test_phase_accumulator_runs_once_per_arrival() -> None:
                 contraction__ns=1.0,
             )
         )
-        return unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
+        return unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
 
     single = _build_linear(
         _engine_config(
@@ -299,7 +306,7 @@ def test_inter_layout_recombines_once_per_step_it_closes() -> None:
     step_num = x_slice_num * _BLOCK_STEP_NUM
     expected__ns = step_num * _OUTPUT_NUM * (phase__ns + contraction__ns + w_recombine__ns)
     expected__ns += _BLOCK_STEP_NUM * _OUTPUT_NUM * x_recombine__ns
-    assert unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
+    assert unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
 
 
 def test_input_slice_recombination_ignores_the_slice_count() -> None:
@@ -316,7 +323,7 @@ def test_input_slice_recombination_ignores_the_slice_count() -> None:
                 max_active_num=4,
             )
         )
-        return unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
+        return unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS)
 
     assert _x_recombine_only(5) == pytest.approx(_x_recombine_only(2))
     assert _x_recombine_only(2) == pytest.approx(_BLOCK_STEP_NUM * _OUTPUT_NUM)
@@ -343,7 +350,7 @@ def test_intra_layout_recombines_over_the_ports_one_aggregation_leaves() -> None
     assert engine.placement.block_step_num == _BLOCK_STEP_NUM
 
     expected__ns = _BLOCK_STEP_NUM * _INTRA_AGGREGATED_PORT_NUM
-    assert unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
+    assert unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(expected__ns)
 
 
 # --- The one runtime extent ---
@@ -360,18 +367,18 @@ def test_output_planes_multiply_the_whole_schedule() -> None:
     )
     # (C_out, C_in, kh, kw) contracting to K = 4, the linear fixtures' shape.
     unit = _build_conv2d(engine_config, w_logical_shape=(8, 1, 2, 2))
-    one_plane__ns = unit.engine.initiation_interval__ns(output_plane_num=1, adc_active_bits=_ADC_BITS)
+    one_plane__ns = unit.engine.latency__ns(output_plane_num=1, adc_active_bits=_ADC_BITS)
 
-    assert unit.initiation_interval__ns((1, 4, 4), adc_active_bits=_ADC_BITS) == pytest.approx(9 * one_plane__ns)
-    assert unit.initiation_interval__ns((1, 5, 4), adc_active_bits=_ADC_BITS) == pytest.approx(12 * one_plane__ns)
-    assert unit.initiation_interval__ns((7, 1, 4, 4), adc_active_bits=_ADC_BITS) == pytest.approx(9 * one_plane__ns)
+    assert unit.latency__ns((1, 4, 4), adc_active_bits=_ADC_BITS) == pytest.approx(9 * one_plane__ns)
+    assert unit.latency__ns((1, 5, 4), adc_active_bits=_ADC_BITS) == pytest.approx(12 * one_plane__ns)
+    assert unit.latency__ns((7, 1, 4, 4), adc_active_bits=_ADC_BITS) == pytest.approx(9 * one_plane__ns)
 
 
 # --- The round count against a measured forward ---
 
 
 def test_phase_accumulator_rounds_match_the_measured_forward(device: torch.device) -> None:
-    """The round count the interval multiplies equals the operands a measured forward folds.
+    """The round count multiplying latency equals the operands a measured forward folds.
 
     Per instance and per caller operation.
     """
@@ -415,6 +422,4 @@ def test_phase_accumulator_rounds_match_the_measured_forward(device: torch.devic
     )
     round_num = folded_operand_num / (batch_num * accumulator.inst_count)
 
-    assert unit.initiation_interval__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(
-        round_num * phase__ns
-    )
+    assert unit.latency__ns((_W_SHAPE[1],), adc_active_bits=_ADC_BITS) == pytest.approx(round_num * phase__ns)

@@ -1,4 +1,4 @@
-"""Physical axioms: SI constants (CODATA 2018) and the closed-form laws over them.
+"""Physical axioms: SI constants and the closed-form laws over them.
 
 A device- or circuit-level physical parameter comes from configuration; these constants are
 the sole exception, fixed because they vary with neither device, process, nor chip. A law
@@ -10,6 +10,8 @@ See Also:
 """
 
 from __future__ import annotations
+
+from typing import overload
 
 from torch import Tensor
 
@@ -47,7 +49,23 @@ def e_supply_charge__fJ(v_rail__V: float, q__fC: Tensor) -> Tensor:
     return v_rail__V * q__fC
 
 
-def e_cap_excursion__fJ(v_rail__V: float, c__fF: Tensor | float, delta_v__V: Tensor) -> Tensor:
+@overload
+def e_cap_excursion__fJ(v_rail__V: float, c__fF: float, delta_v__V: float) -> float: ...
+
+
+@overload
+def e_cap_excursion__fJ(v_rail__V: float, c__fF: Tensor, delta_v__V: Tensor | float) -> Tensor: ...
+
+
+@overload
+def e_cap_excursion__fJ(v_rail__V: float, c__fF: float, delta_v__V: Tensor) -> Tensor: ...
+
+
+def e_cap_excursion__fJ(
+    v_rail__V: float,
+    c__fF: Tensor | float,
+    delta_v__V: Tensor | float,
+) -> Tensor | float:
     """Energy a supply delivers for one excursion of a grounded capacitance.
 
     Supply-draw billing `E = V_rail · C · |Δv|`, charged once per round-trip
@@ -57,12 +75,16 @@ def e_cap_excursion__fJ(v_rail__V: float, c__fF: Tensor | float, delta_v__V: Ten
         v_rail__V: Potential of the supply that delivers the charge — the
             rail of the driver that owns the node, never the node's own
             level.
-        c__fF: Capacitance from the node to ground, broadcastable against
-            `delta_v__V`.
+        c__fF: Capacitance from the node to ground, broadcastable against a
+            tensor `delta_v__V`.
         delta_v__V: Signed displacement of the node between its rest level
             and its working level; only the magnitude is billed.
     """
-    return v_rail__V * c__fF * delta_v__V.abs()
+    if isinstance(delta_v__V, Tensor):
+        return v_rail__V * c__fF * delta_v__V.abs()
+    if isinstance(c__fF, Tensor):
+        return v_rail__V * c__fF * abs(delta_v__V)
+    return v_rail__V * c__fF * abs(delta_v__V)
 
 
 __all__ = [

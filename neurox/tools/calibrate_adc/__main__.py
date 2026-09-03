@@ -15,6 +15,7 @@ import torch
 
 from neurox.tools._config import load_tool_config, setup_logging
 from neurox.tools._logging import attach_file_logging, create_run_directory
+from neurox.tools._macro import load_macro_config
 
 from ._cli import parse_args
 from ._collection import (
@@ -47,7 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     save_adc_probe_data(random_data, random_path)
     logger.info("wrote random samples to %s", random_path)
 
-    target_samples_per_batch = config.stimulus.target.batch_w * config.macro.output_num
+    macro_config = load_macro_config(config.macro, base=args.config)
+    target_samples_per_batch = config.stimulus.target.batch_w * macro_config.output_num
     target_batch_num = plan_target_batches(
         random_data,
         min_samples_per_ideal_value=args.min_samples_per_ideal_value,

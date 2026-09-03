@@ -39,42 +39,38 @@ _SHIPPED_RUN_TOML = _REPO_ROOT / "validations/xue2020jssc/tools/calibrate_solver
 
 
 class TestUnrollSubPhaseLaw:
-    def _planes_active_mask(self, *, row_num: int, active_rows: int) -> torch.Tensor:
+    def _planes_active_mask(self, *, input_num: int, active_inputs: int) -> torch.Tensor:
         """Return the per-plane boolean active mask."""
-        x = torch.ones((1, row_num), dtype=torch.long)
-        out = unroll_sub_phase(x, row_num=row_num, active_rows=active_rows, inst_shape=())
-        # Ones where active, 0 where WL off.
-        # Shape: [1, P, row_num] -> [P, row_num]
+        x = torch.ones((1, input_num), dtype=torch.long)
+        out = unroll_sub_phase(x, input_num=input_num, active_inputs=active_inputs, inst_shape=())
+        # Shape: [1, P, input_num] -> [P, input_num]
         return out[0].bool()
 
-    @pytest.mark.parametrize(("row_num", "active_rows"), [(12, 4), (12, 3), (10, 4), (16, 5)])
-    def test_planes_partition_rows(self, row_num: int, active_rows: int) -> None:
-        """Every plane has <= active_rows live rows, disjoint, union covers all."""
-        mask = self._planes_active_mask(row_num=row_num, active_rows=active_rows)
+    @pytest.mark.parametrize(("input_num", "active_inputs"), [(12, 4), (12, 3), (10, 4), (16, 5)])
+    def test_planes_partition_inputs(self, input_num: int, active_inputs: int) -> None:
+        """Every plane has at most active_inputs live inputs and together covers all."""
+        mask = self._planes_active_mask(input_num=input_num, active_inputs=active_inputs)
         n_planes = mask.shape[0]
-        assert n_planes == -(-row_num // active_rows)
-        # Each plane drives at most active_rows rows.
-        # Shape: [P, row_num] -> [P]
-        rows_per_plane = mask.sum(dim=-1)
-        assert int(rows_per_plane.max().item()) <= active_rows
-        # Pairwise disjoint: at most one plane owns each row.
-        # Shape: [P, row_num] -> [row_num]
-        planes_per_row = mask.long().sum(dim=0)
-        assert int(planes_per_row.max().item()) == 1
-        # Union covers every row exactly once.
-        assert bool((planes_per_row == 1).all().item())
+        assert n_planes == -(-input_num // active_inputs)
+        # Shape: [P, input_num] -> [P]
+        inputs_per_plane = mask.sum(dim=-1)
+        assert int(inputs_per_plane.max().item()) <= active_inputs
+        # Shape: [P, input_num] -> [input_num]
+        planes_per_input = mask.long().sum(dim=0)
+        assert int(planes_per_input.max().item()) == 1
+        assert bool((planes_per_input == 1).all().item())
 
-    def test_full_active_rows_is_single_dense_plane(self) -> None:
-        """active_rows == row_num collapses to exactly one all-active plane."""
-        mask = self._planes_active_mask(row_num=16, active_rows=16)
+    def test_full_active_inputs_is_single_dense_plane(self) -> None:
+        """active_inputs == input_num collapses to exactly one all-active plane."""
+        mask = self._planes_active_mask(input_num=16, active_inputs=16)
         assert mask.shape[0] == 1
         assert bool(mask.all().item())
 
     def test_inst_span_slots_inserted(self) -> None:
-        """The unroll inserts the P axis + inst-span size-1 slots left of row."""
+        """The unroll inserts the P axis + inst-span size-1 slots left of input."""
         x = torch.ones((2, 8), dtype=torch.long)
-        out = unroll_sub_phase(x, row_num=8, active_rows=4, inst_shape=(1,))
-        # Shape: [..., P, *inst_shape=1, row_num]
+        out = unroll_sub_phase(x, input_num=8, active_inputs=4, inst_shape=(1,))
+        # Shape: [..., P, *inst_shape=1, input_num]
         assert tuple(out.shape) == (2, 2, 1, 8)
 
 
@@ -373,7 +369,7 @@ class TestShippedRunConfig:
     def test_parses_and_validates(self) -> None:
         cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
         assert cfg.workload.batch_w >= 1
-        assert cfg.workload.active_rows >= 1
+        assert cfg.workload.active_inputs >= 1
         assert cfg.macro.solver_section
 
     def test_solver_section_resolves_in_macro_config(self) -> None:
@@ -383,9 +379,9 @@ class TestShippedRunConfig:
         table = resolve_solver_table(macro_dict, cfg.macro.solver_section)
         assert {"n_outer", "n_inner"} <= set(table)
 
-    def test_active_rows_matches_max_active_num(self) -> None:
-        """active_rows is the production-faithful max_active_num (= active_row_num)."""
+    def test_active_inputs_matches_max_active_num(self) -> None:
+        """active_inputs is the production-faithful max_active_num."""
         cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
         config_paths, _policy_path = resolve_macro_files(cfg.macro, base=_SHIPPED_RUN_TOML)
         macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
-        assert cfg.workload.active_rows == macro_dict["max_active_num"]
+        assert cfg.workload.active_inputs == macro_dict["max_active_num"]

@@ -1,7 +1,17 @@
 # Get started
 
-Installation and a first runnable example.
+Installation and the route to a first runnable example.
 
-TODO (domain author): installation steps and dependencies, a quickstart that runs a bundled example end to end and reads its PPA output, and an orientation to the next section by audience.
+## Install
 
-The current runnable entry point is the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md), built from the bundled application flow.
+The supported Python and dependency ranges live in `pyproject.toml`. From a source checkout, install the library, development tools, and dependencies used by the bundled examples:
+
+```bash
+uv sync --extra demo
+```
+
+Optional dependency groups for other workflows are declared in `pyproject.toml` and can be selected with `uv sync --extra <name>`.
+
+## Run a bundled workflow
+
+Follow the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md) to train or evaluate the bundled LeNet and BERT pipelines and inspect their accuracy and PPA output. Contributors who are preparing a development change continue with the [contribution workflow](../contributing/workflow.md).

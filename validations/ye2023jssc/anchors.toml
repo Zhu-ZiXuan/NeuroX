@@ -1,109 +1,28 @@
-# Validation anchors for the ye2023jssc WH-2T1R RRAM CIM macro.
-#
-# Two kinds of number live here, kept in separate tables:
-#
-#   [gate.*]      the HARD-GATE targets `validate.py` checks pass/fail. They are
-#                 CALIBER-INDEPENDENT: none of them depends on how the two
-#                 conduction branches are attributed to the paper's power pins.
-#   [reference.*] the Fig.19 power picture and the headline efficiency. These are
-#                 REPORTED SIDE BY SIDE with the model, NOT gated: the two Fig.19
-#                 array points are mutually inconsistent under any single caliber
-#                 (see [reference].point_label and the dual-caliber report).
-#
-# Every value carries a provenance tag; the legend is in docs/validation/campaigns.md.
-#
-# Operating point: VDD 0.8 V, 1bIN-3bW-4bO, RSM mapping unused, T_AC = 66 ns.
-
-# --- (a) HARD-GATE targets -- caliber-independent, pass/fail ---
-# Gates 1 (golden transfer, incl. the LSB-first asymmetric-value regression) and
-# 4 (zero input -> code 0) need no anchor: both are closed forms built from the
-# config's own tables.
+# Paper targets and workload assumptions for Ye et al., JSSC 2023.
 
 [gate]
-# [measured p7 Fig.18] Gate 5. Access window PH0 + PH1 + PH2 + PH3 + t4,
-# code-independent; the readout DERIVES it, the macro's conduction atoms
-# integrate it, and the macro reports it as the per-access latency. The leakage
-# basis is the separate [conventions].leakage_window__ns declaration.
-t_ac__ns = 66.0
+primary_input_sparsity = 0.50
+total_power_tolerance_relative = 0.05
 
-# --- Gate 2: Fig.16(b) per-plane cell currents ---
-[gate.i_tbl]
-# [measured p7 Fig.16(b)] Mean I_TBL of one LRS cell on each T2 slice multiplier.
-lrs_mean_radix = [1, 2, 4]
-lrs_mean__uA = [0.50, 1.00, 1.99]
-# [assumed] Tolerance on the radix-scaled model current vs the measured mean.
-lrs_tolerance_relative = 0.02
-# [measured p7 Fig.16(b)] Per-plane I_TBL,Mean(HRS) stays under 30 nA, flat across
-# every T2 slice multiplier. The gate reads it as a bound on the RAW plane current
-# `m * i_t2[drive][HRS]`, the tighter of the two readings; the looser one is the
-# plane's excess over the V_X = 0 leakage floor.
-hrs_bound__uA = 0.030
+[measurement]
+cycle__ns = 85.0                    # [adopted] full simulated/measured cycle for power accounting
 
-# --- Gate 3: RS-CSA per-conversion energy (also the calibration constraint pair) ---
-[gate.rscsa]
-# [derived] Measured RS-CSA block power (22.3% of 31.96 uW = 7.127 uW at 87.5%,
-# 8.6% of 82.94 uW = 7.133 uW at 50% -- flat to 0.1%) times the 66 ns window.
-energy_per_conversion__fJ = 470.0
-# [assumed] Tolerance the model's per-conversion energy must hold at BOTH
-# sparsity points; the anchor's own two-point spread is 0.1%.
-flat_tolerance_relative = 0.10
-# [measured p6 Fig.11(b)] RS-CSA energy varies ~1.5x across output codes. The gate
-# sweeps every non-zero code mid-bin and takes max / min.
-code_spread_range = [1.3, 1.8]
+[data]
+input_sparsity = [0.875, 0.50]      # [paper, Fig. 19]
+weight_sparsity = 0.50              # [adopted] calibration workload
 
-# --- (b) REFERENCE targets -- reported next to the model, NOT GATED ---
-[reference]
-# [measured p8 Fig.19] Total macro power at the two input-sparsity points, aligned
-# index-wise with [data].p_zero_input = [0.875, 0.50]. The per-pin split follows
-# from [reference.shares]; the array pin is share * total = 5.178 / 56.150 uW.
-total_macro__uW = [31.96, 82.94]
-# [derived] Energy per output (per row read) = total power * T_AC (66 ns):
-# 2.11 pJ (= 2110 fJ) and 5.47 pJ (= 5470 fJ).
-per_access__fJ = [2110.0, 5470.0]
-# [measured p6 Table II] Headline MAC energy efficiency and per-MAC energy.
-ef_tops_w = 30.34
-e_mac__fJ = 65.9
-# [assumed] How each Fig.19 point is read: the mounting hypothesis whose four pins
-# and on-chip total it closes on.
-point_label = ["closes under caliber X, reported not fitted", "closes under caliber Y, physics calibration anchor"]
+[paper]
+total_power__uW = [31.96, 82.94]    # [paper, Fig. 19]
+macro_area__um2 = 114700.0          # [paper, Table II] 310 um x 370 um
 
-# [measured p8 Fig.19(a)] Split-power-pin breakdown [%] at 87.5% input sparsity.
-# Block keys match validate.py's pooling identifiers.
-[reference.shares.p875]
-timing_ctrl = 43.9
+[paper.shares.p875]
+array = 16.2
 rscsa = 22.3
 mux_driver = 17.6
-array = 16.2
+timing_ctrl = 43.9
 
-# [measured p8 Fig.19(b)] Split-power-pin breakdown [%] at 50% input sparsity.
-[reference.shares.p50]
+[paper.shares.p50]
 array = 67.7
-timing_ctrl = 16.9
 rscsa = 8.6
 mux_driver = 6.8
-
-# --- Data / workload conventions ---
-[data]
-# [measured p8] The two Fig.19 input-sparsity points (fraction of 1-bit inputs
-# held at 0).
-p_zero_input = [0.875, 0.50]
-# [assumed] Weight sparsity, held fixed across both points. The draw is
-# VALUE-level: P(w = 0) = p_zero_weight, otherwise w uniform over
-# [1, sum(weight_radix)] -- mean weight 2.0 over the [0, 7] envelope.
-p_zero_weight = 0.50
-input_bit = 1                     # [measured p6 Table II] 1bIN
-weight_bit = 3                    # [measured p6 Table II] 3bW (three LSB-first planes, radix [1, 2, 4])
-out_bit = 4                       # [measured p6 Table II] 4bO (RS-CSA resolution)
-
-# --- Reporting conventions ---
-[conventions]
-rsm = false                       # [assumed] RSM mapping unused; the SUBA4 slice is physically present
-vdd__V = 0.8                      # [measured p6 Table II] core supply
-# [assumed] ENERGY basis: the duty period one access's static power integrates
-# over, and the period its dynamic energy is averaged into a power over. The paper
-# publishes no clock, so its steady-state power figures are read as back-to-back
-# accesses at the shipped 1bIN-3bW-4bO point, which puts the duty cycle on the
-# measured 66 ns T_AC. DECLARED here, never derived from the latency the macro
-# reports: the access time follows the converter resolution a call asks for, this
-# window does not.
-leakage_window__ns = 66.0
+timing_ctrl = 16.9

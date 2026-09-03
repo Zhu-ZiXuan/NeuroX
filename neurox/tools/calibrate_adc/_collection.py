@@ -65,25 +65,21 @@ def _run_paired(
     prefix_shape = x.shape[: -(inst_rank + 1)] if inst_rank else x.shape[:-1]
     x = x.expand(*prefix_shape, *physical.inst_shape, x.shape[-1])
     with AdcProber(sync_device=torch.device("cpu")) as prober, torch.no_grad():
-        physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=physical.adc_bits)
+        physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=None)
     with torch.no_grad():
-        ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=0)
+        ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=None)
 
     if not prober.records:
         raise ValueError("the physical macro emitted no ADC input record")
     names = {record.input_name() for record in prober.records}
     if len(names) != 1:
         raise ValueError(f"one probe run emitted multiple ADC input quantities: {sorted(names)}")
-    input_parts = [
-        physical.restore_adc_layout(record.input_value()).flatten().to("cpu", torch.float32)
-        for record in prober.records
-    ]
+    input_parts = [record.input_value().flatten().to("cpu", torch.float32) for record in prober.records]
     input_value = torch.cat(input_parts)
     ideal_value = ideal_value.flatten().to("cpu", torch.int64)
     if input_value.numel() != ideal_value.numel():
         raise ValueError(
-            f"paired sample counts differ (ADC input {input_value.numel()} vs ideal {ideal_value.numel()}); "
-            "the macro must restore its converter layout to the logical output order"
+            f"paired sample counts differ (ADC input {input_value.numel()} vs ideal {ideal_value.numel()})"
         )
     return names.pop(), input_value, ideal_value
 
@@ -107,13 +103,13 @@ def _collect_random(
     for weight_batch in range(weight_batch_num):
         w = sample_values(
             weight_values,
-            (random.batch_w, config.macro.input_num, config.macro.output_num),
+            (random.batch_w, physical.input_num, physical.output_num),
             generator=generator,
         )
         x = sample_sparse_inputs(
             input_values,
             batch_size=random.input_samples_per_weight,
-            input_num=config.macro.input_num,
+            input_num=physical.input_num,
             max_active_num=physical.max_active_num,
             active_row_selection=stimulus.active_row_selection,
             generator=generator,
@@ -163,8 +159,8 @@ def _collect_targeted(
         input_values=input_values,
         weight_values=weight_values,
         active_num=physical.max_active_num,
-        input_num=config.macro.input_num,
-        output_num=config.macro.output_num,
+        input_num=physical.input_num,
+        output_num=physical.output_num,
         target_ideal_values=target_ideal_values,
         active_row_selection=stimulus.active_row_selection,
         device=device,
@@ -193,7 +189,7 @@ def _collect_targeted(
         logger.debug(
             "target %d: %d supplemental conversion samples",
             target_value,
-            batch_num * target.batch_w * config.macro.output_num,
+            batch_num * target.batch_w * physical.output_num,
         )
     if signal_name is None:
         raise ValueError("ADC probe collected no target batches")

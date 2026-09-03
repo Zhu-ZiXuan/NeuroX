@@ -1,6 +1,8 @@
 # Contributing
 
-Entry point for the NeuroX contributing guides — authoring documentation, the contribution workflow, and task routing.
+Entry point for the NeuroX public development rules. These guides apply equally to human contributors and coding agents.
+
+Prepare and verify a source checkout through [workflow](workflow.md). For a change, start from [recipes](recipes.md), which routes the affected code, tests, docstrings, and documents to their authoritative carriers. [Organizing principles](../conventions/organizing_principles.md) defines those carriers and resolves disagreements between them.
 
 ## Documents
 

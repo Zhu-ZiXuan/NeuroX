@@ -39,14 +39,21 @@ class LinearUnit(UnitBase, ABC):
         return output.squeeze(-2)
 
     @torch.no_grad()
-    def linear(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def linear(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 
         Args:
             input: Integer activation values.
                 Shape: `[..., K]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_active_bits: Active ADC resolution.
+            adc_active_bits: Active ADC resolution; `None` requests the
+                unit's highest available precision.
 
         Returns:
             Integer pre-requantize output tensor. Leading dimensions are

@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox.common.encoding import Encoding
 from neurox.primitive.macro.cim import (
     CimMacroQuantizationScheme,
     IdealCimMacro,
@@ -33,10 +34,19 @@ def _make_macro(
     adc_bits: int = 6,
 ) -> IdealCimMacro:
     config = IdealCimMacroConfig(
+        input_num=input_num,
         rescale_factors=rescale_factors,
         max_active_num=max_active_num,
+        lane_num=1,
+        scan_num=output_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
+        w_digit_num=1,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM if w_value_range[0] < 0 else Encoding.UNSIGNED,
+        x_digit_num=1,
+        x_digit_radix=2,
+        x_encoding=Encoding.COMPLEMENT if x_value_range[0] < 0 else Encoding.UNSIGNED,
         x_value_range=x_value_range,
         w_value_range=w_value_range,
         adc_bits=adc_bits,
@@ -45,8 +55,6 @@ def _make_macro(
     macro = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
-        input_num=input_num,
-        output_num=output_num,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -121,7 +129,7 @@ class TestFastPathExact:
         assert macro._fp32_exact is True
         _, x = _random_operands(macro, batch=5, seed=101, device=torch.device("cpu"))
         planes = _masked_planes(x, input_num=64, max_active_num=16)
-        y = macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=0)
+        y = macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=None)
         assert y.dtype == torch.int64
         assert y.shape == (5, 4, 8)
         assert torch.equal(y, _plane_dot_oracle(macro, planes))
@@ -147,7 +155,7 @@ class TestFastPathExact:
         _, x = _random_operands(macro, batch=5, seed=202, device=device)
         planes = _masked_planes(x, input_num=64, max_active_num=16)
         oracle = _plane_dot_oracle(macro, planes)
-        y = macro.vec_mat_mul(planes.to(device), quantization_mode=0, adc_active_bits=0)
+        y = macro.vec_mat_mul(planes.to(device), quantization_mode=0, adc_active_bits=None)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
@@ -229,7 +237,7 @@ class TestFallbackTrigger:
         w = torch.tensor([[2**23, 0], [2**23, 0], [1, 0]], dtype=torch.int32)
         macro.program(w)
         x = torch.ones(3, dtype=torch.int32)
-        y = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=0)
+        y = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None)
         assert y.shape == (2,)
         assert y[0].item() == 2**24 + 1
         assert y[1].item() == 0

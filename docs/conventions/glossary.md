@@ -9,7 +9,7 @@ The canonical term, symbol, and code name for each concept used across NeuroX su
 - **macro** — one complete digital-analog-digital VMM unit: an array together with its peripheral drive, readout, conversion, and control circuits. The macro owns the logical-to-physical weight mapping and the inverse readout combination.
 - **peripheral** — a drive, readout, conversion, or control circuit belonging to a macro but lying outside its array.
 - **crossbar** — a topology qualifier, written `xbar` in code identities; never a substitute noun for either array or macro.
-- **scan mode** — the macro-fixed access schedule stating which array terminal holds the input and which line is scanned. A concrete macro selects it in code; it is not a Config, Policy, or user-configurable value. The array consumes it only to evaluate its internal capacitive energy.
+- **WL phase axes** — the macro-selected leading axes whose Cartesian product contains the WL drive phases executed under one held BL/SL boundary state. The macro owns their meaning and passes only their positions to the array; the array uses them to group capacitive energy.
 
 ## Operations and lifecycle
 
@@ -36,5 +36,5 @@ The canonical term, symbol, and code name for each concept used across NeuroX su
 - **digit** — the level-0 value-domain unit: the integer symbol one cell carries, in radix $r$ (`digit_radix`), bounded by the per-cell `digit_range`, and realized physically as the cell conductance state (see [device/rram](../reference/primitive/device/rram.md)). `digit_count` ($D$) digits make one slice.
 - **slice** — the level-1 value-domain unit (synonyms weight-slice, one-digit slice): a fixed-capacity positional piece of a value made of `digit_count` digits, with positional ratio the slice radix $R$ (`slice_radix`). The slice count ($S_w$ weight side, $S_x$ input side) is config-given, not inferred. Slices recombine into the value by the radix-weighted shift-add. See [unit family](../reference/architecture/unit/family.md) and [digital/shift_adder](../reference/primitive/digital/shift_adder.md).
 - **value** — the level-2, role-neutral algorithm scalar: a weight on the weight side, an activation on the input side, decomposed into slices for the macro and recombined from them. The term itself asserts neither application role.
-- **encoding (codec)** — the generic integer-to-digit-string codec over (radix, `digit_count`, policy), selected by the discriminator `"true_form" | "complement" | "canonical"`; an implementation primitive with no slicer or application semantics.
+- **encoding (codec)** — the generic integer-to-digit-string codec over (radix, `digit_count`, policy), selected by the discriminator `"unsigned" | "true_form" | "complement" | "canonical"`; an implementation primitive with no slicer or application semantics. Its logical value range is continuous; redundant digit strings are allowed, holes are not.
 - **coding scheme** — the concrete macro's rule mapping logical values and digits to physical array positions, together with the readout combination that recovers the signed result.

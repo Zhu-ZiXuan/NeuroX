@@ -11,8 +11,20 @@ from neurox.common.encoding import (
     Encoding,
     Transcoder,
     TrueFormTranscoder,
-    create_transcoder,
+    UnsignedTranscoder,
 )
+
+
+@pytest.mark.parametrize(
+    ("radix", "digit_count", "expected"),
+    [
+        (2, 3, (0, 7)),
+        (4, 2, (0, 15)),
+    ],
+)
+def test_unsigned_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
+    transcoder = UnsignedTranscoder(radix=radix, digit_count=digit_count)
+    assert transcoder.value_range == expected
 
 
 @pytest.mark.parametrize(
@@ -56,13 +68,14 @@ def test_canonical_value_range(radix: int, digit_count: int, expected: tuple[int
 @pytest.mark.parametrize(
     ("encoding", "expected_type"),
     [
+        (Encoding.UNSIGNED, UnsignedTranscoder),
         (Encoding.TRUE_FORM, TrueFormTranscoder),
         (Encoding.COMPLEMENT, ComplementTranscoder),
         (Encoding.CANONICAL, CanonicalTranscoder),
     ],
 )
-def test_create_transcoder_dispatches_enum(encoding: Encoding, expected_type: type[Transcoder]) -> None:
-    transcoder = create_transcoder(encoding=encoding, radix=2, digit_count=3)
+def test_from_encoding_dispatches_enum(encoding: Encoding, expected_type: type[Transcoder]) -> None:
+    transcoder = Transcoder.from_encoding(encoding=encoding, radix=2, digit_count=3)
     assert isinstance(transcoder, expected_type)
 
 
@@ -93,6 +106,8 @@ def test_complement_digits_are_lsb_first_with_folded_msb() -> None:
     "transcoder",
     [
         TrueFormTranscoder(radix=2, digit_count=3),
+        UnsignedTranscoder(radix=2, digit_count=3),
+        UnsignedTranscoder(radix=3, digit_count=2),
         ComplementTranscoder(radix=2, digit_count=3),
         CanonicalTranscoder(radix=2, digit_count=3),
         CanonicalTranscoder(radix=4, digit_count=3),

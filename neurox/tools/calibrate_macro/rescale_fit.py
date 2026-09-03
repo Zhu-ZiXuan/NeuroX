@@ -10,7 +10,7 @@ operating points. Each mode re-runs the full stimulus battery.
 Logical weight and input batches are sampled from a configured distribution.
 The physical macro and its ideal twin receive identical programs and legal
 caller-side active-position planes. The physical result at `adc_bits` and the
-twin's result at `adc_active_bits = 0` already share the logical output layout,
+twin's highest-precision result already share the logical output layout,
 so the fit depends on no ADC implementation or probe. The zero-through-origin
 least-squares slope expresses one final full-resolution macro output code in
 MAC units.
@@ -86,7 +86,6 @@ def _fit_one_mode(
     quantization_mode: int,
     adc_bits: int,
     stimulus: _StimulusCfg,
-    macro_section: MacroSection,
     run_config_path: Path,
     device: torch.device,
 ) -> ModeFitResult:
@@ -99,8 +98,8 @@ def _fit_one_mode(
     for w in sample_w(
         distribution,
         physical,
-        input_num=macro_section.input_num,
-        output_num=macro_section.output_num,
+        input_num=physical.input_num,
+        output_num=physical.output_num,
         n=stimulus.weight_samples,
         batch_w=stimulus.batch_w,
         device=torch.device("cpu"),
@@ -112,7 +111,7 @@ def _fit_one_mode(
         for x in sample_x_batches(
             distribution,
             physical,
-            input_num=macro_section.input_num,
+            input_num=physical.input_num,
             n_total=stimulus.input_samples_per_weight,
             batch_size=stimulus.batch_x,
             device=torch.device("cpu"),
@@ -121,7 +120,7 @@ def _fit_one_mode(
             x = x.unsqueeze(1).to(device)
             planes = unroll_active_positions(
                 x,
-                input_num=macro_section.input_num,
+                input_num=physical.input_num,
                 max_active_num=physical.max_active_num,
                 inst_shape=physical.inst_shape,
             )
@@ -129,12 +128,12 @@ def _fit_one_mode(
                 code = physical.vec_mat_mul(
                     planes,
                     quantization_mode=quantization_mode,
-                    adc_active_bits=adc_bits,
+                    adc_active_bits=None,
                 )
                 ideal_value = ideal.vec_mat_mul(
                     planes,
                     quantization_mode=quantization_mode,
-                    adc_active_bits=0,
+                    adc_active_bits=None,
                 )
             code_parts.append(code.flatten().to("cpu", torch.float64))
             ideal_parts.append(ideal_value.flatten().to("cpu", torch.float64))
@@ -270,7 +269,6 @@ def main(argv: list[str] | None = None) -> int:
             quantization_mode=quantization_mode,
             adc_bits=adc_bits,
             stimulus=cfg.stimulus,
-            macro_section=cfg.macro,
             run_config_path=args.config,
             device=device,
         )

@@ -1,62 +1,23 @@
-# Nonideality-free ("all-off") policy for the ye2023jssc WH-2T1R CIM macro.
-# What each block does and does not model: see the module and class docstrings of
-# neurox/works/macro/cim/ye2023jssc/. No module of the scheme declares a sigma or a
-# stochastic source, so this is the only intended policy; every intrinsic circuit
-# non-linearity is still computed under it.
-#
-# Pull with:
-#   [policy]
-#   _neurox_use = "policy.toml:policy"
+# Deterministic policy used by the paper-reproduction campaign.
 
 [policy]
 _neurox_class = "Ye2023JsscCimMacroPolicy"
 
-
-# --- WH-2T1R array (lookup cell + solver chunk knob) ---
-# solve_chunk_size = 0 solves the whole broadcast leading in one block: the
-# leading is (batch, out, *inst_shape) over the full 128 x 64 physical array.
 [policy.array_policy]
-solve_chunk_size = 0
+solve_chunk_size = 16384
 
 [policy.array_policy.cell_policy]
 
-
-# --- RS-CSA current-domain quantizer ---
 [policy.adc_policy]
+comparator_offset = false
 
-
-# --- RS-CSA reference source ---
 [policy.reference_policy]
 tolerance = false
 
-
-# --- WL 1-bit ON/OFF DAC ---
-[policy.wl_dac_policy]
-_neurox_class = "GeneralVdacPolicy"
-drive_thermal = false
-
-
-# --- BL input 1-bit DAC ---
-[policy.bl_dac_policy]
-_neurox_class = "GeneralVdacPolicy"
-drive_thermal = false
-
-
-# --- BL ideal-clamp seat (Thevenin VoltageDriver) ---
 [policy.bl_driver_policy]
 offset = false
 thermal = false
 
-
-# --- SL ideal-clamp seat ---
 [policy.sl_driver_policy]
 offset = false
 thermal = false
-
-
-# --- Mux & Driver lumped PPA seat (UnmodeledBlock; source-free marker) ---
-[policy.mux_driver_policy]
-
-
-# --- Timing & Mode Ctrl lumped PPA seat (UnmodeledBlock; source-free marker) ---
-[policy.timing_ctrl_policy]

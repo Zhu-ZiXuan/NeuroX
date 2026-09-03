@@ -13,7 +13,7 @@ Every core change starts here:
 5. Implement through the relevant base-class or mixin contract. Do not re-state that contract in the leaf implementation.
 6. Update package exports and public API documentation when the import surface changes, and keep the new module inside the package imports dispatch depends on — see [construction](../system_design/construction.md).
 7. Add or update focused tests and validation evidence.
-8. Run the relevant [workflow](workflow.md) quality gates, including `make docs-build` for documentation or link changes.
+8. Run the relevant [workflow](workflow.md) quality gates.
 
 ## Writing tests
 
@@ -22,6 +22,10 @@ These hold for every test the checklist adds:
 - Write each test's config and policy by hand, stating in the test the values its assertions depend on; do not reach for a preset or a production TOML to obtain them.
 - Assert laws, not numbers — invariants, monotonicity, scaling and limiting relations, and boundary behavior — so that recalibrating a physical parameter does not rewrite the suite. A literal number belongs in an assertion only when it is itself the specification, such as an analytic closed form or an exact-integer result.
 - Keep one test file per module under test, so the guard for a symbol is found from that symbol's module path.
+
+## Introduce a simulation primitive
+
+A standalone primitive represents an independent, reusable physical or circuit concept with its own behavioral contract. Neither the number of current callers nor the complexity of its formula decides whether the concept deserves that boundary. Pure arithmetic stays in the composing owner, while a block modelled only as static PPA or data-independent per-operation cost stays a seat under [code_style](../conventions/code_style.md) rather than becoming a class.
 
 ## Add a pure electrical primitive
 
@@ -46,8 +50,9 @@ Use the common checklist, then:
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.
-- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract. `ModuleBase` declares neither latency nor interval.
-- Compose scheduling explicitly at the owner of each serial axis. Macro and architecture boundaries expose `initiation_interval__ns`; they do not obtain it by traversing the module tree or by treating every child's latency as additive.
+- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract. `ModuleBase` does not impose a timing interface.
+- At a functional boundary, `latency__ns` covers one complete public operation, including every serial axis owned below that boundary. Compose it explicitly from known execution structure; do not infer it by traversing the module tree or by treating every child latency as additive.
+- Keep paper measurement periods, external clock periods, and leakage-integration windows in validation code unless the runtime model explicitly implements their scheduling semantics.
 - Test shape contract, dtype behavior, PPA emissions, and edge cases for the primary method.
 
 ## Add a registry family
@@ -97,7 +102,7 @@ Use the common checklist, then:
 - Document the mathematical method in Reference; the implementation constraints belong to the docstrings of the symbols that impose them.
 - State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
 - Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
-- Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the compile contract.
+- Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the [compile contract](../system_design/compile.md).
 - Test residuals, convergence / fixed-iteration behavior, shape edge cases, dtype behavior, and chunk reassembly.
 
 ## Add a value-domain primitive
@@ -135,5 +140,4 @@ Use the common checklist, then:
 
 - Identify all callers and downstream contracts before implementation.
 - Update the public contract document that owns the mechanism.
-- Prefer backward-compatible migration when possible; otherwise document the breaking change and update recipes / conventions that route to the mechanism.
 - Add tests at the shared contract level and at least one representative downstream use.

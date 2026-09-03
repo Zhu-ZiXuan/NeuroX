@@ -61,15 +61,15 @@ make eval-bert  MAX_SAMPLES=100
 
 ## Step 4 — read the report
 
-The run names the config and policy it used, then prints accuracy beside the PPA figures: total area, total leakage power, total dynamic energy, and the modeled initiation interval per sample, followed by the per-module dynamic-energy breakdown that shows where the energy went.
+The run names the config and policy it used, then prints accuracy beside the PPA figures: total area, total leakage power, total dynamic energy, and the modeled latency per sample, followed by the per-module dynamic-energy breakdown that shows where the energy went.
 
-Leakage power and initiation interval stay separate figures rather than being multiplied into a static energy: static energy is leakage times the duty-cycle period a deployment holds the macro for. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
+Leakage power and latency stay separate figures rather than being multiplied into a static energy: static energy is leakage times the measurement or duty-cycle period chosen by the deployment model. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
 
 The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Common API](../../api/common.md)).
 
 ## Comparing against an idealized macro
 
-`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining the selected quantization window and integer ADC resolution; `--cim_macro physical` runs the macro as configured. The twin removes circuit nonidealities but does not bypass quantization unless it is explicitly called with `adc_active_bits = 0`, a value accepted only by `IdealCimMacro`.
+`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining the selected quantization window and finite integer ADC resolutions; `--cim_macro physical` runs the macro as configured. Passing `adc_active_bits = None` requests the selected macro's highest available precision: maximum-width physical conversion or exact ideal execution. Pass an explicit finite width when both paths must use the same quantization resolution.
 
 A standalone ideal config is the other route: `macro_with_ideal_xbar.toml` for LeNet and `macro_ideal.toml` for BERT, each with its own policy file. These instantiate an ideal macro directly from hand-authored parameters tied to no fabricated chip, so they serve flow bring-up and carry no hardware provenance.
 

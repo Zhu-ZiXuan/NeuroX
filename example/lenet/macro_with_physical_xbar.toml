@@ -37,8 +37,6 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 [cim_unit.engine]
-input_num = 64
-output_num = 64
 
 [cim_unit.engine.weight_slice]
 _neurox_class = "InterWeightSliceStageConfig"
@@ -51,6 +49,9 @@ x_slice_num = 4
 
 [cim_unit.engine.cim_macro_config]
 _neurox_use = "../../works/offset_1t1r/config/1t1r_28nm.toml:cim_macro"
+input_num = 64
+lane_num = 1
+scan_num = 64
 
 [cim_unit.engine.input_activation.phase_accumulator_config]
 bit_width = 32

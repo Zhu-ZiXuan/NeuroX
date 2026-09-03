@@ -48,8 +48,6 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 [cim_unit.engine]
-input_num = 64
-output_num = 64
 
 [cim_unit.engine.weight_slice]
 _neurox_class = "InterWeightSliceStageConfig"
@@ -64,11 +62,20 @@ x_slice_num = 4
 _neurox_class = "IdealCimMacroConfig"
 quantization_scheme = "zero_point"
 
+input_num = 64
 max_active_num = 64
+lane_num = 1
+scan_num = 64
 
 leakage_per_inst__uW = 5.0
 area_per_inst__um2 = 500.0
 
+w_digit_num = 1
+w_digit_radix = 2
+w_encoding = "true_form"
+x_digit_num = 1
+x_digit_radix = 2
+x_encoding = "unsigned"
 x_value_range = [0, 1]
 w_value_range = [-1, 1]
 

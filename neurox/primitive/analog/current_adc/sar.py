@@ -16,7 +16,7 @@ from .base import Iadc, IadcConfig, IadcPolicy
 
 class SarIadcConfig(IadcConfig):
     latency_per_bit__ns: float
-    """Decision latency of one output bit."""
+    """Scheduled duration of one bit-decision phase."""
 
     comparator_offset_sigma__uA: float
     """Static input-referred comparator-offset σ. Positive offset raises the
@@ -108,7 +108,8 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
 
         The search tree is always the configured `bits`-level one over the
         full ladder. A conversion stops after its first `active_bits` levels
-        and appends each decision directly to the compact output code.
+        while retaining each decision in its full-width bit position. The
+        result is compacted only at the return boundary.
 
         Args:
             i_in__uA: Unsigned magnitude current.
@@ -126,30 +127,42 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
         record_energy = self._is_dynamic_energy_profile_active()
         e_dyn__fJ: Tensor | None = None
 
-        for step in range(active_bits):
-            ref_index = (((code << 1) | 1) << (self.bits - step - 1)) - 1
-            i_ref__uA = self._select_reference(i_refs__uA, ref_index)
+        for bit_position in range(self.bits - 1, self.bits - active_bits - 1, -1):
+            trial_code = code | (1 << bit_position)
+            i_ref__uA = self._select_reference(i_refs__uA, trial_code)
             bit = i_in__uA - i_ref__uA >= self._comparator_offset__uA
-            code = (code << 1) | bit
+            code = torch.where(bit, trial_code, code)
 
             if record_energy:
-                e_bit__fJ = self._compute_bit_dynamic_energy__fJ(i_in__uA, i_ref__uA)
+                e_bit__fJ = self._compute_bit_dynamic_energy__fJ(
+                    i_in__uA,
+                    i_refs__uA,
+                    trial_code,
+                    bit_position=bit_position,
+                )
                 if e_bit__fJ is not None:
                     e_dyn__fJ = e_bit__fJ if e_dyn__fJ is None else e_dyn__fJ + e_bit__fJ
 
         if e_dyn__fJ is not None:
             self._record_dynamic_energy(e_dyn__fJ)
 
-        return code
+        return code >> (self.bits - active_bits)
 
-    def _select_reference(self, i_refs__uA: Tensor, ref_index: Tensor) -> Tensor:
-        """Select one reference per conversion from the last-axis lookup table."""
+    def _select_reference(self, i_refs__uA: Tensor, trial_code: Tensor) -> Tensor:
+        """Select the decision reference for `trial_code`."""
         n_taps = int(i_refs__uA.shape[-1])
-        # Shape: [..., n_ref] -> [*ref_index.shape, n_ref]
-        i_ref_lut__uA = torch.broadcast_to(i_refs__uA, (*ref_index.shape, n_taps))
-        # Shape: [*ref_index.shape, n_ref] -> [*ref_index.shape]
-        return torch.gather(i_ref_lut__uA, -1, ref_index.unsqueeze(-1)).squeeze(-1)
+        # Shape: [..., n_ref] -> [*trial_code.shape, n_ref]
+        i_ref_lut__uA = torch.broadcast_to(i_refs__uA, (*trial_code.shape, n_taps))
+        # Shape: [*trial_code.shape, n_ref] -> [*trial_code.shape]
+        return torch.gather(i_ref_lut__uA, -1, (trial_code - 1).unsqueeze(-1)).squeeze(-1)
 
-    def _compute_bit_dynamic_energy__fJ(self, i_in__uA: Tensor, i_ref__uA: Tensor) -> Tensor | None:
-        del i_in__uA, i_ref__uA
+    def _compute_bit_dynamic_energy__fJ(
+        self,
+        i_in__uA: Tensor,
+        i_refs__uA: Tensor,
+        trial_code: Tensor,
+        *,
+        bit_position: int,
+    ) -> Tensor | None:
+        del i_in__uA, i_refs__uA, trial_code, bit_position
         return None

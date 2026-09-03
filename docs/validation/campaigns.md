@@ -14,7 +14,7 @@ The repository's `validations/` directory holds one calibration campaign per pub
 The campaigns that ship today, one per bundled scheme, run as `make validate_<paper>`. They live outside `docs/`, so this page names their paths instead of linking them:
 
 - `validations/xue2020jssc/` — the SINWP 1T1R CIM sub-array of `neurox.works.macro.cim.xue2020jssc`; `README.md` carries the run instructions and the validation command logs the outcome.
-- `validations/ye2023jssc/` — the WH-2T1R CIM macro of `neurox.works.macro.cim.ye2023jssc`; the `validate.py` module docstring carries the run instructions and the gate list, `results.md` the recorded outcome.
+- `validations/ye2023jssc/` — the WH-2T1R CIM macro of `neurox.works.macro.cim.ye2023jssc`; `README.md` carries the run instructions and timing basis, and the command logs the outcome.
 
 Four conventions govern every campaign:
 

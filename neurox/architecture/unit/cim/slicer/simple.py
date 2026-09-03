@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torch import Tensor
 
-from neurox.common.encoding import Encoding, create_transcoder
+from neurox.common.encoding import Encoding, Transcoder
 
 from .base import Slicer
 
@@ -40,14 +40,14 @@ class SimpleSlicer(Slicer):
             # A signed-digit carrier spans [-(R - 1), R - 1], so its radix is
             # one past the bound rather than the alphabet size 2 * hi + 1.
             radix = hi + 1
-            value_range = create_transcoder(
+            value_range = Transcoder.from_encoding(
                 encoding=encoding,
                 radix=radix,
                 digit_count=slice_num,
             ).value_range
         else:
             radix = hi - lo + 1
-            one_slice_range = create_transcoder(
+            one_slice_range = Transcoder.from_encoding(
                 encoding=encoding,
                 radix=radix,
                 digit_count=1,
@@ -57,14 +57,14 @@ class SimpleSlicer(Slicer):
                     f"{encoding.value} cannot represent slice_value_range {slice_value_range}; "
                     f"expected {one_slice_range}"
                 )
-            value_range = create_transcoder(
+            value_range = Transcoder.from_encoding(
                 encoding=encoding,
                 radix=radix,
                 digit_count=slice_num,
             ).value_range
 
         self._slice_num = slice_num
-        self._transcoder = create_transcoder(
+        self._transcoder = Transcoder.from_encoding(
             encoding=encoding,
             radix=radix,
             digit_count=slice_num,

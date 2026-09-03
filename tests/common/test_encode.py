@@ -68,13 +68,15 @@ class TestCanonicalEncoder:
         decoded_x = tc.decode(encoded)
         assert torch.equal(decoded_x, x.to(torch.int64)), "round-trip failed for multi-dim tensor"
 
-    def test_torch_compile_compatibility(self) -> None:
+    def test_torch_compile_compatibility(self, device: torch.device) -> None:
         if not hasattr(torch, "compile"):
             pytest.skip("PyTorch version does not support torch.compile")
+        if device.type != "cuda":
+            pytest.skip("NeuroX tests compile tensor code only on CUDA")
 
         radix, digits = 4, 6
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
-        x = torch.randint(min_val, max_val + 1, size=(128, 128), dtype=torch.int32)
+        x = torch.randint(min_val, max_val + 1, size=(128, 128), dtype=torch.int32, device=device)
 
         tc = CanonicalTranscoder(radix=radix, digit_count=digits)
 

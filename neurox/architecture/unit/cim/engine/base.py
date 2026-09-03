@@ -27,19 +27,11 @@ from .x_slice import XSliceStage, XSliceStageConfig, XSliceStagePolicy
 
 
 class CimEngineConfig(ConfigBase):
-    input_num: int
-    """Logical input ports of each CIM macro."""
-    output_num: int
-    """Logical output ports of each CIM macro."""
     cim_macro_config: CimMacroConfig
     placement: PlacementStageConfig
     input_activation: InputActivationStageConfig
     weight_slice: WeightSliceStageConfig
     x_slice: XSliceStageConfig
-
-    def validate(self) -> None:
-        self._require_pos(self.input_num, "input_num")
-        self._require_pos(self.output_num, "output_num")
 
 
 class CimEnginePolicy(PolicyBase):
@@ -77,11 +69,12 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self._w_logical_shape = tuple(w_logical_shape)
 
         n_logical, k_logical = w_logical_shape
-        block_output_num, macro_plane_num = config.weight_slice.layout_geometry(output_num=config.output_num)
+        macro_config = config.cim_macro_config
+        block_output_num, macro_plane_num = config.weight_slice.layout_geometry(output_num=macro_config.output_num)
         plan = make_matmul_placement_plan(
             logical_output_num=n_logical,
             logical_contraction_num=k_logical,
-            tile_input_capacity=config.input_num,
+            tile_input_capacity=macro_config.input_num,
             output_block_size=block_output_num,
         )
         self._init_execution_children(
@@ -92,13 +85,18 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             ideal_macro=ideal_macro,
         )
 
-    def initiation_interval__ns(self, *, output_plane_num: int, adc_active_bits: int) -> float:
-        """Schedule one logical matrix multiplication.
+    def latency__ns(
+        self,
+        *,
+        output_plane_num: int,
+        adc_active_bits: int | None,
+    ) -> float:
+        """Return the latency of one logical matrix multiplication.
 
         Serial work spans the output planes `M` supplied per call, the input
         slices `Sx`, the CIM block slots `D`, and the input phases `P`. One
         macro access serves each `(M, Sx, D, P)` point, so these extents
-        multiply the macro initiation interval. Weight slices, contraction
+        multiply the macro latency. Weight slices, contraction
         partitions, and block groups are parallel silicon and do not.
 
         The digital blocks hold no output-port axis of their own, so each runs
@@ -116,15 +114,16 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
                 extent of the schedule the placement plan does not fix.
                 Unrelated to `macro_plane_num`, the Sw weight-slice planes one
                 macro instance holds.
-            adc_active_bits: Active ADC resolution the macro accesses run at.
+            adc_active_bits: Active ADC resolution the macro accesses run at;
+                `None` requests the macro's highest available precision.
 
         Returns:
-            Scheduled interval occupied by one logical matrix multiplication.
+            Latency of one logical matrix multiplication.
         """
         slice_num = self.x_slice.slice_num
         block_step_num = self.placement.block_step_num
         phase_num = self.input_activation.input_phase_num
-        port_num = self.config.output_num
+        port_num = self.cim_macro.output_num
         aggregated_port_num = self.weight_slice.aggregated_output_num
 
         phase_accumulate__ns = self.input_activation.phase_accumulator.latency__ns()
@@ -137,7 +136,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         # One block step retires when its phases have been accumulated.
         step_num = output_plane_num * slice_num * block_step_num
         access_num = step_num * phase_num
-        total__ns = access_num * self.cim_macro.initiation_interval__ns(adc_active_bits=adc_active_bits)
+        total__ns = access_num * self.cim_macro.latency__ns(adc_active_bits=adc_active_bits)
         total__ns += access_num * port_num * phase_accumulate__ns
         total__ns += step_num * port_num * contraction_accumulate__ns
         total__ns += step_num * aggregated_port_num * w_slice_recombine__ns
@@ -166,8 +165,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self.cim_macro = self._build_cim_macro(
             cim_macro_config=self.config.cim_macro_config,
             cim_macro_policy=self.policy.cim_macro_policy,
-            input_num=self.config.input_num,
-            output_num=self.config.output_num,
             inst_shape=macro_inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -177,7 +174,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             config=self.config.placement,
             policy=self.policy.placement,
             plan=plan,
-            input_num=self.config.input_num,
+            input_num=self.cim_macro.input_num,
             macro_plane_num=macro_plane_num,
             macro_inst_rank=len(macro_inst_shape),
         )
@@ -195,7 +192,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             config=self.config.weight_slice,
             policy=self.policy.weight_slice,
             macro_w_value_range=self.cim_macro.w_value_range,
-            output_num=self.config.output_num,
+            output_num=self.cim_macro.output_num,
             macro_group_num=macro_group_num,
         )
         self.x_slice = XSliceStage.from_config(
@@ -236,11 +233,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
     @property
     def input_num(self) -> int:
-        return self.config.input_num
+        return self.cim_macro.input_num
 
     @property
     def output_num(self) -> int:
-        return self.config.output_num
+        return self.cim_macro.output_num
 
     @property
     def max_active_num(self) -> int:
@@ -250,7 +247,12 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def adc_bits(self) -> int:
         return self.cim_macro.adc_bits
 
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
+    def rescale_factor(
+        self,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> float:
         """Return the ideal-macro codes represented by one output code."""
         return self.cim_macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
@@ -284,14 +286,21 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self.cim_macro.program(self._organize_w(weight))
 
     @torch.no_grad()
-    def matmul(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def matmul(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         """Multiply logical inputs by the programmed weight.
 
         Args:
             input: Integer activation values.
                 Shape: `[..., M, K]`.
             quantization_mode: Index selecting the runtime quantization window.
-            adc_active_bits: Active ADC resolution.
+            adc_active_bits: Active ADC resolution; `None` requests the
+                macro's highest available precision.
 
         Returns:
             Integer pre-requantize output tensor.
@@ -323,7 +332,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def extra_repr(self) -> str:
         return (
             f"cim_macro={type(self.cim_macro).__name__}, "
-            f"input_num={self.config.input_num}, output_num={self.config.output_num}, "
+            f"input_num={self.input_num}, output_num={self.output_num}, "
             f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
         )
 
@@ -332,8 +341,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         *,
         cim_macro_config: CimMacroConfig,
         cim_macro_policy: CimMacroPolicy,
-        input_num: int,
-        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -342,8 +349,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,
-            input_num=input_num,
-            output_num=output_num,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

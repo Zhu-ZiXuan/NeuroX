@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import logging
 import statistics
 import tomllib
@@ -56,10 +55,6 @@ _STATIC_NAMES: dict[str, tuple[str, ...]] = {
 
 _QUANTIZATION_MODE = 0
 _ADC_BITS = 3
-# [reported p211 Fig.20(c)] 256 rows x 512 physical columns per sub-array.
-ROW_NUM = 256
-# [derived] 512 physical columns / two digits / two polarities.
-COL_NUM = 128
 # [assumed] The paper does not report simulation temperature.
 TEMPERATURE__K = 300.0
 
@@ -69,20 +64,13 @@ def build_macro(
     policy_path: Path,
     *,
     device: torch.device,
-    solve_chunk_size: int,
 ) -> Xue2020JsscCimMacro:
     """Build and fabricate the configured macro."""
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
-    policy = dataclasses.replace(
-        policy,
-        array_policy=dataclasses.replace(policy.array_policy, solve_chunk_size=solve_chunk_size),
-    )
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
-        input_num=ROW_NUM,
-        output_num=COL_NUM,
         inst_shape=(),
         dtype=torch.float32,
         T__K=TEMPERATURE__K,
@@ -94,9 +82,9 @@ def build_macro(
     return macro
 
 
-def leakage_window__ns(macro: Xue2020JsscCimMacro) -> float:
-    """Leakage integration window of one access [ns]."""
-    return macro.config.t_cycle__ns
+def measurement_cycle__ns(anchors: dict) -> float:
+    """Paper measurement period used for leakage integration [ns]."""
+    return 1000.0 / float(anchors["target"]["op_frequency__MHz"])
 
 
 def _draw_weight(
@@ -139,8 +127,8 @@ def _draw_input(
     hi: int,
     nonzero_probability: float,
 ) -> torch.Tensor:
-    """At most `max_active_num` candidate rows, zero-inflated independently."""
-    active_rows = torch.rand((batch, input_num), generator=gen, device=gen.device).topk(max_active_num, dim=1).indices
+    """At most `max_active_num` candidate inputs, zero-inflated independently."""
+    active_inputs = torch.rand((batch, input_num), generator=gen, device=gen.device).topk(max_active_num, dim=1).indices
     nonzero = torch.rand((batch, max_active_num), generator=gen, device=gen.device) < nonzero_probability
     values = torch.randint(
         max(1, lo),
@@ -151,7 +139,7 @@ def _draw_input(
         device=gen.device,
     )
     values = torch.where(nonzero, values, 0)
-    return torch.zeros((batch, input_num), dtype=torch.long, device=gen.device).scatter(1, active_rows, values)
+    return torch.zeros((batch, input_num), dtype=torch.long, device=gen.device).scatter(1, active_inputs, values)
 
 
 @dataclass(frozen=True)
@@ -207,8 +195,6 @@ class Measurement:
     static__fJ: float
     slices: tuple[SliceEnergy, ...]
     unmapped_static__fJ: float
-    access_latency__ns: float
-    window__ns: float
     n_w: int
     n_x: int
     accesses: int
@@ -230,11 +216,11 @@ def _per_access(
     dynamic_by_name__fJ: dict[str, float],
     *,
     accesses: int,
-    window__ns: float,
+    measurement_cycle__ns: float,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Reduce profiler rows to energy per access."""
     dyn = {k: v / accesses for k, v in dynamic_by_name__fJ.items()}
-    stat = {e.qualified_name: e.leakage__uW * window__ns for e in static_entries}
+    stat = {e.qualified_name: e.leakage__uW * measurement_cycle__ns for e in static_entries}
     return dyn, stat
 
 
@@ -258,9 +244,8 @@ def measure(
     target_total = anchors["target"]["per_access__fJ"]
     shares = anchors["fig18_shares"]
 
-    scan_num = cfg.scan_num
-    window__ns = leakage_window__ns(macro)
-    access_latency__ns = macro.latency__ns(adc_active_bits=_ADC_BITS) / scan_num
+    scan_num = macro.scan_num
+    cycle__ns = measurement_cycle__ns(anchors)
 
     n_w = max(1, -(-n // batch))  # ceil
     n_samples = 0
@@ -270,15 +255,15 @@ def measure(
         for _ in range(n_w):
             w = _draw_weight(
                 gen,
-                input_num=macro.row_num,
-                output_num=macro.col_num,
+                input_num=macro.input_num,
+                output_num=macro.output_num,
                 max_magnitude=max(abs(w_lo), abs(w_hi)),
                 nonzero_probability=float(data["weight_nonzero_probability"]),
             )
             x = _draw_input(
                 gen,
                 batch=batch,
-                input_num=macro.row_num,
+                input_num=macro.input_num,
                 max_active_num=cfg.max_active_num,
                 lo=x_lo,
                 hi=x_hi,
@@ -293,7 +278,12 @@ def measure(
             n_samples += batch
     accesses = n_samples * scan_num
 
-    dyn, stat = _per_access(reporter.static_entries, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
+    dyn, stat = _per_access(
+        reporter.static_entries,
+        dyn_by_name__fJ,
+        accesses=accesses,
+        measurement_cycle__ns=cycle__ns,
+    )
     static__fJ = sum(stat.values())
     dynamic__fJ = total_dynamic__fJ / accesses
     total__fJ = dynamic__fJ + static__fJ
@@ -315,8 +305,6 @@ def measure(
         static__fJ=static__fJ,
         slices=slices,
         unmapped_static__fJ=unmapped_static,
-        access_latency__ns=access_latency__ns,
-        window__ns=window__ns,
         n_w=n_w,
         n_x=batch,
         accesses=accesses,
@@ -356,8 +344,6 @@ def _pool_rounds(rounds: list[Measurement], *, seed: int) -> Measurement:
         static__fJ=wmean(lambda r: r.static__fJ),
         slices=slices,
         unmapped_static__fJ=wmean(lambda r: r.unmapped_static__fJ),
-        access_latency__ns=first.access_latency__ns,
-        window__ns=first.window__ns,
         n_w=first.n_w,
         n_x=first.n_x,
         accesses=total_accesses,
@@ -567,12 +553,6 @@ def main() -> None:
     ap.add_argument("--n-w", type=int, default=64, help="Weight draws per round.")
     ap.add_argument("--n-x", type=int, default=256, help="Inputs per weight draw.")
     ap.add_argument("--repeat", type=int, default=8, help="Independent workload rounds.")
-    ap.add_argument(
-        "--solve-chunk",
-        type=int,
-        default=4096,
-        help="Leading instances per array-solve chunk; 0 disables chunking.",
-    )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument(
         "--device",
@@ -602,7 +582,7 @@ def main() -> None:
         anchors = tomllib.load(fh)
 
     device = resolve_device(args.device)
-    macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device, solve_chunk_size=args.solve_chunk)
+    macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device)
     m = measure_rounds(
         macro,
         anchors,

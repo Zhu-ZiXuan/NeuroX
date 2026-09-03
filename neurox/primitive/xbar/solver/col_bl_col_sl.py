@@ -110,17 +110,17 @@ class ColBlColSlProber(RecorderBase[ColBlColSlRecord[ResistiveDcop]]):
             leaves each record where it was recorded.
     """
 
-    __min_outer: int
+    _min_outer: int
 
     def __init__(self, *, min_outer: int, sync_device: torch.device | None = None) -> None:
         super().__init__(sync_device=sync_device)
-        self.__min_outer = min_outer
+        self._min_outer = min_outer
 
     @property
     @final
     def min_outer(self) -> int:
         """Lowest outer step this recorder keeps."""
-        return self.__min_outer
+        return self._min_outer
 
     @classmethod
     def _submit_impl(cls, record: ColBlColSlRecord[ResistiveDcop]) -> None:

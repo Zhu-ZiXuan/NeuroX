@@ -117,31 +117,29 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     vdd__V = cfg.vdd__V
     x_long = x.long()
     sample__ns = cfg.t_sample__ns
-    detect__ns = cfg.detect__ns(TINY_ADC_BITS)
+    detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
 
     phys_col_num = macro.array.cell.inst_shape[-2]
 
-    whole = 0.0
-    for k in range(cfg.x_bit_num):
-        plane = (x_long >> k) & 1
-        v_wl = macro.wl_dac.convert(plane)
-        leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
-        ref_shape = (*leading, phys_col_num)
-        v_blc = macro.cablc_vref.values()
-        steady = macro.array.solve_array(
-            v_wl,
-            bl_driver=macro.cablc,
-            bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
-            sl_driver=macro.sl_driver,
-            sl_driver_snap=macro.sl_driver.snapshot(
-                v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
-                shape=ref_shape,
-            ),
-        )
-        window__ns = detect__ns if k == cfg.x_bit_num - 1 else sample__ns
-        step_energy = ((vdd__V * steady.i_bl_port__uA).sum(dim=-1) * window__ns).sum()
-        whole += float(step_energy)
-    return whole
+    planes = torch.stack(tuple((x_long >> k) & 1 for k in range(cfg.x_bit_num)), dim=-2)
+    v_wl = planes * macro._v_wl_on__V
+    leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
+    ref_shape = (*leading, phys_col_num)
+    v_blc = macro.cablc_vref.values()
+    steady = macro.array.solve_array(
+        v_wl__V=v_wl,
+        wl_phase_dims=(-2,),
+        bl_driver=macro.cablc,
+        bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
+        sl_driver=macro.sl_driver,
+        sl_driver_snap=macro.sl_driver.snapshot(
+            v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
+            shape=ref_shape,
+        ),
+    )
+    phase_duration__ns = v_wl.new_tensor((*([sample__ns] * (cfg.x_bit_num - 1)), detect__ns))
+    energy__fJ = (vdd__V * steady.i_bl_port__uA).sum(dim=-1) * phase_duration__ns
+    return float(energy__fJ.sum())
 
 
 def test_billed_rows_present_with_exact_names(device: torch.device) -> None:
@@ -179,16 +177,13 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
     assert "sinwp_sc" not in static
 
 
-def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch.device) -> None:
+def test_dynamic_energy_scales_with_conduction_windows(device: torch.device) -> None:
     w, x = _w_full(), _x_full(2)
-    base_cfg = build_config(t_sample__ns=1.0, t_settle__ns=2.0, t_cycle__ns=50.0)
+    base_cfg = build_config(t_sample__ns=1.0, t_settle__ns=2.0)
 
     prof_base, rep_base = _run(base_cfg, w, x, device=device)
     dyn_base = rep_base.total_dynamic_energy__fJ(prof_base)
     assert dyn_base > 0.0
-
-    prof_2t, rep_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
-    assert rep_2t.total_dynamic_energy__fJ(prof_2t) == pytest.approx(dyn_base)
 
     prof_win, rep_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
     assert rep_win.total_dynamic_energy__fJ(prof_win) > dyn_base  # dynamic grows with the window
@@ -260,17 +255,16 @@ def test_array_cap_row_rides_the_shared_core_supply(device: torch.device) -> Non
 
 
 def test_control_count_mux_times_batch(device: torch.device) -> None:
-    cfg = build_config()  # K=2, scan_num=2
+    cfg = build_config()
     e_per_op = cfg.control_config.energy_per_op__fJ
-    scan_num = cfg.scan_num
     w = _w_full()
 
     e1 = _channel_energies(cfg, w, torch.tensor([1, 2, 1, 0], dtype=torch.long), device=device)["control"]
-    assert e1 == pytest.approx(e_per_op * scan_num)
+    assert e1 == pytest.approx(e_per_op * cfg.scan_num)
 
     x_batch = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0], [0, 1, 2, 3]], dtype=torch.long)
     e_batch = _channel_energies(cfg, w, x_batch, device=device)["control"]
-    assert e_batch == pytest.approx(e_per_op * scan_num * 3)
+    assert e_batch == pytest.approx(e_per_op * cfg.scan_num * 3)
 
 
 def test_pn_isub_channel_present_and_uses_detection(device: torch.device) -> None:
@@ -297,8 +291,7 @@ def test_pn_isub_per_op_energy_is_billed_per_scan_and_lane(device: torch.device)
 
     e_without__fJ = _channel_energies(without_event, w, x, device=device)["pn_isub"]
     e_with__fJ = _channel_energies(with_event, w, x, device=device)["pn_isub"]
-    lane_num = TINY_OUTPUT_NUM // config.scan_num
-    event_num = x.shape[0] * config.scan_num * lane_num
+    event_num = x.shape[0] * config.scan_num * config.lane_num
     assert e_with__fJ - e_without__fJ == pytest.approx(event__fJ * event_num)
 
 
@@ -377,7 +370,8 @@ def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device
 
 def test_live_bit_conducts_during_detection_independent_of_sampling(device: torch.device) -> None:
     cfg = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
-    detect__ns = cfg.detect__ns(TINY_ADC_BITS)
+    macro = build_macro(cfg, device=device)
+    detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
     assert detect__ns == cfg.t_settle__ns + TINY_ADC_BITS * cfg.tmcsa_config.latency_per_bit__ns
 
     w, x = _w_full(), _x_full(3)

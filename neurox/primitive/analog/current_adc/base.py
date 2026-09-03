@@ -118,6 +118,7 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         """Physical output bit width."""
         return self.config.bits
 
+    @final
     def _check_active_bits(self, active_bits: int) -> None:
         """Require an active resolution this converter supports.
 

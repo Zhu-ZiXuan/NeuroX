@@ -1,8 +1,6 @@
 # Xue2020 JSSC array-solver calibration.
 
 [macro]
-input_num = 256
-output_num = 128
 config_files = ["../params.toml"]
 config_section = "cim_macro"
 policy_file = "../policy.toml"
@@ -10,7 +8,7 @@ policy_section = "policy"
 solver_section = "array_config.solver_config"
 
 [workload]
-active_rows = 9
+active_inputs = 9
 weight_samples = 2
 input_samples_per_weight = 2
 batch_w = 2

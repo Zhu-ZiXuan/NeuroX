@@ -2,8 +2,6 @@
 # What it pins and how to run it: see README.md.
 
 [macro]
-input_num = 32
-output_num = 64
 config_files = ["../params.toml"]             # the shipped WH-2T1R macro (the config the scheme runs)
 config_section = "cim_macro"
 policy_file = "../policy.toml"                 # all-off (noiseless, mismatch-free reference)
@@ -11,7 +9,7 @@ policy_section = "policy"
 solver_section = "array_config.solver_config"  # dotted path to the ColBlColSlSolverConfig table
 
 [workload]
-active_rows = 32                  # == row_num (input-parallel faithful point; 1 <= active_rows <= 32)
+active_inputs = 32               # logical inputs selected per access; equals max_active_num
 weight_samples = 4
 input_samples_per_weight = 8
 batch_w = 4

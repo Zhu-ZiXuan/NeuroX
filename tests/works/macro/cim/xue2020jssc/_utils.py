@@ -17,7 +17,6 @@ from neurox.primitive.analog import (
     VoltageDriverConfig,
     VoltageDriverPolicy,
 )
-from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
@@ -33,7 +32,8 @@ from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig, TmcsaPolicy
 TINY_OUTPUT_NUM = 4
 TINY_INPUT_NUM = 4
 TINY_MAX_ACTIVE_SIZE = 4
-TINY_SCAN_NUM = 2  # lane_num = output_num // scan_num = 2
+TINY_LANE_NUM = 2
+TINY_SCAN_NUM = 2
 TINY_K = 2  # x_bit_num: two serial WL sub-phases, LSB first
 TINY_ADC_BITS = 3
 MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 7 — the 3-bit magnitude saturation
@@ -46,7 +46,9 @@ _WIRE_SEGMENT_R__MOhm = 5.0e-6  # Positive and negligible beside the cell branch
 
 
 class _BuildConfigKwargs(TypedDict, total=False):
+    input_num: int
     max_active_num: int
+    lane_num: int
     scan_num: int
     w_digit_num: int
     w_digit_radix: int
@@ -54,7 +56,6 @@ class _BuildConfigKwargs(TypedDict, total=False):
     adc_bits: int
     t_sample__ns: float
     t_settle__ns: float
-    t_cycle__ns: float
     latency_per_bit__ns: float
     ref_levels__uA: tuple[float, ...] | None
 
@@ -93,7 +94,9 @@ def _array_config() -> XbarArray1t1rConfig:
 
 def build_config(
     *,
+    input_num: int = TINY_INPUT_NUM,
     max_active_num: int = TINY_INPUT_NUM,
+    lane_num: int = TINY_LANE_NUM,
     scan_num: int = TINY_SCAN_NUM,
     w_digit_num: int = 2,
     w_digit_radix: int = 2,
@@ -101,7 +104,6 @@ def build_config(
     adc_bits: int = TINY_ADC_BITS,
     t_sample__ns: float = 1.0,
     t_settle__ns: float = 2.0,
-    t_cycle__ns: float = 50.0,
     latency_per_bit__ns: float = 1.0,
     ref_levels__uA: tuple[float, ...] | None = None,
 ) -> Xue2020JsscCimMacroConfig:
@@ -110,18 +112,20 @@ def build_config(
         ref_levels__uA = _default_ref_levels(adc_bits)
 
     return Xue2020JsscCimMacroConfig(
+        input_num=input_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=8.0,  # macro-owned lump (un-attributed remainder)
         max_active_num=max_active_num,
+        lane_num=lane_num,
+        scan_num=scan_num,
         w_digit_num=w_digit_num,
         w_digit_radix=w_digit_radix,
         x_bit_num=x_bit_num,
-        scan_num=scan_num,
         dswct_ratio_msb=0.5,
         sc_ratio_msb=0.5,
         t_sample__ns=t_sample__ns,
         t_settle__ns=t_settle__ns,
-        t_cycle__ns=t_cycle__ns,
+        v_wl_on__V=0.9,
         vdd__V=1.0,
         pn_isub_energy_per_op__fJ=1.0,
         control_config=UnmodeledBlockConfig(
@@ -140,13 +144,6 @@ def build_config(
             leakage_per_inst__uW=2.5,
         ),
         array_config=_array_config(),
-        wl_dac_config=GeneralVdacConfig(
-            area_per_inst__um2=0.0,
-            leakage_per_inst__uW=0.0,
-            code_to_signal=(0.0, 0.9),  # 1-bit ON/OFF WL drive
-            drive_thermal__V=0.0,
-            code_to_per_op_energy__fJ=(0.0, 0.0),
-        ),
         cablc_config=VoltageDriverConfig(
             r_out__MOhm=0.0,  # ideal flat clamp (V_BL = V_BLC at the port); static leakage seat only
             offset_sigma__V=0.0,
@@ -183,7 +180,6 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
     """All-off (lossless baseline) composite policy — the scheme's only intended policy."""
     return Xue2020JsscCimMacroPolicy(
         array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
-        wl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
         cablc_vref_policy=ReferencePolicy(tolerance=False),
         sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
@@ -197,8 +193,6 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
 def build_macro(
     config: Xue2020JsscCimMacroConfig,
     *,
-    input_num: int = TINY_INPUT_NUM,
-    output_num: int = TINY_OUTPUT_NUM,
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Xue2020JsscCimMacro:
@@ -206,8 +200,6 @@ def build_macro(
     macro = CimMacro.from_config(
         config=config,
         policy=build_all_off_policy(),
-        input_num=input_num,
-        output_num=output_num,
         inst_shape=inst_shape,
         dtype=_DTYPE,
         T__K=300.0,
@@ -241,21 +233,21 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     """Probe `I_SUB(M)` for `M = 0..m_max` on an all-`+1` column."""
     device = macro_device(macro)
     cfg = macro.config
-    row_num = macro.row_num
+    input_num = macro.input_num
     x_max = (1 << cfg.x_bit_num) - 1
 
-    w_signed = torch.zeros((*macro.inst_shape, macro.row_num, macro.col_num), dtype=torch.long, device=device)
+    w_signed = torch.zeros((*macro.inst_shape, macro.input_num, macro.output_num), dtype=torch.long, device=device)
     w_signed[:, 0] = 1
     macro.program(w_signed)
 
-    x = torch.zeros((m_max + 1, row_num), dtype=torch.long, device=device)
+    x = torch.zeros((m_max + 1, input_num), dtype=torch.long, device=device)
     for m in range(m_max + 1):
         remaining = m
-        for r in range(row_num):
+        for r in range(input_num):
             v = min(x_max, remaining)
             x[m, r] = v
             remaining -= v
-        assert remaining == 0, f"cannot reach MAC {m} with {row_num} rows of max {x_max}"
+        assert remaining == 0, f"cannot reach MAC {m} with {input_num} inputs of max {x_max}"
 
     with AdcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)

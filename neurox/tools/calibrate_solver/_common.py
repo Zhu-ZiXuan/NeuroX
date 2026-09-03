@@ -47,10 +47,6 @@ from neurox.tools._sampling import load_distribution, make_generator, sample_w, 
 
 @dataclass(frozen=True)
 class MacroSection(ValidateMixin):
-    input_num: int
-    """Logical input-vector length passed to the macro constructor."""
-    output_num: int
-    """Logical output-vector length passed to the macro constructor."""
     config_files: tuple[Path, ...]
     """Macro config TOML paths in descending merge priority (first-wins deep
     merge, e.g. a geometry overlay on top of the scheme default), relative to
@@ -71,8 +67,6 @@ class MacroSection(ValidateMixin):
     raises."""
 
     def __post_init__(self) -> None:
-        self._require_pos(self.input_num, "[macro].input_num")
-        self._require_pos(self.output_num, "[macro].output_num")
         self._require_non_empty(self.config_files, "[macro].config_files")
         self._require_non_empty(self.solver_section, "[macro].solver_section")
 
@@ -100,8 +94,6 @@ def _fabricated_macro(
     config: CimMacroConfig,
     policy: CimMacroPolicy,
     *,
-    input_num: int,
-    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
@@ -109,8 +101,6 @@ def _fabricated_macro(
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
-        input_num=input_num,
-        output_num=output_num,
         inst_shape=inst_shape,
         dtype=dtype,
         T__K=T_ROOM__K,
@@ -125,8 +115,6 @@ def build_calibration_macro(
     config: CimMacroConfig,
     policy: CimMacroPolicy,
     *,
-    input_num: int,
-    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
@@ -135,8 +123,6 @@ def build_calibration_macro(
     return _fabricated_macro(
         config,
         policy,
-        input_num=input_num,
-        output_num=output_num,
         device=device,
         inst_shape=inst_shape,
         dtype=dtype,
@@ -197,8 +183,6 @@ def build_candidate_macro(
     solver_section: str,
     overrides: dict[str, int],
     policy: CimMacroPolicy,
-    input_num: int,
-    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
@@ -217,8 +201,6 @@ def build_candidate_macro(
     return _fabricated_macro(
         config,
         policy,
-        input_num=input_num,
-        output_num=output_num,
         device=device,
         inst_shape=inst_shape,
         dtype=dtype,
@@ -228,51 +210,50 @@ def build_candidate_macro(
 def unroll_sub_phase(
     x: Tensor,
     *,
-    row_num: int,
-    active_rows: int,
+    input_num: int,
+    active_inputs: int,
     inst_shape: tuple[int, ...],
 ) -> Tensor:
-    """Serialize dense WL planes over the sub-phase axis, mirroring the engine.
+    """Serialize dense input planes over the sub-phase axis, mirroring the engine.
 
-    The sub-phase axis `P = ceil(row_num / active_rows)` is inserted immediately
-    left of the macro's inst-alignment span (`inst_rank` size-1 slots), and rows
-    outside a plane's active window are zeroed (WL off), so every conversion
-    drives at most `active_rows` live rows — the per-conversion drive context
+    The sub-phase axis `P = ceil(input_num / active_inputs)` is inserted immediately
+    left of the macro's inst-alignment span (`inst_rank` size-1 slots), and inputs
+    outside a plane's active window are zeroed, so every conversion drives at most
+    `active_inputs` live inputs — the per-conversion drive context
     the `vec_mat_mul` contract requires. The active count is the calibration
     knob rather than the macro's own `max_active_num`.
 
     Args:
-        x: Dense WL plane tensor with an anonymous leading batch, no inst
+        x: Dense logical-input tensor with an anonymous leading batch, no inst
             slots.
-            Shape: `[..., row_num]`.
-        row_num: Macro row count.
-        active_rows: Simultaneously active word lines per plane, `1 <=
-            active_rows <= row_num`. Any in-range value is legal — the plane
-            partition uses a ceil count, so the rows are always fully covered.
+            Shape: `[..., input_num]`.
+        input_num: Macro logical input count.
+        active_inputs: Simultaneously active logical inputs per plane, `1 <=
+            active_inputs <= input_num`. Any in-range value is legal — the plane
+            partition uses a ceil count, so the inputs are always fully covered.
         inst_shape: Fabricated instance shape of the called macro.
 
     Returns:
         Masked plane tensor; dtype and device follow `x`.
-        Shape: `[..., P, *inst_shape, row_num]`.
+        Shape: `[..., P, *inst_shape, input_num]`.
     """
     inst_rank = len(inst_shape)
-    n_planes = -(-row_num // active_rows)
-    # Static row -> sub-phase ownership; plane p owns rows
-    # [p * active_rows, (p + 1) * active_rows).
-    # Shape: [row_num] -> [P, row_num]
-    plane_of_row = torch.arange(row_num, device=x.device) // active_rows
-    mask = plane_of_row == torch.arange(n_planes, device=x.device).unsqueeze(-1)
-    # Shape: [P, row_num] -> [P, *inst_shape=1, row_num]
-    mask = mask.reshape(n_planes, *(1,) * inst_rank, row_num)
-    # Insert the P slot + inst-span size-1 slots just left of the row axis so
+    n_planes = -(-input_num // active_inputs)
+    # Static input -> sub-phase ownership; plane p owns inputs
+    # [p * active_inputs, (p + 1) * active_inputs).
+    # Shape: [input_num] -> [P, input_num]
+    plane_of_input = torch.arange(input_num, device=x.device) // active_inputs
+    mask = plane_of_input == torch.arange(n_planes, device=x.device).unsqueeze(-1)
+    # Shape: [P, input_num] -> [P, *inst_shape=1, input_num]
+    mask = mask.reshape(n_planes, *(1,) * inst_rank, input_num)
+    # Insert the P slot + inst-span size-1 slots just left of the input axis so
     # x broadcasts against the mask.
-    # Shape: [..., row_num] -> [..., P=1, *inst_shape=1, row_num]
+    # Shape: [..., input_num] -> [..., P=1, *inst_shape=1, input_num]
     x_expanded = x.reshape(*x.shape[:-1], 1, *(1,) * inst_rank, x.shape[-1])
-    # Zero-fill = WL off.
-    # Shape: [..., P, *inst_shape=1, row_num]
+    # Shape: [..., P, *inst_shape=1, input_num]
     planes = torch.where(mask, x_expanded, x.new_zeros(()))
-    # Shape: [..., P, *inst_shape=1, row_num] -> [..., P, *inst_shape, row_num]
-    return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, row_num)
+    # Shape: [..., P, *inst_shape=1, input_num] -> [..., P, *inst_shape, input_num]
+    return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, input_num)
 
 
 # `v_x__V` is the condensed access-node voltage carried on the cell DCOP
@@ -563,15 +544,14 @@ def _drive_candidate(
     macro: CimMacro[CimMacroConfig, CimMacroPolicy],
     workload: list[tuple[Tensor, Tensor]],
     *,
-    input_num: int,
-    active_rows: int,
+    active_inputs: int,
     device: torch.device,
     n_outer: int,
     n_inner: int,
 ) -> _DriveResult:
     """Program + drive the whole workload; retain every residual record.
 
-    Each `(w, x)` is programmed once, serialized into row planes, and driven
+    Each `(w, x)` is programmed once, serialized into input planes, and driven
     through the macro's public `vec_mat_mul` under the solver and cell probers.
     The returned ADC codes are discarded — the calibration data rides those
     probers upstream of ADC conversion, so code clipping at a conservative
@@ -585,8 +565,8 @@ def _drive_candidate(
         macro.program(w.to(device))
         planes = unroll_sub_phase(
             x.to(device),
-            row_num=input_num,
-            active_rows=active_rows,
+            input_num=macro.input_num,
+            active_inputs=active_inputs,
             inst_shape=macro.inst_shape,
         )
         # min_outer=0: the guard reads the residuals that drove each solve's
@@ -599,7 +579,7 @@ def _drive_candidate(
             XbarCell1t1rDetailProber() as cell_prober,
             torch.no_grad(),
         ):
-            macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=macro.adc_bits)
+            macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=None)
         trajectories.extend(
             build_residual_trajectories(
                 solver_prober.records,
@@ -628,12 +608,10 @@ class SolverSweepContext:
     policy: CimMacroPolicy
     sampling_host: CimMacro[CimMacroConfig, CimMacroPolicy]
     """Macro the workload is sampled from; it never enters a candidate pass."""
-    input_num: int
-    output_num: int
     inst_shape: tuple[int, ...]
     dtype: torch.dtype
-    active_rows: int
-    """Simultaneously active word lines per serialized plane."""
+    active_inputs: int
+    """Simultaneously active logical inputs per serialized plane."""
     n_weight: int
     """Distinct programmed weights in the workload."""
     n_input_per_weight: int
@@ -711,8 +689,8 @@ def aggregate_solver_sweep(
         for w in sample_w(
             distribution,
             host,
-            input_num=context.input_num,
-            output_num=context.output_num,
+            input_num=host.input_num,
+            output_num=host.output_num,
             n=context.n_weight,
             batch_w=context.batch_w,
             device=device,
@@ -721,7 +699,7 @@ def aggregate_solver_sweep(
         for x in sample_x_batches(
             distribution,
             host,
-            input_num=context.input_num,
+            input_num=host.input_num,
             n_total=context.n_input_per_weight,
             batch_size=context.n_input_per_weight,
             device=device,
@@ -745,8 +723,6 @@ def aggregate_solver_sweep(
             solver_section=context.solver_section,
             overrides=overrides,
             policy=context.policy,
-            input_num=context.input_num,
-            output_num=context.output_num,
             device=device,
             inst_shape=context.inst_shape,
             dtype=context.dtype,
@@ -754,8 +730,7 @@ def aggregate_solver_sweep(
         drive = _drive_candidate(
             macro,
             workload,
-            input_num=context.input_num,
-            active_rows=context.active_rows,
+            active_inputs=context.active_inputs,
             device=device,
             n_outer=n_outer,
             n_inner=n_inner,

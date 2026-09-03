@@ -34,12 +34,6 @@ NONSTANDARD_UNIT_GRANTS: dict[str, tuple[str, ...]] = {
         "MosfetConfig.A_vt__mV_um",
         "Mosfet.__init__.nominal_mu__cm2_per_V_s",
     ),
-    # Validation reports retain the paper's headline units.
-    "validations/ye2023jssc/validate.py": (
-        "PointMeasurement.ef__tops_per_w",
-        "BlockPower.share__pct",
-        "CaliberPooling.on_chip_ef__tops_per_w",
-    ),
 }
 
 UnitExpression = tuple[tuple[str, ...], tuple[str, ...]]

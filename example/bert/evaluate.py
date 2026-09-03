@@ -32,8 +32,8 @@ def _initialize_physical_state(model: nn.Module) -> None:
             layer.macro.program(layer.weight_int.to(torch.int32))
 
 
-def initiation_interval_per_token__ns(model: nn.Module) -> float:
-    """Modelled initiation interval of one token across every macro-backed layer [ns].
+def latency_per_token__ns(model: nn.Module) -> float:
+    """Modeled latency of one token across every macro-backed layer [ns].
 
     Each layer times the unit it drives at the operating point it resolved,
     over one input vector of the contraction width its programmed weight fixes.
@@ -47,7 +47,7 @@ def initiation_interval_per_token__ns(model: nn.Module) -> float:
             continue
         root = layer.macro
         # Shape: [K], the fan-in one output channel contracts over.
-        total__ns += root.initiation_interval__ns(
+        total__ns += root.latency__ns(
             (layer.in_features,),
             adc_active_bits=layer.adc_active_bits,
         )
@@ -164,7 +164,7 @@ def main() -> None:
     # energy is leakage times the duty-cycle period a deployment holds the macro
     # for, which is a property of that deployment rather than of the access time
     # below, so the two are reported separately.
-    initiation_interval__ns = initiation_interval_per_token__ns(model)
+    latency__ns = latency_per_token__ns(model)
     print(f"samples:                  {total}")
     print(f"top1_accuracy:            {acc:.4f}")
     print(f"wall_time_s:              {elapsed:.2f}")
@@ -180,7 +180,7 @@ def main() -> None:
     print(f"leakage_power_total_uW:   {static.leakage__uW:.4f}")
     print(f"tokens:                   {token_num}")
     print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
-    print(f"modeled_initiation_interval_per_token_ns: {initiation_interval__ns:.4f}")
+    print(f"modeled_latency_per_token_ns: {latency__ns:.4f}")
     if energy_by_name__fJ:
         print("dynamic_energy_by_name_fJ:")
         width = max(len(name) for name in energy_by_name__fJ)

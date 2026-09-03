@@ -1,6 +1,7 @@
-"""Shared pytest fixtures registering the `--device` option and `device` fixture."""
+"""Shared pytest fixtures for device placement and CUDA-only compilation."""
 
 import contextlib
+from collections.abc import Iterator
 
 import pytest
 import torch
@@ -28,3 +29,10 @@ def device(request: pytest.FixtureRequest) -> torch.device:
         pytest.skip(f"Device {device_name} is not available: {exc}")
 
     return target
+
+
+@pytest.fixture(autouse=True)
+def _compile_only_on_cuda(request: pytest.FixtureRequest) -> Iterator[None]:
+    target = request.getfixturevalue("device") if "device" in request.fixturenames else torch.device("cpu")
+    with torch._dynamo.config.patch(disable=target.type != "cuda"):
+        yield

@@ -1,6 +1,6 @@
 # Organizing principles
 
-Knowledge is carried in three media: markdown documents, in-code text (docstrings, comments, shape and type annotations), and executable checks (types, runtime guards, and tests).
+Knowledge is carried in four media: markdown documents, in-code text (docstrings, comments, shape and type annotations), project configuration, and executable checks (types, runtime guards, and tests).
 
 ## What each carrier holds
 
@@ -19,6 +19,9 @@ One question routes every statement:
 | inline comment | Local implementation intent — why a line or block is written the way it is |
 | shape annotation | The terminal shape a class-header declaration carries, and semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
 | banner comment | Declaration and field grouping at class scope, and procedural phase boundaries in a method body; its format is in [code_style](code_style.md) |
+| `pyproject.toml` | Supported Python and dependency ranges, package metadata, dependency groups, and tool configuration |
+| `uv.lock` | The resolved dependency graph used to reproduce a development environment; never the supported-version policy |
+| `Makefile` | The available repository-level development tasks and the commands each task runs |
 | executable check | Any rule a type, a runtime guard, a `tests/rules/` repository scan, or a behavior test can decide; such a rule is enforced there rather than restated as prose, and its normative text stays in Conventions |
 
 The code is itself the carrier of what it already states — a signature, a type, a `raise NotImplementedError`. No document restates such a fact; each holds only the reason the code cannot show.
@@ -85,6 +88,7 @@ The same direction binds the code itself: a package imports its own layer or a l
 ## Single source
 
 - Each contract, rule, or definition has exactly one authoritative home; everywhere else links to that home instead of copying it.
+- When carriers disagree, first identify the owner using the carrier split above. The owning carrier defines the contract; align every dependent carrier with it. Observed runtime behavior does not silently override a Reference or System Design contract, and prose does not override a signature, task, or setting owned by code or project configuration.
 - Knowledge stated at a broader scope is cited from the narrower one, never restated there: a shared law belongs to the document that owns the shared layer, and a member cites it.
 - Project-level rule documents must not maintain subsystem catalogs.
 - Name an area briefly; link a specific shared contract only when a sentence depends on it.

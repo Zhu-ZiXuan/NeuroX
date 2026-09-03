@@ -18,7 +18,6 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
     XbarArray1t1rPolicy,
-    XbarArray1t1rScanMode,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
 from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
@@ -63,7 +62,6 @@ def _build_array(*, device: torch.device) -> _Array:
         inst_shape=(),
         row_num=2,
         col_num=2,
-        scan_mode=XbarArray1t1rScanMode.WL_IN_BL_SCAN,
         vdd__V=1.0,
         dtype=torch.float64,
         T__K=300.0,

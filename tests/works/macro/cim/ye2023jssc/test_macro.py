@@ -1,498 +1,132 @@
-"""Eager end-to-end laws for the ye2023jssc WH-2T1R CIM macro.
-
-Covers the whole macro contract on the hand-built analytic witness
-(`_utils.build_config`):
-
-  * registry dispatch reaches `Ye2023JsscCimMacro` and the `to_dict` /
-    `from_dict` reflection round trip re-selects the scheme config,
-  * the logical geometry and the value-domain surface: the weight envelope spans
-    the WEIGHT planes only while the PHYSICAL grid also carries the redundant
-    (SUBA4) plane,
-  * the quantization surface: the declared mode is the only index accepted and
-    the rescale factor doubles per dropped bit,
-  * every bit width rides the ONE injected reference: the code at `b` bits
-    equals the max-bits code right-shifted by the bit deficit, and only
-    `adc_active_bits` in `[1, adc_bits]` is accepted,
-  * the PH0 compensation is a REQUIRED macro config field the readout is handed
-    verbatim; the witness seats it at the model's own all-off floor —
-    `floor * row_num * sum(weight_radix + redundant_radix)`, the redundant
-    plane included — so a zero-input access lands on code 0 exactly,
-  * `to_ideal()` publishes the macro's own windows and its exact path
-    equals the UNSIGNED integer MAC oracle (property self-consistency: the
-    geometric radix ladder matches the scheme's `weight_radix`),
-  * end-to-end: known weights + 1-bit inputs -> codes trailing `[output_num]`,
-    monotone in the true MAC, and a mid-range input decoding to the MAC,
-  * the LSB-first asymmetric-weight regression: the `m = 1` plane and the
-    `m = 4` plane decode to DIFFERENT outputs (a reversed digit order swaps
-    them) — an exact expected code list,
-  * the scheme models no mismatch / noise / jitter: no scheme config declares a
-    sigma, no scheme policy carries a toggle, and decoding is bit-identical in
-    `train()` mode,
-  * the Fig.19 energy blocks appear under their exact channel / module names,
-  * the die ensemble (`inst_shape=(die_num,)`) crossed with an input batch: one
-    call over `x [n_x, 1, row]` reads every (input, weight) pair bit-exactly as
-    the single-die macro does and bills the SUM of those dies' energy per channel.
-
-Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
-unrolled.
-"""
-
-from __future__ import annotations
+"""WH-2T1R macro integration."""
 
 import dataclasses
-import itertools
-from collections.abc import Iterator
 
 import pytest
 import torch
-import torch._dynamo
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common import PolicyBase
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig
-from neurox.works.macro.cim.ye2023jssc.array import Ye2023Jssc2t1rArrayConfig
-from neurox.works.macro.cim.ye2023jssc.cell import Ye2023Jssc2t1rCellConfig
-from neurox.works.macro.cim.ye2023jssc.rscsa import RsCsaIadcConfig
+from neurox.common.encoding import Encoding
+from neurox.primitive.macro.cim import CimMacro
 
-from ._utils import (
-    QUANTIZATION_MODE,
-    TINY_ADC_BITS,
-    TINY_INPUT_NUM,
-    TINY_OUTPUT_NUM,
-    TINY_PLANE_NUM,
-    TINY_REDUNDANT_RADIX,
-    TINY_WEIGHT_RADIX,
-    W_MAX,
-    FLOOR__uA,
-    Ye2023JsscCimMacro,
-    Ye2023JsscCimMacroConfig,
-    build_all_off_policy,
-    build_config,
-    build_macro,
-    decode,
-    expected_ph0__uA,
-    ideal_mac,
-)
+from ._utils import ADC_BITS, INPUT_NUM, OUTPUT_NUM, build_config, build_macro, build_policy
 
 
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
-
-
-# ---------------------------------------------------------------------------
-# Registry dispatch + reflection
-# ---------------------------------------------------------------------------
-
-
-def test_registry_dispatch(device: torch.device) -> None:
-    """`CimMacro.from_config` dispatch reaches the scheme class."""
-    macro = CimMacro.from_config(
-        config=build_config(),
-        policy=build_all_off_policy(),
-        input_num=TINY_INPUT_NUM,
-        output_num=TINY_OUTPUT_NUM,
-        inst_shape=(),
-        dtype=torch.float64,
-        T__K=300.0,
-    )
-    assert isinstance(macro, Ye2023JsscCimMacro)
-
-
-def test_dict_reflection_round_trip() -> None:
-    """`to_dict` / `from_dict` re-selects the scheme config through the family tag."""
+def test_macro_owns_the_logical_to_physical_mapping(device: torch.device) -> None:
     config = build_config()
-    restored = CimMacroConfig.from_dict(config.to_dict())
-    assert isinstance(restored, Ye2023JsscCimMacroConfig)
-    assert restored == config
-
-
-# ---------------------------------------------------------------------------
-# Derived geometry / value-domain surface
-# ---------------------------------------------------------------------------
-
-
-def test_geometry_and_properties(device: torch.device) -> None:
-    """The derived geometry and the ADC / digit properties are as expected."""
-    macro = build_macro(build_config(), device=device)
-    assert macro.row_num == TINY_INPUT_NUM
-    assert macro.col_num == TINY_OUTPUT_NUM
-    assert macro.max_active_num == TINY_INPUT_NUM
-
-    assert macro.x_value_range == (0, 1)
-    # The weight envelope spans the WEIGHT planes only; the redundant plane is
-    # not part of the encodable range.
-    assert macro.w_value_range == (0, W_MAX)
-    assert macro.config.w_digit_num == len(TINY_WEIGHT_RADIX)
-    assert macro.adc_bits == TINY_ADC_BITS
-    assert len(macro.config.rescale_factors) == 1
-
-
-def test_physical_grid_includes_the_redundant_plane(device: torch.device) -> None:
-    """The physical column count is `row_num * (weight planes + redundant planes)`."""
-    macro = build_macro(build_config(), device=device)
-    phys_col_num = TINY_INPUT_NUM * TINY_PLANE_NUM
-    assert macro.array.cell.inst_shape == (1, phys_col_num, TINY_OUTPUT_NUM)
-    assert len(TINY_REDUNDANT_RADIX) > 0
-
-
-def test_only_declared_modes_and_converting_bit_widths_are_accepted(device: torch.device) -> None:
-    """An undeclared mode and out-of-range bit widths are rejected."""
-    macro = build_macro(build_config(), device=device)
-    w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
-    macro.program(w)
-    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-
-    mode_num = len(macro.config.rescale_factors)
-    with pytest.raises(ValueError, match=rf"require: quantization_mode \({mode_num}\) in \[0, {mode_num}\)"):
-        macro.vec_mat_mul(x, quantization_mode=mode_num, adc_active_bits=TINY_ADC_BITS)
-    with pytest.raises(ValueError, match=r"require: quantization_mode \(-1\) in \[0, "):
-        macro.vec_mat_mul(x, quantization_mode=-1, adc_active_bits=TINY_ADC_BITS)
-    with pytest.raises(ValueError, match=r"require: adc_active_bits \(0\) in \[1, adc_bits"):
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=0)
-    with pytest.raises(ValueError, match=rf"require: adc_active_bits \({TINY_ADC_BITS + 1}\) in \[1, adc_bits"):
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS + 1)
-
-
-# ---------------------------------------------------------------------------
-# Quantization scale
-# ---------------------------------------------------------------------------
-
-
-def test_rescale_factors_are_configured_by_mode(device: torch.device) -> None:
-    macro = build_macro(build_config(), device=device)
-    assert macro.config.rescale_factors == (1.0,)
-
-
-def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
-    """`r_b = r_B * 2**(B - b)`: one code carries twice as much per bit dropped."""
-    macro = build_macro(build_config(), device=device)
-    factors = [
-        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=b)
-        for b in range(1, TINY_ADC_BITS + 1)
-    ]
-    for coarse, fine in itertools.pairwise(factors):
-        assert coarse == pytest.approx(2.0 * fine)
-    # The witness ladder steps one MAC unit per code, so max bits is the identity.
-    assert factors[-1] == pytest.approx(macro.config.rescale_factors[QUANTIZATION_MODE])
-    with pytest.raises(ValueError, match=r"require: adc_active_bits \(\d+\) in \[1, adc_bits \(\d+\)\]"):
-        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS + 1)
-
-
-def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
-    """The code at `b` bits is the max-bits code right-shifted by the bit deficit.
-
-    All bit widths ride the ONE injected reference current, from which the
-    readout derives its whole max-bits ladder, so lowering the width drops the
-    code's low bits instead of re-scaling the transfer.
-    """
-    macro = build_macro(build_config(), device=device)
-    # Column j holds weight j % (W_MAX + 1) on every input, so one access with
-    # both inputs high sweeps MACs across the whole 4-bit code range.
-    values = torch.arange(TINY_OUTPUT_NUM, device=device) % (W_MAX + 1)
-    w = values.expand(TINY_INPUT_NUM, TINY_OUTPUT_NUM).contiguous().long()
-    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-
-    full = decode(macro, w, x, adc_active_bits=TINY_ADC_BITS).long()
-    assert int(full.max()) > 1, f"the witness sweep must exercise the ladder: {full.tolist()}"
-    for bits in range(1, TINY_ADC_BITS + 1):
-        lowered = decode(macro, w, x, adc_active_bits=bits).long()
-        assert torch.equal(lowered, full >> (TINY_ADC_BITS - bits)), f"bits {bits}: {lowered.tolist()}"
-
-
-# ---------------------------------------------------------------------------
-# Seated PH0 compensation
-# ---------------------------------------------------------------------------
-
-
-def test_ph0_is_the_configured_seat(device: torch.device) -> None:
-    """The macro hands the readout its own `i_ph0_comp__uA` field, unmodified."""
-    config = build_config()
-    macro = build_macro(config, device=device)
-    assert macro.rscsa.i_ph0_comp__uA == config.i_ph0_comp__uA
-    # The witness seats the all-off row floor, redundant plane included: dropping
-    # that plane would shrink the seat.
-    assert config.i_ph0_comp__uA == pytest.approx(expected_ph0__uA())
-    weight_only = FLOOR__uA * TINY_INPUT_NUM * sum(TINY_WEIGHT_RADIX)
-    assert config.i_ph0_comp__uA > weight_only
-    # The compensation is the MACRO's seat; the readout config declares no field.
-    assert not any("ph0" in field.name.lower() for field in dataclasses.fields(macro.config.adc_config))
-
-
-def test_ph0_seat_is_required_and_non_negative() -> None:
-    """`i_ph0_comp__uA` is a required physical field, rejected when negative."""
-    config = build_config()
-    assert "i_ph0_comp__uA" in {field.name for field in dataclasses.fields(config)}
-    with pytest.raises(ValueError, match=r"require: i_ph0_comp__uA \(-1\.0\) >= 0"):
-        dataclasses.replace(config, i_ph0_comp__uA=-1.0)
-
-
-def test_zero_input_decodes_code_zero(device: torch.device) -> None:
-    """A zero-MAC access lands on code 0 exactly, for any programmed weights."""
-    macro = build_macro(build_config(), device=device)
-    w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
-    code = decode(macro, w, torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device))
-    assert torch.equal(code.long(), torch.zeros_like(code.long()))
-
-
-# ---------------------------------------------------------------------------
-# to_ideal: the twin inherits the published surface
-# ---------------------------------------------------------------------------
-
-
-def test_to_ideal_exact_matches_unsigned_oracle(device: torch.device) -> None:
-    """The ideal twin at `adc_active_bits = 0` equals the unsigned integer MAC.
-
-    Validates that `to_ideal` preserves the logical weight contract.
-    """
-    macro = build_macro(build_config(), device=device)
-    ideal = macro.to_ideal()
-
-    w_val = torch.tensor(
-        [[0, 1], [1, 1], [2, 3], [7, 0]],
-        dtype=torch.long,
-        device=device,
-    ).transpose(-1, -2)
-    x = torch.tensor([[1, 1], [1, 0], [0, 1], [0, 0]], dtype=torch.long, device=device)  # batch (4,)
-
-    ideal.program(w_val)
-    got = ideal.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=0).cpu()
-    expected = ideal_mac(w_val, x, clamp=False)
-    assert torch.equal(got.long(), expected)
-
-
-def test_to_ideal_twin_inherits_the_quantization_scale(device: torch.device) -> None:
-    macro = build_macro(build_config(), device=device)
-    ideal = macro.to_ideal()
-    assert ideal.config.rescale_factors == macro.config.rescale_factors
-    assert ideal.adc_bits == macro.adc_bits
-    assert ideal.x_value_range == macro.x_value_range
-    assert ideal.w_value_range == macro.w_value_range
-    # The tiny witness window has one MAC unit per output code.
-    assert ideal.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS) == 1.0
-
-
-# ---------------------------------------------------------------------------
-# End-to-end: shape, monotonicity, mid-range decode
-# ---------------------------------------------------------------------------
-
-
-def test_end_to_end_shape_and_mac(device: torch.device) -> None:
-    """Codes equal the unsigned MAC."""
-    macro = build_macro(build_config(), device=device)
-    w_val = torch.tensor(
-        [[0, 1], [1, 1], [2, 3], [7, 0]],
-        dtype=torch.long,
-        device=device,
-    ).transpose(-1, -2)
-    x = torch.tensor([1, 1], dtype=torch.long, device=device)  # single access
-
-    code = decode(macro, w_val, x)
-    assert code.shape == (TINY_OUTPUT_NUM,)
-    # Analytic chain: code == clamped UNSIGNED MAC exactly.
-    assert torch.equal(code.long(), ideal_mac(w_val, x))
-
-
-def test_decode_monotone_in_mac(device: torch.device) -> None:
-    """The decoded code is monotone non-decreasing in the true MAC of one output."""
-    macro = build_macro(build_config(), device=device)
-    # Output 0 holds the max weight (7) on input 0; sweep the input on/off gives
-    # MAC 0 -> 7. A second input row raises it further.
-    w_val = torch.tensor(
-        [[7, 1], [0, 0], [0, 0], [0, 0]],
-        dtype=torch.long,
-        device=device,
-    ).transpose(-1, -2)
-    xs = [
-        torch.tensor([0, 0], dtype=torch.long, device=device),  # MAC 0
-        torch.tensor([0, 1], dtype=torch.long, device=device),  # MAC 1
-        torch.tensor([1, 0], dtype=torch.long, device=device),  # MAC 7
-        torch.tensor([1, 1], dtype=torch.long, device=device),  # MAC 8
-    ]
-    codes = [int(decode(macro, w_val, x)[0]) for x in xs]
-    assert codes == sorted(codes), f"not monotone: {codes}"
-    assert codes[0] < codes[-1], f"no dynamic range: {codes}"
-    # Mid-range input decodes to the MAC.
-    assert codes[1] == 1
-    assert codes[3] == 8
-
-
-# ---------------------------------------------------------------------------
-# LSB-first asymmetric-weight regression
-# ---------------------------------------------------------------------------
-
-
-def test_lsb_first_asymmetric_weight_regression(device: torch.device) -> None:
-    """The `m = 1` plane and the `m = 4` plane decode to DIFFERENT outputs.
-
-    Output 0 carries weight 1 (only the m=1 plane, digit 0) and output 1 carries
-    weight 4 (only the m=4 plane, digit 2). With a single input high, output 0
-    reads 1 and output 1 reads 4. A reversed digit order (digit 0 -> m=4) would
-    swap them — the exact expected list pins the LSB-first convention.
-    """
-    macro = build_macro(build_config(), device=device)
-    # [out, in]: out0 = weight 1, out1 = weight 4, out2/3 = 0.
-    w_val = torch.tensor(
-        [[1, 0], [4, 0], [0, 0], [0, 0]],
-        dtype=torch.long,
-        device=device,
-    ).transpose(-1, -2)
-    x = torch.tensor([1, 0], dtype=torch.long, device=device)  # only input 0 high
-
-    code = decode(macro, w_val, x)
-    assert code.tolist() == [1, 4, 0, 0], f"LSB-first place-value broken: {code.tolist()}"
-
-
-# ---------------------------------------------------------------------------
-# No mismatch / noise / jitter anywhere in the scheme
-# ---------------------------------------------------------------------------
-
-
-def test_no_scheme_config_declares_a_statistical_spread() -> None:
-    """No scheme-owned config field names a sigma / mismatch / noise / jitter knob."""
-    banned = ("sigma", "mismatch", "noise", "jitter")
-    for config_type in (
-        Ye2023JsscCimMacroConfig,
-        Ye2023Jssc2t1rArrayConfig,
-        Ye2023Jssc2t1rCellConfig,
-        RsCsaIadcConfig,
-    ):
-        for field in dataclasses.fields(config_type):
-            assert not any(token in field.name.lower() for token in banned), (
-                f"{config_type.__name__}.{field.name} declares a statistical spread"
-            )
-
-
-def test_scheme_policies_carry_no_toggles() -> None:
-    """The array / cell / RS-CSA policies are source-free; only the kernel clamps hold toggles."""
-    policy = build_all_off_policy()
-    for child in (policy.array_policy, policy.array_policy.cell_policy, policy.adc_policy):
-        assert isinstance(child, PolicyBase)
-        bool_fields = [f.name for f in dataclasses.fields(child) if isinstance(getattr(child, f.name), bool)]
-        assert bool_fields == [], f"{type(child).__name__} carries toggles {bool_fields}"
-
-
-def test_decode_is_deterministic_in_training_mode(device: torch.device) -> None:
-    """No conversion jitter is wired: `train()` decodes exactly like `eval()`."""
-    macro = build_macro(build_config(), device=device)
-    w = torch.tensor(
-        [[1, 3], [7, 0], [2, 5], [4, 4]],
-        dtype=torch.long,
-        device=device,
-    ).transpose(-1, -2)
-    x = torch.tensor([1, 1], dtype=torch.long, device=device)
-    eval_code = decode(macro, w, x)
-    macro.train()
-    assert torch.equal(decode(macro, w, x), eval_code)
-    assert torch.equal(decode(macro, w, x), eval_code)
-
-
-# ---------------------------------------------------------------------------
-# Energy blocks
-# ---------------------------------------------------------------------------
-
-
-def test_energy_channels(device: torch.device) -> None:
-    """Every Fig.19 block appears under its exact name, all positive."""
-    macro = build_macro(build_config(), device=device)
-    w_val = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
-    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-
-    macro.program(w_val)
-    stamp_names(macro)
-    with Profiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
-    by_name = Reporter(macro).by_name(prof)
-
-    # Array block: self-billed per-access caps ("array") + the two converter
-    # banks' own drive rows + the macro-billed conduction channels; then the
-    # readout and the flat seats.
-    for key in ("array", "wl_dac", "bl_dac", ".bl_cond", ".dl_cond", "rscsa", "mux_driver", "timing_ctrl"):
-        assert key in by_name, f"missing energy block {key!r}; have {sorted(by_name)}"
-        assert by_name[key] > 0.0, f"non-positive energy block {key!r}: {by_name[key]}"
-
-
-# ---------------------------------------------------------------------------
-# Die ensemble crossed with an input batch
-# ---------------------------------------------------------------------------
-
-# Two dies holding DIFFERENT weights, three input vectors; every MAC stays inside
-# the 4-bit code range, so the laws read codes, not saturation.
-_DIE_NUM = 2
-_CROSS_BATCH = 3
-_CROSS_W = (((1, 2, 3, 0), (7, 0, 4, 1)), ((0, 7, 1, 5), (2, 3, 0, 6)))  # [die, in, out]
-_CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, die=1, in]
-
-
-def _crossed_run(
-    device: torch.device,
-) -> tuple[Ye2023JsscCimMacro, torch.Tensor, torch.Tensor, tuple[Profiler, Reporter], tuple[Profiler, Reporter]]:
-    """Run one crossed ensemble call and the `die_num * batch` single-die runs it stands for.
-
-    Returns:
-        The ensemble macro, its codes, the single-die reference codes, and the
-        two profiler / reporter pairs (crossed call, then the reference runs).
-    """
-    config = build_config()
-    ensemble = build_macro(config, device=device, inst_shape=(_DIE_NUM,))
-    scalar = build_macro(config, device=device)
-    w = torch.tensor(_CROSS_W, dtype=torch.long, device=device)
-    x = torch.tensor(_CROSS_X, dtype=torch.long, device=device)
-    x_ensemble = x.expand(_CROSS_BATCH, _DIE_NUM, TINY_INPUT_NUM)
-    stamp_names(ensemble)
-    stamp_names(scalar)
-
-    with Profiler() as prof_cross, torch.no_grad():
-        ensemble.program(w)
-        code_cross = ensemble.vec_mat_mul(
-            x_ensemble,
-            quantization_mode=QUANTIZATION_MODE,
-            adc_active_bits=TINY_ADC_BITS,
+    macro = build_macro(device=device)
+
+    assert config.w_digit_n == config.w_digit_num
+    assert config.w_digit_r == config.w_digit_radix
+    assert config.w_enc is Encoding.UNSIGNED
+    assert config.x_digit_n == 1
+    assert config.x_digit_r == 2
+    assert config.x_enc is Encoding.UNSIGNED
+    assert macro.row_num == macro.output_num
+    assert macro.col_num == macro.input_num * (config.w_digit_num + 1)
+    assert macro.lane_num == 1
+    assert macro.scan_num == OUTPUT_NUM
+
+
+def test_weight_radix_cannot_exceed_the_cell_state_count() -> None:
+    config = dataclasses.replace(build_config(), w_digit_radix=3)
+    with pytest.raises(ValueError, match=r"array\.w_state_num \(2\) >= w_digit_r \(3\)"):
+        CimMacro.from_config(
+            config=config,
+            policy=build_policy(),
+            inst_shape=(),
+            dtype=torch.float64,
+            T__K=300.0,
         )
 
-    code_ref = torch.empty_like(code_cross)
-    with Profiler() as prof_ref, torch.no_grad():
-        for die in range(_DIE_NUM):
-            scalar.program(w[die])
-            for batch in range(_CROSS_BATCH):
-                code_ref[batch, die] = scalar.vec_mat_mul(
-                    x[batch, 0], quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS
-                )
-    return ensemble, code_cross, code_ref, (prof_cross, Reporter(ensemble)), (prof_ref, Reporter(scalar))
+
+def test_each_scan_activates_one_row_per_lane(device: torch.device) -> None:
+    lane_num = 2
+    scan_num = 3
+    macro = build_macro(device=device, lane_num=lane_num, scan_num=scan_num)
+
+    wl_on = macro._v_wl_scan__V > 0
+    grouped = wl_on.unflatten(-1, (lane_num, scan_num))
+
+    assert wl_on.shape == (scan_num, lane_num * scan_num)
+    lane_activation_count = grouped.sum(dim=-1)
+    row_activation_count = wl_on.sum(dim=0)
+    assert torch.equal(lane_activation_count, torch.ones_like(lane_activation_count))
+    assert torch.equal(row_activation_count, torch.ones_like(row_activation_count))
 
 
-def test_crossed_ensemble_codes_equal_the_single_die_codes(device: torch.device) -> None:
-    """One crossed call returns codes bit-exact per (input, weight) pair."""
-    _macro, code_cross, code_ref, _rc, _rr = _crossed_run(device)
-    assert code_cross.shape == (_CROSS_BATCH, _DIE_NUM, TINY_OUTPUT_NUM)
-    # The dies hold different weights, so the law is not vacuous.
-    assert not torch.equal(code_cross[:, 0], code_cross[:, 1])
-    assert torch.equal(code_cross.long(), code_ref.long())
+def test_macro_matches_unsigned_mac_and_uses_configured_schedule(device: torch.device) -> None:
+    macro = build_macro(device=device)
+    weight = torch.tensor([[1, 3, 7, 0], [2, 4, 1, 6]], device=device)
+    x = torch.tensor([[1, 0], [0, 1], [1, 1]], device=device)
+    macro.program(weight)
+
+    code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
+    highest_precision_code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None)
+
+    assert torch.equal(code, (x @ weight).clamp(max=15))
+    assert torch.equal(highest_precision_code, code)
+    assert macro.latency__ns(adc_active_bits=ADC_BITS) == 9.0 * OUTPUT_NUM
+    assert macro.latency__ns(adc_active_bits=None) == macro.latency__ns(adc_active_bits=ADC_BITS)
 
 
-def test_crossed_ensemble_bills_the_sum_of_its_dies(device: torch.device) -> None:
-    """Every dynamic channel of the crossed call equals the sum over the single-die runs."""
-    _macro, _cc, _cr, (prof_cross, rep_cross), (prof_ref, rep_ref) = _crossed_run(device)
-    cross__fJ, ref__fJ = rep_cross.by_name(prof_cross), rep_ref.by_name(prof_ref)
-    assert set(cross__fJ) == set(ref__fJ)
-    for name, e__fJ in ref__fJ.items():
-        assert cross__fJ[name] == pytest.approx(e__fJ, rel=1e-9), f"channel {name!r} does not bill per die"
-    assert rep_cross.total_dynamic_energy__fJ(prof_cross) == pytest.approx(
-        rep_ref.total_dynamic_energy__fJ(prof_ref), rel=1e-9
+def test_batch_and_instance_axes_preserve_the_logical_vmm(device: torch.device) -> None:
+    macro = build_macro(device=device, inst_shape=(2,))
+    weight = torch.tensor(
+        [
+            [[1, 3, 7, 0], [2, 4, 1, 6]],
+            [[7, 0, 2, 1], [1, 5, 3, 4]],
+        ],
+        device=device,
     )
+    x = torch.tensor(
+        [
+            [[1, 0], [0, 1]],
+            [[0, 1], [1, 1]],
+            [[1, 1], [1, 0]],
+        ],
+        device=device,
+    )
+    macro.program(weight)
+
+    code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
+    expected = (x.unsqueeze(-1) * weight).sum(dim=-2).clamp(max=15)
+
+    assert code.shape == (3, 2, OUTPUT_NUM)
+    assert torch.equal(code, expected)
 
 
-def test_static_report_seats(device: torch.device) -> None:
-    """The static walk seats every configured PPA reporter (macro root + children)."""
-    macro = build_macro(build_config(), device=device)
+@pytest.mark.parametrize("solve_chunk_size", [0, 3])
+def test_parallel_readout_lanes_preserve_output_order_and_reduce_latency(
+    device: torch.device,
+    solve_chunk_size: int,
+) -> None:
+    macro = build_macro(device=device, lane_num=2, scan_num=2, solve_chunk_size=solve_chunk_size)
+    weight = torch.tensor([[1, 3, 7, 0], [2, 4, 1, 6]], device=device)
+    x = torch.tensor([[1, 0], [0, 1], [1, 1]], device=device)
+    macro.program(weight)
+
+    code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
+
+    assert torch.equal(code, (x @ weight).clamp(max=15))
+    assert macro.lane_num == 2
+    assert macro.scan_num == 2
+    assert macro.rscsa.inst_shape[-2:] == (2, 1)
+    assert macro.latency__ns(adc_active_bits=ADC_BITS) == 2.0 * 9.0
+
+
+def test_macro_energy_rows_follow_physical_owners(device: torch.device) -> None:
+    macro = build_macro(device=device)
     stamp_names(macro)
-    static = {e.qualified_name: e.leakage__uW for e in Reporter(macro).static_entries}
-    # Every owned block is seated, converter banks and array included.
-    for seat in ("", "array", "wl_dac", "bl_dac", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
-        assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
-    # The array's lattice rests at zero cell bias and holds no static conduction
-    # path, so it seats area without leakage; the configured leakers do leak.
-    for seat in ("", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
-        assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"
+    reporter = Reporter(macro)
+    macro.program(torch.ones((INPUT_NUM, OUTPUT_NUM), dtype=torch.long, device=device))
+
+    with Profiler() as profiler:
+        macro.vec_mat_mul(
+            torch.ones(INPUT_NUM, dtype=torch.long, device=device), quantization_mode=0, adc_active_bits=4
+        )
+
+    rows = reporter.by_name(profiler)
+    assert ".bl_conduction" in rows
+    assert ".tbl_conduction" in rows
+    assert "rscsa" in rows

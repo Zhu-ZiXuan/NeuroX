@@ -50,13 +50,13 @@ def _twin_pair(
 ) -> tuple[Xue2020JsscCimMacro, list[Xue2020JsscCimMacro], Tensor]:
     """Build one serialized macro and its per-scan twins."""
     lane_num = output_num // scan_num
-    config = build_config(scan_num=scan_num)
-    grid = probe_i_sub_grid(build_macro(config, device=device, output_num=output_num), m_max=MAG_MAX)
+    config = build_config(lane_num=lane_num, scan_num=scan_num)
+    grid = probe_i_sub_grid(build_macro(config, device=device), m_max=MAG_MAX)
     levels = midpoint_refs(grid, adc_bits=TINY_ADC_BITS)
 
-    big = build_macro(with_ref_levels(config, levels), device=device, output_num=output_num)
-    twin_config = with_ref_levels(build_config(scan_num=1), levels)
-    twins = [build_macro(twin_config, device=device, output_num=lane_num) for _ in range(scan_num)]
+    big = build_macro(with_ref_levels(config, levels), device=device)
+    twin_config = with_ref_levels(build_config(lane_num=lane_num, scan_num=1), levels)
+    twins = [build_macro(twin_config, device=device) for _ in range(scan_num)]
 
     w = _mixed_weight(TINY_INPUT_NUM, output_num)
     big.program(w.to(device))
@@ -80,7 +80,7 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long, device=device)  # batch (2,)
 
     big_dcop = _solve_dcop(big, x)
-    lane_num = big.col_num // scan_num
+    lane_num = big.lane_num
     seat_axes = (lane_num, scan_num, _POLARITY_NUM, big.config.w_digit_num)
 
     for scan, twin in enumerate(twins):
@@ -135,19 +135,20 @@ def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch
     w_digit_num, scan_num, radix = 2, 2, 2
     config = build_config(
         w_digit_num=w_digit_num,
+        lane_num=TINY_OUTPUT_NUM // scan_num,
         scan_num=scan_num,
         w_digit_radix=radix,
     )
     macro = build_macro(config, device=device)
-    lane_num = macro.col_num // scan_num
+    lane_num = macro.output_num // scan_num
 
     w = torch.tensor([[1, -1, 2, -2], [2, -2, 1, -1], [3, 0, -3, 0], [0, 3, 0, -3]], dtype=torch.long)
-    assert tuple(w.shape) == (macro.row_num, macro.col_num)
+    assert tuple(w.shape) == (macro.input_num, macro.output_num)
 
     # Shape: [phys_col, row]
-    want_state = torch.zeros(macro.col_num * _POLARITY_NUM * w_digit_num, macro.row_num, dtype=torch.long)
-    for row in range(macro.row_num):
-        for col in range(macro.col_num):
+    want_state = torch.zeros(macro.col_num, macro.row_num, dtype=torch.long)
+    for row in range(macro.input_num):
+        for col in range(macro.output_num):
             value = int(w[row, col])
             lane, scan = divmod(col, scan_num)
             for w_digit in range(w_digit_num):
@@ -178,7 +179,10 @@ def test_array_cap_energy_independent_of_scan_num(device: torch.device) -> None:
     x = torch.tensor([1, 2, 1, 3], dtype=torch.long, device=device)
 
     def array_row(scan_num: int) -> float:
-        macro = build_macro(build_config(scan_num=scan_num), device=device)
+        macro = build_macro(
+            build_config(lane_num=TINY_OUTPUT_NUM // scan_num, scan_num=scan_num),
+            device=device,
+        )
         macro.program(w.to(device))
         with Profiler() as prof, torch.no_grad():
             macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
@@ -195,12 +199,15 @@ def test_array_cap_energy_independent_of_scan_num(device: torch.device) -> None:
 
 def test_true_shape_law(device: torch.device) -> None:
     for w_digit_num, scan_num in ((2, 2), (3, 2)):
-        config = build_config(w_digit_num=w_digit_num, scan_num=scan_num)
+        config = build_config(
+            w_digit_num=w_digit_num,
+            lane_num=TINY_OUTPUT_NUM // scan_num,
+            scan_num=scan_num,
+        )
         for inst in ((), (2,)):
             macro = build_macro(config, device=device, inst_shape=inst)
-            lane_num = macro.col_num // config.scan_num
+            lane_num = macro.lane_num
             for name, trailing in (
-                ("wl_dac", (1, macro.row_num)),
                 ("cablc", (1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
                 ("sl_driver", (1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
                 ("tmcsa", (lane_num, 1)),
@@ -213,6 +220,6 @@ def test_true_shape_law(device: torch.device) -> None:
             assert macro.array.cell.inst_shape == (
                 *inst,
                 1,
-                config.scan_num * lane_num * _POLARITY_NUM * config.w_digit_num,
+                macro.scan_num * lane_num * _POLARITY_NUM * config.w_digit_num,
                 macro.row_num,
             )

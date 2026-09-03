@@ -9,6 +9,10 @@ Economy, terminology, and punctuation for explanatory text in every medium: a do
 
 Follow these public conventions unless a rule here is stricter or a deviation is noted below.
 
+## Language
+
+Write project documentation, docstrings, inline comments, and other explanatory text in concise, precise English. Preserve established mathematical symbols and domain terms according to the notation and terminology rules below.
+
 ## Economy
 
 Assume the reader is fluent in the relevant math, physics, circuits, and programming fundamentals; do not explain basic concepts.

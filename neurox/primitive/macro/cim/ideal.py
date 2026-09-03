@@ -1,4 +1,4 @@
-"""Ideal CIM macro with calibrated output quantization.
+"""Ideal CIM macro with optional calibrated output quantization.
 
 See Also:
     docs/reference/primitive/macro/cim/ideal.md
@@ -10,6 +10,7 @@ import torch
 from torch import Tensor
 
 from neurox.common import stochastic_round
+from neurox.common.encoding import Encoding
 
 from .base import (
     CimMacro,
@@ -20,6 +21,18 @@ from .base import (
 
 
 class IdealCimMacroConfig(CimMacroConfig):
+    w_digit_num: int
+    """Weight digits in the physical twin."""
+    w_digit_radix: int
+    """Weight-digit radix in the physical twin."""
+    w_encoding: Encoding
+    """Weight encoding in the physical twin."""
+    x_digit_num: int
+    """Input digits in the physical twin."""
+    x_digit_radix: int
+    """Input-digit radix in the physical twin."""
+    x_encoding: Encoding
+    """Input encoding in the physical twin."""
     x_value_range: tuple[int, int]
     """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
@@ -28,6 +41,34 @@ class IdealCimMacroConfig(CimMacroConfig):
     """Maximum selectable virtual ADC resolution."""
     quantization_scheme: CimMacroQuantizationScheme
     """Macro output quantization scheme."""
+
+    @property
+    def w_digit_n(self) -> int:
+        return self.w_digit_num
+
+    @property
+    def w_digit_r(self) -> int:
+        return self.w_digit_radix
+
+    @property
+    def w_enc(self) -> Encoding:
+        return self.w_encoding
+
+    @property
+    def x_digit_n(self) -> int:
+        return self.x_digit_num
+
+    @property
+    def x_digit_r(self) -> int:
+        return self.x_digit_radix
+
+    @property
+    def x_enc(self) -> Encoding:
+        return self.x_encoding
+
+    @property
+    def quant_scheme(self) -> CimMacroQuantizationScheme:
+        return self.quantization_scheme
 
     def validate(self) -> None:
         super().validate()
@@ -50,7 +91,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 
 @CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)
 class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
-    """Ideal macro VMM with per-mode output quantization."""
+    """Ideal macro VMM whose highest precision is the exact integer result."""
 
     _w: Tensor  # Shape: [*inst_shape, input_num, output_num]
 
@@ -59,8 +100,6 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         *,
         config: IdealCimMacroConfig,
         policy: IdealCimMacroPolicy,
-        input_num: int,
-        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -68,29 +107,21 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         super().__init__(
             config=config,
             policy=policy,
-            input_num=input_num,
-            output_num=output_num,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
-        if config.max_active_num > input_num:
-            raise ValueError(f"require: max_active_num ({config.max_active_num}) <= input_num ({input_num})")
-        self.input_num = input_num
-        self.output_num = output_num
-
-        w_lo, w_hi = config.w_value_range
+        w_lo, w_hi = self.w_value_range
         max_w_abs = max(abs(w_lo), abs(w_hi))
-        x_lo, x_hi = config.x_value_range
+        x_lo, x_hi = self.x_value_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
         self._max_plane_dot_abs = config.max_active_num * max_w_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
 
-    def initiation_interval__ns(self, *, adc_active_bits: int) -> float:
-        """Zero — an arithmetic oracle occupies no execution interval."""
-        if adc_active_bits != 0:
-            self._check_adc_active_bits(adc_active_bits)
+    def latency__ns(self, *, adc_active_bits: int | None) -> float:
+        """Zero — an arithmetic oracle has no circuit latency."""
+        self._check_adc_active_bits(adc_active_bits)
         return 0.0
 
     @property
@@ -105,16 +136,17 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     def adc_bits(self) -> int:
         return self.config.adc_bits
 
-    @property
-    def _quantization_scheme(self) -> CimMacroQuantizationScheme:
-        return self.config.quantization_scheme
-
     def to_ideal(self) -> IdealCimMacro:
         """Return this already ideal macro."""
         return self
 
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int) -> float:
-        if adc_active_bits == 0:
+    def rescale_factor(
+        self,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> float:
+        if adc_active_bits is None:
             self._check_quantization_mode(quantization_mode)
             return 1.0
         return super().rescale_factor(
@@ -122,42 +154,19 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             adc_active_bits=adc_active_bits,
         )
 
-    def restore_adc_layout(self, value: Tensor) -> Tensor:
-        """Return the already-logical ideal output layout."""
-        return value
-
     def program(self, w: Tensor) -> None:
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
         self._w = w.detach().clone()
 
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
-        """Ideal per-plane VMM followed by one calibrated conversion.
-
-        Args:
-            x: Logical input tensor; at most `max_active_num` positions may
-                be selected.
-                Shape: `[..., input_num]`.
-            quantization_mode: Index selecting the full-resolution rescale factor.
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`, or `0`
-                to bypass the virtual ADC and return the exact integer result.
-
-        Returns:
-            Integer code tensor whose leading axes broadcast the input's against
-            `inst_shape`. At `adc_active_bits = 0`, returns the exact `int64`
-            plane dots. Otherwise, zero-point mapping returns a centered signed
-            code in `[-2^(b - 1), 2^(b - 1) - 1]`, while sign-magnitude mapping
-            returns a signed magnitude in `[-(2^b - 1), 2^b - 1]` for `b = adc_active_bits`.
-            Shape: `[..., output_num]`.
-
-        Raises:
-            ValueError: The mode index is outside the declared modes, or the
-                resolution is outside `[0, adc_bits]`.
-        """
-        self._check_quantization_mode(quantization_mode)
-        if adc_active_bits != 0:
-            self._check_adc_active_bits(adc_active_bits)
+    def _vec_mat_mul_impl(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         factor = self.config.rescale_factors[quantization_mode]
         w = self._w.to(torch.int64)
 
@@ -170,12 +179,13 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             # Shape: [..., input_num, output_num] -> [..., output_num]
             plane_dot = (w * x).sum(dim=-2)
 
-        if adc_active_bits == 0:
-            return plane_dot
-
-        if self._quantization_scheme is CimMacroQuantizationScheme.SIGN_MAGNITUDE:
-            return self._convert_sign_magnitude(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
-        return self._convert_zero_point(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
+        if adc_active_bits is None:
+            code = plane_dot
+        elif self.config.quant_scheme is CimMacroQuantizationScheme.SIGN_MAGNITUDE:
+            code = self._convert_sign_magnitude(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
+        else:
+            code = self._convert_zero_point(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
+        return code.reshape(*code.shape[:-1], self.lane_num, self.scan_num)
 
     def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
         code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)

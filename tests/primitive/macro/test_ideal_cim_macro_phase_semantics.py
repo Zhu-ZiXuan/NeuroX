@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import torch
 
+from neurox.common.encoding import Encoding
 from neurox.primitive.macro.cim import (
     CimMacroQuantizationScheme,
     IdealCimMacro,
@@ -29,10 +30,19 @@ def _make_macro(
     adc_bits: int,
 ) -> IdealCimMacro:
     config = IdealCimMacroConfig(
+        input_num=input_num,
         rescale_factors=rescale_factors,
         max_active_num=max_active_num,
+        lane_num=1,
+        scan_num=output_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
+        w_digit_num=2,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM,
+        x_digit_num=1,
+        x_digit_radix=2,
+        x_encoding=Encoding.UNSIGNED,
         x_value_range=(0, 1),
         w_value_range=(-3, 3),
         adc_bits=adc_bits,
@@ -41,8 +51,6 @@ def _make_macro(
     macro = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
-        input_num=input_num,
-        output_num=output_num,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -135,7 +143,7 @@ class TestPerPlaneClampVsWholeSum:
 
 
 class TestExactOracle:
-    """`adc_active_bits = 0` returns exact int64 plane dots."""
+    """An explicit highest-precision request returns exact int64 plane dots."""
 
     def test_plane_dots_exact_and_sum_to_full_dot(self) -> None:
         torch.manual_seed(11)
@@ -150,7 +158,7 @@ class TestExactOracle:
         _program_outputs(macro, w.tolist())
         x = torch.randint(0, 2, (3, 4), dtype=torch.int32)
         planes = _masked_planes(x, input_num=4, max_active_num=2)
-        y = macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=0)
+        y = macro.vec_mat_mul(planes, quantization_mode=0, adc_active_bits=None)
         assert y.dtype == torch.int64
         assert y.shape == (3, 2, 2)
         w64 = w.to(torch.int64)

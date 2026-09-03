@@ -293,12 +293,17 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int]:
-    """Resolve mode 0 by default and select the full ADC resolution."""
-    return (0 if quantization_mode is None else quantization_mode, macro.adc_bits or 0)
+def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int | None]:
+    """Resolve mode 0 and select the unit's highest available precision."""
+    return (0 if quantization_mode is None else quantization_mode, macro.adc_bits)
 
 
-def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_active_bits: int) -> float:
+def _mac_per_code(
+    macro: LinearUnit,
+    *,
+    quantization_mode: int,
+    adc_active_bits: int | None,
+) -> float:
     """Return the MAC units one final output code carries."""
     return macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 

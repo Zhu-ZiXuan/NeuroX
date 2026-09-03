@@ -21,6 +21,7 @@ from neurox.architecture.unit.cim.engine import (
 )
 from neurox.architecture.unit.conv2d import Conv2dUnit
 from neurox.architecture.unit.ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
+from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import (
     CimMacroQuantizationScheme,
@@ -38,19 +39,30 @@ _UNIT_POLICY = Conv2dCimUnitPolicy(
     ),
 )
 _QUANTIZATION_MODE = 0
-_ADC_BITS = 0
+_ADC_BITS = None
 
 
 def _ideal_macro_config(
     *,
+    input_num: int,
+    output_num: int,
     max_active_num: int,
     x_value_range: tuple[int, int] = (0, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
+        input_num=input_num,
         rescale_factors=(1.0,),
         max_active_num=max_active_num,
+        lane_num=1,
+        scan_num=output_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
+        w_digit_num=2,
+        w_digit_radix=2,
+        w_encoding=Encoding.TRUE_FORM,
+        x_digit_num=2,
+        x_digit_radix=2,
+        x_encoding=Encoding.UNSIGNED,
         x_value_range=x_value_range,
         w_value_range=(-3, 3),
         adc_bits=8,
@@ -82,9 +94,9 @@ def _unit_config(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         engine=CimEngineConfig(
-            input_num=input_num,
-            output_num=output_num,
             cim_macro_config=_ideal_macro_config(
+                input_num=input_num,
+                output_num=output_num,
                 max_active_num=input_num if max_active_num is None else max_active_num,
                 x_value_range=x_value_range,
             ),
@@ -409,7 +421,7 @@ def test_unbatched_input_matches_batch_of_one() -> None:
     for candidate in units:
         candidate.program(weight, bias)
         _assert_unbatched_matches_batch_of_one(candidate, x)
-    assert unit.initiation_interval__ns((2, 7, 9), adc_active_bits=_ADC_BITS) == unit.initiation_interval__ns(
+    assert unit.latency__ns((2, 7, 9), adc_active_bits=_ADC_BITS) == unit.latency__ns(
         (1, 2, 7, 9), adc_active_bits=_ADC_BITS
     )
 

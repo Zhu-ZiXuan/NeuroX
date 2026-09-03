@@ -51,10 +51,10 @@ from ._common import (
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
-    active_rows: int
-    """Simultaneously active word lines per serialized sub-phase plane,
-    `1 <= active_rows <= row_num`. The macro's `max_active_num` gives the
-    production-faithful operating point and `row_num` the conservative
+    active_inputs: int
+    """Simultaneously active logical inputs per serialized sub-phase plane,
+    `1 <= active_inputs <= input_num`. The macro's `max_active_num` gives the
+    production-faithful operating point and `input_num` the conservative
     single-plane envelope; any in-range value is legal, and the choice is never
     defaulted in code."""
     weight_samples: int
@@ -207,17 +207,16 @@ def main(argv: list[str] | None = None) -> int:
     sampling_host = build_calibration_macro(
         base_config,
         policy,
-        input_num=cfg.macro.input_num,
-        output_num=cfg.macro.output_num,
         device=device,
         inst_shape=inst_shape,
         dtype=dtype,
     )
 
-    active_rows = cfg.workload.active_rows
-    if not (1 <= active_rows <= cfg.macro.input_num):
+    active_inputs = cfg.workload.active_inputs
+    if not (1 <= active_inputs <= sampling_host.input_num):
         raise SystemExit(
-            f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num ({cfg.macro.input_num})."
+            f"[workload].active_inputs ({active_inputs}) must satisfy "
+            f"1 <= active_inputs <= input_num ({sampling_host.input_num})."
         )
 
     distribution = cfg.workload.distribution
@@ -226,13 +225,13 @@ def main(argv: list[str] | None = None) -> int:
     log.info("=" * 80)
     log.info("Parallel BL/SL solver — step-ratio plateau calibration (2-axis staged)")
     log.info(
-        "workload: inst=%s, %d weights x %d inputs (batch_w=%d), active_rows=%d of row_num=%d",
+        "workload: inst=%s, %d weights x %d inputs (batch_w=%d), active_inputs=%d of input_num=%d",
         inst_shape,
         cfg.workload.weight_samples,
         cfg.workload.input_samples_per_weight,
         cfg.workload.batch_w,
-        active_rows,
-        cfg.macro.input_num,
+        active_inputs,
+        sampling_host.input_num,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, outer_margin=%d, inner_margin=%d",
@@ -248,11 +247,9 @@ def main(argv: list[str] | None = None) -> int:
         solver_section=cfg.macro.solver_section,
         policy=policy,
         sampling_host=sampling_host,
-        input_num=cfg.macro.input_num,
-        output_num=cfg.macro.output_num,
         inst_shape=inst_shape,
         dtype=dtype,
-        active_rows=active_rows,
+        active_inputs=active_inputs,
         n_weight=cfg.workload.weight_samples,
         n_input_per_weight=cfg.workload.input_samples_per_weight,
         batch_w=cfg.workload.batch_w,

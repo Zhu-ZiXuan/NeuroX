@@ -17,9 +17,9 @@ class ComplementTranscoder(Transcoder):
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        radix = self._radix
+        radix = self.radix
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_count):
+        for _ in range(self.digit_count):
             rem = x % radix
             x = x // radix
             all_digits.append(rem)
@@ -31,8 +31,8 @@ class ComplementTranscoder(Transcoder):
     @property
     def value_range(self) -> tuple[int, int]:
         """Asymmetric envelope `[-floor(r/2)·r^(D - 1), ceil(r/2)·r^(D - 1) - 1]`."""
-        r = self._radix
-        top = r ** (self._digit_count - 1)
+        r = self.radix
+        top = r ** (self.digit_count - 1)
         lo = -(r // 2) * top
         hi = ((r + 1) // 2) * top - 1
         return lo, hi

@@ -5,33 +5,59 @@
 PYTHON ?= python
 
 
+# --- Help Info ---
+
 .DEFAULT_GOAL := help
+.PHONY: help
+help: ## Show this help message
+	@echo "Usage: make <target>"
+	@awk 'BEGIN {FS = ": .*## "; i = 0; max_len = 0; file = ""} \
+		/^[a-zA-Z0-9_-]+:.*?## / { \
+			targets[i] = $$1; help_msgs[i] = $$2; files[i] = FILENAME; len = length($$1); \
+			if (len > max_len) max_len = len; \
+			i++; \
+		} END { \
+			for (j = 0; j < i; j++) { \
+				if (files[j] != file) { file = files[j]; printf "\n\033[33m%s:\033[0m\n", file; } \
+				printf "  \033[36m%-" max_len "s\033[0m %s\n", targets[j], help_msgs[j]; \
+			} \
+		}' $(MAKEFILE_LIST)
 
 
-# --- develop ---
+# --- Develop Tools ---
 
-RUFF_TARGET_DIR := neurox example validations tests
+RUFF_TARGET_DIRS := neurox example validations tests
 
 .PHONY: format
-format: ## Run `ruff` formatter with auto fix
-	uv run ruff format $(RUFF_TARGET_DIR)
-	uv run ruff check $(RUFF_TARGET_DIR) --fix-only
+format: ## Run `ruff` formatting with auto fix
+	uv run ruff format $(RUFF_TARGET_DIRS)
+	uv run ruff check --fix-only $(RUFF_TARGET_DIRS)
 
 .PHONY: lint
-lint: ## Run `ruff` linter
-	uv run ruff check $(RUFF_TARGET_DIR) 2>&1 | tee ruff_report.log
+lint: ## Run `ruff` linting
+	uv run ruff check $(RUFF_TARGET_DIRS) | tee ruff_report.log
 
-MYPY_TARGET_DIR := neurox
+MYPY_TARGET_DIRS := neurox
 
 .PHONY: check
-check: ## Run `mypy` static analysis
-	uv run mypy $(MYPY_TARGET_DIR) 2>&1 | tee mypy_report.log
+check: ## Run `mypy`
+	uv run mypy $(MYPY_TARGET_DIRS) | tee mypy_report.log
 
-PYTEST_DIRS ?= tests
+PYTEST_TARGET_DIRS ?= tests
 
 .PHONY: test
-test: ## Run pytest
-	uv run pytest $(PYTEST_DIRS)
+test: ## Run `pytest`
+	uv run pytest $(PYTEST_TARGET_DIRS)
+
+.PHONY: docs
+docs: ## Run `mkdocs`
+	uv run mkdocs build --strict
+
+.PHONY: clean
+clean: ## Clean up cache and temporary files
+	rm -rf .*_cache *.log site .coverage htmlcov
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type d -name "*.egg-info" -exec rm -rf {} +
 
 
 # --- Examples ---
@@ -132,47 +158,8 @@ eval-bert: ## Evaluate a BERT-small QAT checkpoint on SST-2
 
 .PHONY: validate_xue2020jssc
 validate_xue2020jssc: ## Run the xue2020jssc SINWP 1T1R CIM sub-array validation campaign
-	TORCH_COMPILE_DISABLE=1 uv run --extra calib python validations/xue2020jssc/validate.py
+	uv run python validations/xue2020jssc/validate.py
 
 .PHONY: validate_ye2023jssc
 validate_ye2023jssc: ## Run the ye2023jssc WH-2T1R CIM macro validation campaign
-	TORCH_COMPILE_DISABLE=1 uv run python validations/ye2023jssc/validate.py
-
-
-# --- Documentation ---
-
-.PHONY: docs-serve
-docs-serve: ## Serve documentation locally
-	mkdocs serve
-
-.PHONY: docs-build
-docs-build: ## Build documentation site
-	mkdocs build --strict
-
-
-# --- Cleaning ---
-
-.PHONY: clean
-clean: ## Clean up cache and temporary files
-	rm -rf .*_cache *.log site .coverage htmlcov
-# 	rm -rf ~/.triton/cache /tmp/torchinductor_*
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type d -name "*.egg-info" -exec rm -rf {} +
-
-
-# --- Help Info ---
-
-.PHONY: help
-help: ## Show this help message
-	@echo "Usage: make <target>"
-	@awk 'BEGIN {FS = ": .*## "; i = 0; max_len = 0; file = ""} \
-		/^[a-zA-Z0-9_-]+:.*?## / { \
-			targets[i] = $$1; help_msgs[i] = $$2; files[i] = FILENAME; len = length($$1); \
-			if (len > max_len) max_len = len; \
-			i++; \
-		} END { \
-			for (j = 0; j < i; j++) { \
-				if (files[j] != file) { file = files[j]; printf "\n\033[33m%s:\033[0m\n", file; } \
-				printf "  \033[36m%-" max_len "s\033[0m %s\n", targets[j], help_msgs[j]; \
-			} \
-		}' $(MAKEFILE_LIST)
+	uv run python validations/ye2023jssc/validate.py

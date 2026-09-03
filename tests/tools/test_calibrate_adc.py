@@ -43,20 +43,29 @@ class _PhysicalMacro(Module):
         super().__init__()
         self.register_buffer("anchor", torch.empty(()))
 
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def vec_mat_mul(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         assert quantization_mode == 0
-        assert adc_active_bits == self.adc_bits
-        AdcProber.submit(IadcRecord(i_in__uA=x.transpose(0, 1)))
+        assert adc_active_bits is None
+        AdcProber.submit(IadcRecord(i_in__uA=x.unsqueeze(-2)))
         return x
-
-    def restore_adc_layout(self, value: Tensor) -> Tensor:
-        return value.transpose(0, 1)
 
 
 class _IdealMacro:
-    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_active_bits: int) -> Tensor:
+    def vec_mat_mul(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         assert quantization_mode == 0
-        assert adc_active_bits == 0
+        assert adc_active_bits is None
         return x.to(torch.int64)
 
 
@@ -181,7 +190,7 @@ def test_target_stimulus_sampling_preserves_the_conditioned_input_distribution()
     assert all_zero_fraction == pytest.approx(2.0 / 3.0, abs=0.02)
 
 
-def test_paired_run_uses_one_layout_restore_for_probe_and_code_positions() -> None:
+def test_paired_run_flattens_the_canonical_adc_layout() -> None:
     x = torch.tensor(((1, 2, 3), (4, 5, 6)), dtype=torch.int64)
     name, input_value, ideal_value = _run_paired(
         _PhysicalMacro(),

@@ -20,9 +20,9 @@ class TrueFormTranscoder(Transcoder):
         sign = x.sign()
         x = x.abs()
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_count):
-            rem = x % self._radix
-            x = x // self._radix
+        for _ in range(self.digit_count):
+            rem = x % self.radix
+            x = x // self.radix
             all_digits.append(rem * sign)
         # Shape: [...] -> [..., digit_count, ...]
         return torch.stack(all_digits, dim=dim)
@@ -30,5 +30,5 @@ class TrueFormTranscoder(Transcoder):
     @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope `[-(r^D - 1), r^D - 1]`."""
-        n_max = self._radix**self._digit_count - 1
+        n_max = self.radix**self.digit_count - 1
         return -n_max, n_max

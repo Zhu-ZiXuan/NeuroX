@@ -20,17 +20,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MacroSection(ValidateMixin):
-    input_num: int
-    output_num: int
     config_files: tuple[Path, ...]
     config_section: str
     policy_file: Path
     policy_section: str
 
     def __post_init__(self) -> None:
-        self._require_pos(self.input_num, "[macro].input_num")
-        self._require_pos(self.output_num, "[macro].output_num")
         self._require_non_empty(self.config_files, "[macro].config_files")
+
+
+def load_macro_config(section: MacroSection, *, base: Path) -> CimMacroConfig:
+    """Load the macro config that owns the physical port geometry."""
+    config_paths = [resolve_relative_path(file, base) for file in section.config_files]
+    return CimMacroConfig.from_file(*config_paths, section=section.config_section)
 
 
 def build_physical_macro(
@@ -43,13 +45,11 @@ def build_physical_macro(
     """Build, fabricate, and eval-freeze the configured physical macro."""
     config_paths = [resolve_relative_path(file, base) for file in section.config_files]
     policy_path = resolve_relative_path(section.policy_file, base)
-    config = CimMacroConfig.from_file(*config_paths, section=section.config_section)
+    config = load_macro_config(section, base=base)
     policy = CimMacroPolicy.from_file(policy_path, section=section.policy_section)
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
-        input_num=section.input_num,
-        output_num=section.output_num,
         inst_shape=inst_shape,
         dtype=torch.float32,
         T__K=T_ROOM__K,

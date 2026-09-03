@@ -16,9 +16,9 @@ class CanonicalTranscoder(Transcoder):
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        radix = self._radix
+        radix = self.radix
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_count):
+        for _ in range(self.digit_count):
             rem = x % radix
             x = x // radix
             mod = x % radix
@@ -34,5 +34,5 @@ class CanonicalTranscoder(Transcoder):
     @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope `[-M, M]`, `M = Σ_j (r - 1)·r^(D - 1 - 2j)` over `j in {0, ..., ceil(D/2) - 1}`."""
-        max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_count - 1, -1, -2))
+        max_abs = sum((self.radix - 1) * (self.radix**power) for power in range(self.digit_count - 1, -1, -2))
         return -max_abs, max_abs

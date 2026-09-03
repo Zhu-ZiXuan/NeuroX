@@ -2,6 +2,8 @@
 
 The single home of the naming law — whether a name carries its family qualifier or drops it, for a class name, a code or doc file, and a document title.
 
+Identifiers and filenames use concise English words and established ASCII domain abbreviations. Reuse the code name assigned to a scientific quantity by [notation conventions](notation_conventions.md); do not translate one concept into multiple synonymous names.
+
 One identity names an object across code and documentation. A name read in isolation is self-identifying and carries the full identity, family included; a name read inside its package or directory is package-relative and drops the qualifier the enclosing name already supplies. A class name and a document title are self-identifying; a code module file is package-relative. With no enclosing family the two coincide.
 
 Every documentation file is named in snake_case.
@@ -17,6 +19,16 @@ A family that occupies its own package places its root base in `base.py`, and th
 ## Parallel bases qualified by topology
 
 When one family splits into sibling abstract bases that are parallel — neither wraps nor specializes the other, and each stands alone against the same interface — an intrinsic distinguishing property qualifies each base name, so the name identifies its variant read in isolation. The qualifier names a structural or domain property fixed by the topology, such as the input's single-ended versus differential form, never a parameter value a config could carry. Parallel sibling bases share the family word and differ only by that qualifier prefix.
+
+## Domain qualifiers
+
+A domain qualifier is determined by the scope in which a name must remain unambiguous. Inside a module devoted to one domain, omit a qualifier that merely repeats that domain. In an outer scope that handles several domains, retain the qualifier that distinguishes otherwise ambiguous values. Moving a name across that boundary may therefore add or remove the qualifier without changing the concept it names.
+
+## Python symbol prefixes
+
+A single leading underscore marks a non-public, library-internal symbol. Use by a subclass, an internal collaborator, or a test does not promote that symbol to the supported interface. A bare name marks a supported interaction surface; whether its audience is a library user or an extension author follows the owning User API or Extension SPI contract.
+
+A double leading underscore is reserved for the rare case where a broadly inherited base deliberately uses Python name mangling to prevent an accidental subclass collision. It is not a stronger privacy marker than a single leading underscore.
 
 A code module file carries a leading underscore when it is private to its package — when it is the code file of no self-identifying type and nothing outside its own package subtree depends on it. A package subtree is a module's directory together with that directory's subpackages; a sibling package or an ancestor's other branch lies outside it. A module that is the code file of a self-identifying type, or whose helpers are used by code outside its subtree, is named bare. Tests and scripts may reach a private module directly; such use does not make it public. A leading underscore always carries this privacy meaning; a source-file name that would otherwise begin with a digit takes a meaningful alphabetic prefix instead. (Machine-checked.)
 
