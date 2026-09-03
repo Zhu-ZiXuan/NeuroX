@@ -278,7 +278,9 @@ def test_weight_and_input_slice_stages_compose_independently(
     x_policy: XSliceStagePolicy,
 ) -> None:
     torch.manual_seed(2)
-    n, k, m = 17, 19, 5
+    n = 17
+    k = 19
+    m = 5
     config = CimEngineConfig(
         cim_macro_config=_ideal_macro_config(max_active_num=3),
         placement=_placement_config(),
@@ -382,7 +384,9 @@ def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEng
     input_num=8, max_active_num=2, K=3 gives two, not ceil(8/2)=4.
     """
     torch.manual_seed(3)
-    n, k, m = 4, 3, 3  # k < input_num: one short block leaves input positions unused
+    n = 4
+    k = 3  # k < input_num: one short block leaves input positions unused
+    m = 3
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
     assert engine.input_activation._input_phase_num == 2
     assert engine.input_activation._active_input_mask.shape == (2, 3)
@@ -394,7 +398,9 @@ def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEng
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_engine_matmul_parity_with_input_phases(build: Callable[..., CimEngine]) -> None:
     torch.manual_seed(7)
-    n, k, m = 5, 10, 3  # k > input_num exercises Tc tiling alongside P
+    n = 5
+    k = 10  # k > input_num exercises Tc tiling alongside P
+    m = 3
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
     assert engine.input_activation._input_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
@@ -406,7 +412,9 @@ def test_engine_matmul_parity_with_input_phases(build: Callable[..., CimEngine])
 def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> None:
     """Non-divisible geometry still equals the oracle: P from a ceiling division covers every input, row 9 included."""
     torch.manual_seed(9)
-    n, k, m = 5, 10, 3  # k == input_num: all 10 positions carry real weight
+    n = 5
+    k = 10  # k == input_num: all 10 positions carry real weight
+    m = 3
     engine = build(w_logical_shape=(n, k), input_num=10, max_active_num=3)
     assert engine.input_activation._input_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
@@ -421,7 +429,9 @@ def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> 
 def test_balanced_block_packing_matches_torch(build: Callable[..., CimEngine]) -> None:
     """Five or ten logical output blocks are balanced over physical macros."""
     torch.manual_seed(13)
-    n, k, m = 40, 3, 5
+    n = 40
+    k = 3
+    m = 5
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
     assert engine.placement.plan.block_group_capacity == 2
     assert engine.placement.plan.block_slot_num == 2
@@ -507,7 +517,8 @@ def _phased(engine: CimEngine, activation: torch.Tensor) -> torch.Tensor:
 
 def test_caller_prefix_stays_leftmost() -> None:
     torch.manual_seed(11)
-    n, k = 40, 3
+    n = 40
+    k = 3
     engine = _build_direct(w_logical_shape=(n, k), input_num=8, max_active_num=2)
     engine.program(_randint_in_range(engine.w_value_range, (n, k)))
     activation = _randint_in_range(engine.x_value_range, (*_ACTIVATION_BATCH, _M, k))

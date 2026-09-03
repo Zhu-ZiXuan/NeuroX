@@ -242,7 +242,8 @@ def test_distinct_channels_on_one_module_stay_separate_rows() -> None:
 
 def test_a_record_named_outside_the_bound_models_walk_is_an_error() -> None:
     """A name the walk never produced is refused, not synthesized."""
-    inside, outside = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
+    inside = _Leaf(energy__fJ=4.0)
+    outside = _Leaf(energy__fJ=7.0)
     owner = _Owner(inside)
     stamp_names(owner)
     stamp_names(_Elsewhere(outside))  # named by a tree of its own
@@ -268,7 +269,8 @@ def test_a_record_of_a_module_the_model_has_since_dropped_is_an_error() -> None:
 
 def test_the_same_records_report_cleanly_against_a_model_that_holds_them() -> None:
     """Subtree reporting is a choice of model, not a relabeling of what is missed."""
-    inside, outside = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
+    inside = _Leaf(energy__fJ=4.0)
+    outside = _Leaf(energy__fJ=7.0)
     owner = _Owner(inside)
     owner.other = outside
     stamp_names(owner)
@@ -315,7 +317,8 @@ def test_records_sharing_a_row_name_add_up() -> None:
 
 
 def test_dynamic_entries_merge_by_path_and_lead_with_the_largest() -> None:
-    small, large = _Leaf(energy__fJ=1.0), _Other(energy__fJ=5.0)
+    small = _Leaf(energy__fJ=1.0)
+    large = _Other(energy__fJ=5.0)
     owner = _Owner(small)
     owner.other = large
     stamp_names(owner)
@@ -330,7 +333,8 @@ def test_dynamic_entries_merge_by_path_and_lead_with_the_largest() -> None:
 
 def test_by_group_folds_the_mapped_rows_into_one_figure_each() -> None:
     """The caller states what belongs together; a channel row is a row like any other."""
-    leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
+    leaf = _Leaf(energy__fJ=4.0)
+    other = _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
     stamp_names(owner)
@@ -343,7 +347,8 @@ def test_by_group_folds_the_mapped_rows_into_one_figure_each() -> None:
 
 
 def test_by_group_orders_labels_by_first_contribution() -> None:
-    leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
+    leaf = _Leaf(energy__fJ=4.0)
+    other = _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
     stamp_names(owner)
@@ -356,7 +361,8 @@ def test_by_group_orders_labels_by_first_contribution() -> None:
 
 
 def test_a_measured_row_the_grouping_misses_is_an_error() -> None:
-    leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
+    leaf = _Leaf(energy__fJ=4.0)
+    other = _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
     stamp_names(owner)
@@ -380,7 +386,8 @@ def test_a_grouped_row_no_record_used_contributes_nothing() -> None:
 
 
 def test_every_view_totals_the_same_measurement() -> None:
-    leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
+    leaf = _Leaf(energy__fJ=4.0)
+    other = _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
     stamp_names(owner)

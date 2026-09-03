@@ -24,7 +24,7 @@ class TrueFormTranscoder(Transcoder):
             rem = x % self.radix
             x = x // self.radix
             all_digits.append(rem * sign)
-        # Shape: [...] -> [..., digit_count, ...]
+        # Shape: [...] -> [..., digit, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

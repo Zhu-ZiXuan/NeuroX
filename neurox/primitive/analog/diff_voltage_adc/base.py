@@ -152,7 +152,7 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
             v_refs__V: Injected reference taps, with the taps on the last axis.
                 The tap count `n_ref` is the concrete converter's circuit
                 property, not a base-level contract.
-                Shape: `[..., n_ref]`.
+                Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:

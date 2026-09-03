@@ -190,7 +190,9 @@ def test_linear_matches_int64_cpu_oracle_on_device(
 def test_linear_lowering_matches_int64_cpu_oracle() -> None:
     """The protected lowering template is the bias-free integer product."""
     torch.manual_seed(300)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
@@ -203,7 +205,8 @@ def test_linear_lowering_matches_int64_cpu_oracle() -> None:
 def test_linear_multi_phase_exact_matches_oracle() -> None:
     """P = 4: exact per-phase partials reduce to the exact product."""
     torch.manual_seed(400)
-    n, k = 13, 20
+    n = 13
+    k = 20
     config = _unit_config(cim_macro_config=_ideal_macro_config(max_active_num=4))
     unit = _build_unit(config, w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
@@ -215,7 +218,8 @@ def test_linear_multi_phase_exact_matches_oracle() -> None:
 
 def test_linear_accepts_single_vector_input() -> None:
     torch.manual_seed(500)
-    n, k = 13, 20
+    n = 13
+    k = 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((k,))
@@ -231,7 +235,10 @@ def test_linear_accepts_single_vector_input() -> None:
 def test_linear_leading_time_axis_transparency() -> None:
     """A caller-owned leading time axis is a pure broadcast dim: the batched call equals the per-plane calls stacked."""
     torch.manual_seed(600)
-    n, k, t, b = 13, 20, 16, 3
+    n = 13
+    k = 20
+    t = 16
+    b = 3
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((t, b, k))
@@ -251,7 +258,9 @@ def test_linear_leading_time_axis_transparency() -> None:
 
 def test_linear_program_with_integer_bias_adds_exactly() -> None:
     torch.manual_seed(650)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     bias = torch.randint(-7, 8, (n,), dtype=torch.int32)
@@ -264,7 +273,9 @@ def test_linear_program_with_integer_bias_adds_exactly() -> None:
 
 def test_linear_reprogram_without_bias_clears_slot() -> None:
     torch.manual_seed(660)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
@@ -277,7 +288,9 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
 def test_linear_lowering_never_includes_bias() -> None:
     """The bias is added only by `linear`, after the lowering template."""
     torch.manual_seed(670)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
@@ -288,7 +301,8 @@ def test_linear_lowering_never_includes_bias() -> None:
 
 
 def test_linear_program_rejects_float_bias() -> None:
-    n, k = 13, 20
+    n = 13
+    k = 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     with pytest.raises(TypeError, match="integer bias dtype"):
@@ -296,14 +310,16 @@ def test_linear_program_rejects_float_bias() -> None:
 
 
 def test_linear_cim_rejects_float_weight() -> None:
-    n, k = 13, 20
+    n = 13
+    k = 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     with pytest.raises(TypeError, match="integer weight tensor"):
         unit.program(torch.zeros((n, k), dtype=torch.float32))
 
 
 def test_linear_cim_rejects_float_input() -> None:
-    n, k = 13, 20
+    n = 13
+    k = 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     unit.program(_random_weight(unit, (n, k)))
     with pytest.raises(TypeError, match="integer input tensor"):
@@ -313,7 +329,8 @@ def test_linear_cim_rejects_float_input() -> None:
 
 
 def test_linear_program_rejects_wrong_shape_bias() -> None:
-    n, k = 13, 20
+    n = 13
+    k = 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     with pytest.raises(ValueError, match=r"bias\.shape"):
@@ -326,7 +343,9 @@ def test_linear_program_rejects_wrong_shape_bias() -> None:
 def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
     """The phase accumulator bills one operation per arriving per-phase code: P=2 logs twice the energy of P=1."""
     torch.manual_seed(700)
-    n, k, m = 8, 16, 5
+    n = 8
+    k = 16
+    m = 5
     energies: dict[int, float] = {}
     for max_active_num in (16, 8):  # P = 1, P = 2
         config = _unit_config(

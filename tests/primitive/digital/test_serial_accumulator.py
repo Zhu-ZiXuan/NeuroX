@@ -51,7 +51,8 @@ def _build_plain(inst_shape: tuple[int, ...]) -> Accumulator:
 
 def _build_pair(inst_shape: tuple[int, ...]) -> tuple[SerialAccumulator, Accumulator]:
     """Bind both accumulators in one tree, so one walk names their rows apart."""
-    serial, plain = _build_serial(inst_shape), _build_plain(inst_shape)
+    serial = _build_serial(inst_shape)
+    plain = _build_plain(inst_shape)
     pair = nn.Module()
     pair.serial = serial
     pair.plain = plain

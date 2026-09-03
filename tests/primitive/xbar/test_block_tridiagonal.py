@@ -75,9 +75,9 @@ def test_block_size_1_matches_scalar_thomas(device: torch.device) -> None:
 
     x_scalar = solve_tridiagonal(sub_s, diag_s, sup_s, rhs_s, dim=0)
     x_block = solve_block_tridiagonal(
-        sub_s.unsqueeze(-1).unsqueeze(-1),
-        diag_s.unsqueeze(-1).unsqueeze(-1),
-        sup_s.unsqueeze(-1).unsqueeze(-1),
+        sub_s.view(block_num, 1, 1),
+        diag_s.view(block_num, 1, 1),
+        sup_s.view(block_num, 1, 1),
         rhs_s.unsqueeze(-1),
     ).squeeze(-1)
 
@@ -108,7 +108,8 @@ def test_block_solve_matches_dense(block_size: int, block_num: int, device: torc
 
 def test_batched_block_solve(device: torch.device) -> None:
     """Leading batch dims pass through; per-batch result matches dense."""
-    block_num, block_size = 8, 3
+    block_num = 8
+    block_size = 3
     batch_shape = (4, 7)
     g = torch.Generator(device=device).manual_seed(1234)
     diag = (
@@ -139,7 +140,8 @@ def test_batched_block_solve(device: torch.device) -> None:
 
 def test_zero_off_diagonals_reduce_to_block_diag(device: torch.device) -> None:
     """Sub/sup all zero → solution is per-block independent solve."""
-    block_num, block_size = 5, 2
+    block_num = 5
+    block_size = 2
     g = torch.Generator(device=device).manual_seed(7)
     diag = (
         torch.eye(block_size, dtype=torch.float64, device=device) * 2

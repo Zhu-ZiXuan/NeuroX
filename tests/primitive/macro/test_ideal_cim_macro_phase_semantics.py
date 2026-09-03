@@ -61,7 +61,7 @@ def _make_macro(
 
 def _program_outputs(macro: IdealCimMacro, outputs: list[list[int]]) -> None:
     """Program output-major fixture values through the logical matrix API."""
-    # Shape: [output_num, input_num] -> [input_num, output_num]
+    # Shape: [output, input] -> [input, output]
     w = torch.tensor(outputs, dtype=torch.int32).transpose(-1, -2)
     macro.program(w)
 
@@ -70,7 +70,7 @@ def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> t
     """Zero-masked WL planes via the engine mask formula."""
     p_num = input_num // max_active_num
     mask = torch.arange(input_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
-    # Shape: [..., input_num] -> [..., P, input_num]
+    # Shape: [..., input] -> [..., P, input]
     return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
 

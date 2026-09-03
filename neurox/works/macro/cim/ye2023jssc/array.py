@@ -51,7 +51,8 @@ class Ye2023Jssc2t1rArrayPolicy(XbarArray1t1rPolicy):
 
 class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
     i_tbl_by_row__uA: Tensor
-    """Selected TBL current at each physical row. Shape: `[..., row]`."""
+    """Selected TBL current at each physical row.
+    Shape: `[..., row]`."""
 
 
 class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArrayPolicy]):
@@ -154,8 +155,8 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
             self._t2_gate_c_by_col__fF.unsqueeze(-1),
             solver_dcop.cell.v_x__V - bl_driver_snap.v_ref__V.unsqueeze(-1),
         ).sum(dim=(-2, -1))
-        # Shape: [..., col, row] -> [..., row] -> [...]
-        active_tbl_num = self.cell.is_wl_on(cell_snap).select(-2, 0).sum(dim=-1)
+        # Shape: [..., col, row] -> [...]
+        active_tbl_num = self.cell.is_wl_on(cell_snap)[..., 0, :].sum(dim=-1)
         # Shape: [...]
         tbl_energy__fJ = active_tbl_num.to(t2_gate_energy__fJ.dtype) * self._cap_energy_per_active_tbl__fJ
         return array_energy__fJ + t2_gate_energy__fJ + tbl_energy__fJ
@@ -195,7 +196,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
         # Shape: [..., col, row] -> [..., row]
         i_tbl_by_row__uA = i_t2__uA.sum(dim=-2)
         # Shape: [..., row]
-        i_tbl_by_row__uA = i_tbl_by_row__uA.where(self.cell.is_wl_on(cell_snap).select(-2, 0), 0.0)
+        i_tbl_by_row__uA = i_tbl_by_row__uA.where(self.cell.is_wl_on(cell_snap)[..., 0, :], 0.0)
 
         state = base_projection.steady_state
         return XbarArray1t1rSolveProjection(

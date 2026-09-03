@@ -43,7 +43,7 @@ class TestUnrollSubPhaseLaw:
         """Return the per-plane boolean active mask."""
         x = torch.ones((1, input_num), dtype=torch.long)
         out = unroll_sub_phase(x, input_num=input_num, active_inputs=active_inputs, inst_shape=())
-        # Shape: [1, P, input_num] -> [P, input_num]
+        # Shape: [batch=1, P, input] -> [P, input]
         return out[0].bool()
 
     @pytest.mark.parametrize(("input_num", "active_inputs"), [(12, 4), (12, 3), (10, 4), (16, 5)])
@@ -52,10 +52,10 @@ class TestUnrollSubPhaseLaw:
         mask = self._planes_active_mask(input_num=input_num, active_inputs=active_inputs)
         n_planes = mask.shape[0]
         assert n_planes == -(-input_num // active_inputs)
-        # Shape: [P, input_num] -> [P]
+        # Shape: [P, input] -> [P]
         inputs_per_plane = mask.sum(dim=-1)
         assert int(inputs_per_plane.max().item()) <= active_inputs
-        # Shape: [P, input_num] -> [input_num]
+        # Shape: [P, input] -> [input]
         planes_per_input = mask.long().sum(dim=0)
         assert int(planes_per_input.max().item()) == 1
         assert bool((planes_per_input == 1).all().item())
@@ -70,7 +70,7 @@ class TestUnrollSubPhaseLaw:
         """The unroll inserts the P axis + inst-span size-1 slots left of input."""
         x = torch.ones((2, 8), dtype=torch.long)
         out = unroll_sub_phase(x, input_num=8, active_inputs=4, inst_shape=(1,))
-        # Shape: [..., P, *inst_shape=1, input_num]
+        # Shape: [..., P, *inst_shape=1, input]
         assert tuple(out.shape) == (2, 2, 1, 8)
 
 

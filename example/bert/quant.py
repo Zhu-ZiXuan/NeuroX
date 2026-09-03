@@ -77,14 +77,14 @@ def derive_multiplier_and_shift_tensor(
 
     Args:
         scale_tensor: Per-channel scale factors.
-            Shape: `[num_channels]`.
+            Shape: `[channel]`.
         mult_bits: Multiplier precision. 8 bits keeps `x × mult` in int32 for
             accumulators up to 24 bits (2²⁴ × 2⁸ = 2³²).
 
     Returns:
         `(multiplier, rshift)` int32 tensors reproducing the scale as
         `x × multiplier >> rshift`.
-        Shape: `[num_channels]`.
+        Shape: `[channel]`.
     """
     mult_max = (1 << mult_bits) - 1
     significand, exponent = torch.frexp(scale_tensor)
@@ -169,7 +169,7 @@ class PerChannelSymmObserver(nn.Module):
 
     # === Runtime buffers ===
 
-    abs_max: Tensor  # Shape: [num_channels]
+    abs_max: Tensor  # Shape: [channel]
     frozen: Tensor  # Shape: []
 
     def __init__(self, num_channels: int, qmax: int, momentum: float = 0.1) -> None:
@@ -231,13 +231,14 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
 
     Args:
         weight: Float weight tensor; axis 0 is the output channel.
-            Shape: `[num_channels, ...]`.
+            Shape: `[channel, ...]`.
         scale: Per-channel scale.
-            Shape: `[num_channels]`.
+            Shape: `[channel]`.
         qmax: Symmetric grid half-width — values clamp into `[-qmax, +qmax]`.
     """
-    shape = [scale.shape[0]] + [1] * (weight.ndim - 1)
-    sw = scale.view(shape)
+    # Shape: [channel] -> [channel, ...]
+    scale_shape = (scale.shape[0], *(1,) * (weight.ndim - 1))
+    sw = scale.view(scale_shape)
     w_int = torch.round(weight / sw).clamp(-qmax, qmax)
     w_fq = w_int * sw
     return weight + (w_fq - weight).detach()
@@ -273,7 +274,7 @@ class QATLinear(nn.Linear):
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()
         s_y, zp_y = self.out_observer.qparams()
-        weight_int = torch.round(self.weight / s_w.view(-1, 1)).clamp(-W_QMAX, W_QMAX).to(torch.int8)
+        weight_int = torch.round(self.weight / s_w.unsqueeze(-1)).clamp(-W_QMAX, W_QMAX).to(torch.int8)
         return {
             "kind": "linear",
             "in_features": self.in_features,
@@ -312,11 +313,14 @@ class _FoldedScales(TensorDataClassBase):
     """Integer rescale terms the runtime forward applies to macro codes."""
 
     mult: Tensor
-    """Int32 multiplier of the folded scale. Shape: `[num_channels]`."""
+    """Int32 multiplier of the folded scale.
+    Shape: `[channel]`."""
     rshift: Tensor
-    """Right-shift paired with `mult`. Shape: `[num_channels]`."""
+    """Right-shift paired with `mult`.
+    Shape: `[channel]`."""
     bias_int: Tensor
-    """Bias plus input zero-point correction, in macro codes. Shape: `[num_channels]`."""
+    """Bias plus input zero-point correction, in macro codes.
+    Shape: `[channel]`."""
     mac_per_code: float
 
 
@@ -420,7 +424,7 @@ class QuantLinear(nn.Module):
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
         # Linear passes the leading dims through.
-        # Shape: [..., K] -> [..., 1, K]
+        # Shape: [..., K] -> [..., M=1, K]
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
         code = (
             self.macro.linear(

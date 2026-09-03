@@ -251,8 +251,9 @@ def build_solver_harness(
 
     # The tap is uniform over the clamp bank: the dense oracle takes it
     # as one scalar Dirichlet boundary value.
-    # Shape: [X_BATCH, col_num] -> []
-    bl_v_ref, sl_v_ref = bl_ref_full[0, 0], sl_ref_full[0, 0]
+    # Shape: [batch, col] -> []
+    bl_v_ref = bl_ref_full[0, 0]
+    sl_v_ref = sl_ref_full[0, 0]
 
     return SolverHarness(
         solver_config=solver_config,

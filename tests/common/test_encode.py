@@ -26,7 +26,8 @@ class TestCanonicalEncoder:
         assert torch.equal(tc.decode(encoded), x), "decode does not match original input"
 
     def test_zero_negatives_and_boundaries(self) -> None:
-        radix, digits = 4, 4
+        radix = 4
+        digits = 4
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.tensor([0, -1, -63, -15, min_val, max_val], dtype=torch.int32)
 
@@ -54,7 +55,8 @@ class TestCanonicalEncoder:
 
     def test_tensor_broadcasting_and_shapes(self) -> None:
         shape = (16, 3, 3, 3)
-        radix, digits = 4, 5
+        radix = 4
+        digits = 5
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.randint(min_val, max_val + 1, size=shape, dtype=torch.int32)
 
@@ -74,7 +76,8 @@ class TestCanonicalEncoder:
         if device.type != "cuda":
             pytest.skip("NeuroX tests compile tensor code only on CUDA")
 
-        radix, digits = 4, 6
+        radix = 4
+        digits = 6
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.randint(min_val, max_val + 1, size=(128, 128), dtype=torch.int32, device=device)
 

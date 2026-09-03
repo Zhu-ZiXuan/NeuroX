@@ -43,7 +43,7 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
 
     # === Functional buffers ===
 
-    _scales: Tensor  # Shape: [digit_count]
+    _scales: Tensor  # Shape: [digit]
 
     def __init__(
         self,
@@ -84,7 +84,7 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
 
         Args:
             x: Integer digit tensor.
-                Shape: `[..., digit_count, ...]`.
+                Shape: `[..., digit, ...]`.
             dim: Axis indexing the digit positions.
             init_val: Optional partial sum added after the modular wrap,
                 broadcastable to the reduced output shape.
@@ -96,9 +96,11 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         half = 1 << (bw - 1)
         full = 1 << bw
 
-        shape = [1] * x.ndim
-        shape[dim] = x.size(dim)
-        y = ((x * self._scales.view(*shape)).sum(dim=dim) + half) % full - half
+        axis = dim % x.ndim
+        # Shape: [digit] -> [..., digit]
+        scale_shape = (*(1,) * axis, self._scales.shape[0], *(1,) * (x.ndim - axis - 1))
+        scales = self._scales.view(scale_shape)
+        y = ((x * scales).sum(dim=dim) + half) % full - half
 
         if init_val is not None:
             # Added after the wrap so a chained running total survives past one call's

@@ -28,7 +28,7 @@ class CanonicalTranscoder(Transcoder):
             carry = carry & (rem != 0)
             x = x + carry
             all_digits.append(torch.where(carry, rem - radix, rem))
-        # Shape: [...] -> [..., digit_count, ...]
+        # Shape: [...] -> [..., digit, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

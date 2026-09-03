@@ -56,7 +56,8 @@ def test_a_record_carries_the_stamped_name() -> None:
 
 
 def test_one_emitters_records_are_selected_by_its_name_alone() -> None:
-    a, b = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
+    a = _Leaf(energy__fJ=4.0)
+    b = _Leaf(energy__fJ=7.0)
     owner = _Owner(a)
     owner.other = b
     stamp_names(owner)

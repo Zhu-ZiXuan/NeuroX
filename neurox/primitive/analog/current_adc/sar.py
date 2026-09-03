@@ -116,8 +116,8 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
             i_refs__uA: Per-instance reference ladder with the taps on the last
                 axis and the leading dims broadcasting right-aligned against
                 `i_in__uA`. Reference selection uses full-width tap numbering, so
-                this converter takes `n_ref = 2 ** bits - 1` ascending taps.
-                Shape: `[..., n_ref]`.
+                this converter takes `2 ** bits - 1` ascending taps.
+                Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
@@ -151,9 +151,9 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
     def _select_reference(self, i_refs__uA: Tensor, trial_code: Tensor) -> Tensor:
         """Select the decision reference for `trial_code`."""
         n_taps = int(i_refs__uA.shape[-1])
-        # Shape: [..., n_ref] -> [*trial_code.shape, n_ref]
+        # Shape: [..., tap] -> [..., tap]
         i_ref_lut__uA = torch.broadcast_to(i_refs__uA, (*trial_code.shape, n_taps))
-        # Shape: [*trial_code.shape, n_ref] -> [*trial_code.shape]
+        # Shape: [..., tap] -> [...]
         return torch.gather(i_ref_lut__uA, -1, (trial_code - 1).unsqueeze(-1)).squeeze(-1)
 
     def _compute_bit_dynamic_energy__fJ(

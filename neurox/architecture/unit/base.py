@@ -35,7 +35,7 @@ class UnitBase(ABC):
 
     # === Programmed state ===
 
-    _int_bias: Tensor | None = None  # Shape: [channels]
+    _int_bias: Tensor | None = None  # Shape: [channel]
 
     @property
     @abstractmethod

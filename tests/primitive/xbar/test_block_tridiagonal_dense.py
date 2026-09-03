@@ -82,7 +82,8 @@ def test_dense_matches_thomas_fp32(block_num: int, device: torch.device) -> None
 
 
 def test_dense_batched(device: torch.device) -> None:
-    block_num, block_size = 32, 2
+    block_num = 32
+    block_size = 2
     batch_shape = (4, 7)
     g = torch.Generator(device=device).manual_seed(1234)
     diag = (
@@ -111,7 +112,8 @@ def test_dense_batched(device: torch.device) -> None:
 
 
 def test_dense_m_matrix_wire_jacobian_2x2(device: torch.device) -> None:
-    block_num, block_size = 64, 2
+    block_num = 64
+    block_size = 2
     wire_g = 5.0e3
     a = 100.0
     b_cross = -50.0

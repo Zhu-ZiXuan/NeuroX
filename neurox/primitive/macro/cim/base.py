@@ -276,7 +276,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         Args:
             w: Integer weight tensor matching the configured logical matrix
                 geometry. Entries must lie in `w_value_range`.
-                Shape: `[*inst_shape, input_num, output_num]`.
+                Shape: `[*inst_shape, input, output]`.
         """
         raise NotImplementedError
 
@@ -295,7 +295,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
                 `inst_shape`-aligned block. At most `max_active_num` positions
                 may be selected per conversion; unselected positions must be
                 zero. Entries must lie in `x_value_range`.
-                Shape: `[..., input_num]`.
+                Shape: `[..., input]`.
             quantization_mode: Index selecting one reference operating point
                 and its calibrated output scale.
             adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
@@ -303,7 +303,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 
         Returns:
             Final macro output-code tensor retaining the input's aligned leading axes.
-            Shape: `[..., output_num]`.
+            Shape: `[..., output]`.
         """
         self._check_quantization_mode(quantization_mode)
         self._check_adc_active_bits(adc_active_bits)

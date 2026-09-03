@@ -90,10 +90,10 @@ class XbarCell1t1rLinear[ConfigT: XbarCell1t1rLinearConfig, PolicyT: XbarCell1t1
 ):
     # === Functional buffers ===
 
-    _g_cell_off_table__uS: Tensor  # Shape: [w_state_num]
-    _g_cell_on_table__uS: Tensor  # Shape: [w_state_num]
-    _vx_ratio_off_table: Tensor  # Shape: [w_state_num]
-    _vx_ratio_on_table: Tensor  # Shape: [w_state_num]
+    _g_cell_off_table__uS: Tensor  # Shape: [w_state]
+    _g_cell_on_table__uS: Tensor  # Shape: [w_state]
+    _vx_ratio_off_table: Tensor  # Shape: [w_state]
+    _vx_ratio_on_table: Tensor  # Shape: [w_state]
 
     # === Programmed state ===
 

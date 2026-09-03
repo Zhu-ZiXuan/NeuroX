@@ -25,7 +25,7 @@ class ComplementTranscoder(Transcoder):
             all_digits.append(rem)
         msb = all_digits[-1]
         all_digits[-1] = torch.where(msb >= (radix + 1) // 2, msb - radix, msb)
-        # Shape: [...] -> [..., digit_count, ...]
+        # Shape: [...] -> [..., digit, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

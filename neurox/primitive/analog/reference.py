@@ -62,11 +62,11 @@ class Reference(ModuleBase[ReferenceConfig, ReferencePolicy]):
 
     # === Nominal buffers ===
 
-    _nominal_values: Tensor  # Shape: [*config_shape]
+    _nominal_values: Tensor  # Shape: [...]
 
     # === Fabricated state ===
 
-    _values: Tensor  # Shape: [*inst_shape, *config_shape]
+    _values: Tensor  # Shape: [*inst_shape, ...]
 
     def __init__(
         self,

@@ -31,11 +31,11 @@ class LinearUnit(UnitBase, ABC):
         raise NotImplementedError
 
     def _activation_to_planes(self, input: Tensor) -> Tensor:
-        # Shape: [..., K] -> [..., 1, K]
+        # Shape: [..., K] -> [..., M=1, K]
         return input.unsqueeze(-2)
 
     def _undo_aggregation(self, output: Tensor) -> Tensor:
-        # Shape: [..., 1, N] -> [..., N]
+        # Shape: [..., M=1, N] -> [..., N]
         return output.squeeze(-2)
 
     @torch.no_grad()

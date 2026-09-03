@@ -92,13 +92,12 @@ def solve_block_tridiagonal(
     """Solve batched block-tridiagonal systems via the block Thomas algorithm.
 
     Solves `A x = rhs` where `A` is block-tridiagonal with `N` block rows of
-    `B`×`B` blocks, any `B` running through the same path. The shape
-    convention is fixed: the `N` axis is third-to-last for the block tensors
-    and second-to-last for `rhs`; a different layout transposes before entry —
-    another axis order mis-indexes the sweep silently
-    rather than raising. At `B = 1` the result agrees with `solve_tridiagonal`
-    to round-off alone, the 1×1 solve differing arithmetically from a scalar
-    division.
+    `B`×`B` blocks, any `B` running through the same path. The shape convention
+    is fixed: the `N` axis is third-to-last for the block tensors and
+    second-to-last for `rhs`; a different layout transposes before entry —
+    another axis order mis-indexes the sweep silently rather than raising. At
+    `B = 1` the result agrees with `solve_tridiagonal` to round-off alone, the
+    1×1 solve differing arithmetically from a scalar division.
 
     Args:
         sub: Sub-diagonal blocks coupling row `k` to row `k-1`; the entry at
@@ -118,22 +117,20 @@ def solve_block_tridiagonal(
     """
     block_num = rhs.shape[-2]
     if block_num == 1:
-        # One block is one plain solve; the block-row axis of extent one stays,
-        # so the return keeps the `[..., N, B]` rank whatever `block_num` is.
-        # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
-        return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
+        # One block is one plain solve; the block-row axis of extent one stays.
+        return block_solve(diag.select(-3, 0), rhs[..., 0, :].unsqueeze(-1)).movedim(-1, -2)
 
     # Forward sweep: C_k = M_k⁻¹ · sup_k, d_k = M_k⁻¹ · (rhs - sub · d_{k-1}).
-    m_0 = diag[..., 0, :, :]
+    m_0 = diag.select(-3, 0)
     rhs_0 = rhs[..., 0, :].unsqueeze(-1)
     # Stack [sup, rhs] as RHS columns so each step runs one solve instead of two.
-    sol_0 = block_solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
+    sol_0 = block_solve(m_0, torch.cat((sup.select(-3, 0), rhs_0), dim=-1))
     c_list: list[Tensor] = [sol_0[..., :-1]]
     d_list: list[Tensor] = [sol_0[..., -1:]]
     for k in range(1, block_num):
-        sub_k = sub[..., k, :, :]
-        diag_k = diag[..., k, :, :]
-        sup_k = sup[..., k, :, :]
+        sub_k = sub.select(-3, k)
+        diag_k = diag.select(-3, k)
+        sup_k = sup.select(-3, k)
         rhs_k = rhs[..., k, :].unsqueeze(-1)
         m_k = diag_k - block_matmul(sub_k, c_list[k - 1])
         sol_k = block_solve(m_k, torch.cat((sup_k, rhs_k - block_matmul(sub_k, d_list[k - 1])), dim=-1))
@@ -178,12 +175,19 @@ def solve_block_tridiagonal_2x2_uniform(
     """
     u_0, u_1 = off_block
     # Cross weights of U · M · U — entry (i, j) picks up u_i · u_j.
-    w_00, w_01, w_10, w_11 = u_0 * u_0, u_0 * u_1, u_1 * u_0, u_1 * u_1
+    w_00 = u_0 * u_0
+    w_01 = u_0 * u_1
+    w_10 = u_1 * u_0
+    w_11 = u_1 * u_1
 
-    # Shape: [..., N, 2, 2] -> [..., N] each
-    d_00, d_01, d_10, d_11 = diag[..., 0, 0], diag[..., 0, 1], diag[..., 1, 0], diag[..., 1, 1]
-    # Shape: [..., N, 2] -> [..., N] each
-    r_0, r_1 = rhs[..., 0], rhs[..., 1]
+    # Shape: [..., N, 2, 2] -> [..., N]
+    d_00 = diag[..., 0, 0]
+    d_01 = diag[..., 0, 1]
+    d_10 = diag[..., 1, 0]
+    d_11 = diag[..., 1, 1]
+    # Shape: [..., N, 2] -> [..., N]
+    r_0 = rhs[..., 0]
+    r_1 = rhs[..., 1]
     block_num = rhs.shape[-2]
 
     # Forward sweep: keep the inverted reduced block A_k = M_k⁻¹ and the
@@ -196,9 +200,12 @@ def solve_block_tridiagonal_2x2_uniform(
     e_1_list: list[Tensor] = []
     for k in range(block_num):
         # Shape: [..., N] -> [...]
-        m_00, m_01 = d_00.select(-1, k), d_01.select(-1, k)
-        m_10, m_11 = d_10.select(-1, k), d_11.select(-1, k)
-        b_0, b_1 = r_0.select(-1, k), r_1.select(-1, k)
+        m_00 = d_00[..., k]
+        m_01 = d_01[..., k]
+        m_10 = d_10[..., k]
+        m_11 = d_11[..., k]
+        b_0 = r_0[..., k]
+        b_1 = r_1[..., k]
         if k > 0:
             m_00 = m_00 - w_00 * a_00_list[k - 1]
             m_01 = m_01 - w_01 * a_01_list[k - 1]
@@ -207,8 +214,10 @@ def solve_block_tridiagonal_2x2_uniform(
             b_0 = b_0 - u_0 * e_0_list[k - 1]
             b_1 = b_1 - u_1 * e_1_list[k - 1]
         inv_det = 1.0 / (m_00 * m_11 - m_01 * m_10)
-        a_00, a_01 = m_11 * inv_det, -m_01 * inv_det
-        a_10, a_11 = -m_10 * inv_det, m_00 * inv_det
+        a_00 = m_11 * inv_det
+        a_01 = -m_01 * inv_det
+        a_10 = -m_10 * inv_det
+        a_11 = m_00 * inv_det
         a_00_list.append(a_00)
         a_01_list.append(a_01)
         a_10_list.append(a_10)
@@ -217,11 +226,13 @@ def solve_block_tridiagonal_2x2_uniform(
         e_1_list.append(a_10 * b_0 + a_11 * b_1)
 
     # Back substitution: x_k = e_k - A_k · (U · x_{k+1}).
-    x_0, x_1 = e_0_list[block_num - 1], e_1_list[block_num - 1]
+    x_0 = e_0_list[block_num - 1]
+    x_1 = e_1_list[block_num - 1]
     x_0_list: list[Tensor] = [x_0]
     x_1_list: list[Tensor] = [x_1]
     for k in range(block_num - 2, -1, -1):
-        s_0, s_1 = u_0 * x_0, u_1 * x_1
+        s_0 = u_0 * x_0
+        s_1 = u_1 * x_1
         x_0 = e_0_list[k] - (a_00_list[k] * s_0 + a_01_list[k] * s_1)
         x_1 = e_1_list[k] - (a_10_list[k] * s_0 + a_11_list[k] * s_1)
         x_0_list.append(x_0)
@@ -229,7 +240,7 @@ def solve_block_tridiagonal_2x2_uniform(
     x_0_list.reverse()
     x_1_list.reverse()
 
-    # Shape: [...] * N -> [..., N] -> [..., N, 2]
+    # Shape: [...] -> [..., N, 2]
     return torch.stack((torch.stack(x_0_list, dim=-1), torch.stack(x_1_list, dim=-1)), dim=-1)
 
 
@@ -239,7 +250,7 @@ def solve_block_tridiagonal_dense(
     sup: Tensor,
     rhs: Tensor,
 ) -> Tensor:
-    """Solve batched block-tridiagonal systems by densifying to one `N*B` square solve.
+    """Solve batched block-tridiagonal systems through one dense square solve.
 
     Same input/output contract as `solve_block_tridiagonal`: `N` block rows of
     `B`×`B` blocks.
@@ -262,8 +273,8 @@ def solve_block_tridiagonal_dense(
     block_size = diag.shape[-1]
 
     if block_num == 1:
-        # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
-        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
+        # One block is one plain solve; the block-row axis of extent one stays.
+        return torch.linalg.solve(diag.select(-3, 0), rhs[..., 0, :].unsqueeze(-1)).movedim(-1, -2)
 
     flat_size = block_num * block_size
     device = diag.device
@@ -275,9 +286,9 @@ def solve_block_tridiagonal_dense(
     sup_clean = torch.cat([sup[..., :-1, :, :], torch.zeros_like(sup[..., -1:, :, :])], dim=-3)
 
     # Placement matrices over the block-row index.
-    #   diag_shift places block k on the main diagonal at (k·B, k·B).
-    #   sub_shift puts a 1 at (k, k-1) for k>=1 → block k lands at (k·B, (k-1)·B).
-    #   sup_shift puts a 1 at (k, k+1) for k<=N-2 → block k lands at (k·B, (k+1)·B).
+    #   diag_shift places block k at (k*block_size, k*block_size).
+    #   sub_shift places it one block below the main diagonal.
+    #   sup_shift places it one block above the main diagonal.
     diag_shift = torch.eye(block_num, device=device, dtype=dtype)
     off_ones = torch.ones(block_num - 1, device=device, dtype=dtype)
     sub_shift = torch.diag_embed(off_ones, offset=-1)
@@ -293,9 +304,9 @@ def solve_block_tridiagonal_dense(
 
     dense_matrix = diag_part + sub_part + sup_part
 
-    # Shape: [..., N, B] -> [..., N*B, 1]
+    # Shape: [..., N, B] -> [..., N*B, K=1]
     rhs_flat = rhs.reshape(*rhs.shape[:-2], flat_size).unsqueeze(-1)
-    # Shape: [..., N*B, 1] -> [..., N*B]
+    # Shape: [..., N*B, K=1] -> [..., N*B]
     x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
     # Shape: [..., N*B] -> [..., N, B]
     return x_flat.view(*rhs.shape)

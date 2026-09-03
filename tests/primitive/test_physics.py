@@ -94,9 +94,9 @@ def test_bill_is_linear_in_each_factor_independently(factor: float) -> None:
 
 def test_a_per_position_capacitance_broadcasts_against_the_grid() -> None:
     """A capacitance vector bills its own axis of a displacement grid."""
-    # Shape: [segment_num]
+    # Shape: [segment]
     c__fF = torch.tensor([1.0, 2.0, 4.0], dtype=_DTYPE)
-    # Shape: [position_num, segment_num]
+    # Shape: [position, segment]
     delta_v__V = torch.tensor([[0.1, 0.2, 0.3], [-0.4, 0.5, -0.6]], dtype=_DTYPE)
 
     got = e_cap_excursion__fJ(_V_RAIL__V, c__fF, delta_v__V)

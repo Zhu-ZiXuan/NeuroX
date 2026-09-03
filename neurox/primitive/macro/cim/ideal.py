@@ -93,7 +93,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     """Ideal macro VMM whose highest precision is the exact integer result."""
 
-    _w: Tensor  # Shape: [*inst_shape, input_num, output_num]
+    _w: Tensor  # Shape: [*inst_shape, input, output]
 
     def __init__(
         self,
@@ -171,12 +171,12 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         w = self._w.to(torch.int64)
 
         if self._fp32_exact:
-            # Shape: [..., input_num] -> [..., output_num]
+            # Shape: [..., input] -> [..., output]
             plane_dot = torch.einsum("...io,...i->...o", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
         else:
-            # Shape: [..., input_num] -> [..., input_num, 1]
+            # Shape: [..., input] -> [..., input, output=1]
             x = x.to(torch.int64).unsqueeze(-1)
-            # Shape: [..., input_num, output_num] -> [..., output_num]
+            # Shape: [..., input, output] -> [..., output]
             plane_dot = (w * x).sum(dim=-2)
 
         if adc_active_bits is None:

@@ -107,7 +107,7 @@ def test_sparse_input_sampling_can_select_one_contiguous_window() -> None:
         active_row_selection=ActiveRowSelection.CONTIGUOUS,
         generator=generator,
     )
-    positions = (x != 0).nonzero().view(16, 5, 2)[:, :, 1]
+    positions = (x != 0).nonzero().view(16, 5, 2)[..., 1]
     assert bool(((positions[:, 1:] - positions[:, :-1]) == 1).all())
 
 
@@ -132,7 +132,7 @@ def test_target_stimulus_sampling_realizes_every_requested_dot(
     )
 
     w, x = sampler.sample(target, batch_size=64)
-    ideal = (w * x.squeeze(0).unsqueeze(-1)).sum(dim=1)
+    ideal = (w * x.movedim(0, -1)).sum(dim=1)
 
     assert tuple(w.shape) == (64, 11, 5)
     assert tuple(x.shape) == (1, 64, 11)

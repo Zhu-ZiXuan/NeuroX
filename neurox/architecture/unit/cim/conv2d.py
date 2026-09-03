@@ -101,7 +101,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         """
         if len(input_shape) not in (3, 4):
             raise ValueError(f"latency__ns() expects input_shape [C_in, H, W] or [B, C_in, H, W]; got {input_shape}")
-        # Shape: [C_in, H, W] -> [1, C_in, H, W]
+        # Shape: [C_in, H, W] -> [B=1, C_in, H, W]
         _b, _c_in, h, w = input_shape if len(input_shape) == 4 else (1, *input_shape)
         h_out, w_out = self._conv2d_out_hw(h, w)
         return self.engine.latency__ns(
@@ -153,13 +153,13 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         # Index-grid gather rather than `F.unfold`: pure data movement, so a
         # window plane stays exact in whatever integer dtype it arrives in.
         # Shape: [H_out, kh]
-        h_idx = (torch.arange(h_out, device=device) * s_h).view(-1, 1) + (torch.arange(kh, device=device) * d_h).view(
-            1, -1
-        )
+        h_idx = (torch.arange(h_out, device=device) * s_h).unsqueeze(-1) + (
+            torch.arange(kh, device=device) * d_h
+        ).unsqueeze(0)
         # Shape: [W_out, kw]
-        w_idx = (torch.arange(w_out, device=device) * s_w).view(-1, 1) + (torch.arange(kw, device=device) * d_w).view(
-            1, -1
-        )
+        w_idx = (torch.arange(w_out, device=device) * s_w).unsqueeze(-1) + (
+            torch.arange(kw, device=device) * d_w
+        ).unsqueeze(0)
         # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, kh, Wp]
         x = x[..., h_idx, :]
         # Shape: [B, C_in, H_out, kh, Wp] -> [B, C_in, H_out, kh, W_out, kw]

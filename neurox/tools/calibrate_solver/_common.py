@@ -226,7 +226,7 @@ def unroll_sub_phase(
     Args:
         x: Dense logical-input tensor with an anonymous leading batch, no inst
             slots.
-            Shape: `[..., input_num]`.
+            Shape: `[..., input]`.
         input_num: Macro logical input count.
         active_inputs: Simultaneously active logical inputs per plane, `1 <=
             active_inputs <= input_num`. Any in-range value is legal — the plane
@@ -235,24 +235,26 @@ def unroll_sub_phase(
 
     Returns:
         Masked plane tensor; dtype and device follow `x`.
-        Shape: `[..., P, *inst_shape, input_num]`.
+        Shape: `[..., P, *inst_shape, input]`.
     """
     inst_rank = len(inst_shape)
     n_planes = -(-input_num // active_inputs)
     # Static input -> sub-phase ownership; plane p owns inputs
     # [p * active_inputs, (p + 1) * active_inputs).
-    # Shape: [input_num] -> [P, input_num]
+    # Shape: [input] -> [P, input]
     plane_of_input = torch.arange(input_num, device=x.device) // active_inputs
     mask = plane_of_input == torch.arange(n_planes, device=x.device).unsqueeze(-1)
-    # Shape: [P, input_num] -> [P, *inst_shape=1, input_num]
-    mask = mask.reshape(n_planes, *(1,) * inst_rank, input_num)
+    # Shape: [P, input] -> [P, *inst_shape=1, input]
+    mask_shape = (mask.shape[0], *(1,) * inst_rank, mask.shape[-1])
+    mask = mask.view(mask_shape)
     # Insert the P slot + inst-span size-1 slots just left of the input axis so
     # x broadcasts against the mask.
-    # Shape: [..., input_num] -> [..., P=1, *inst_shape=1, input_num]
-    x_expanded = x.reshape(*x.shape[:-1], 1, *(1,) * inst_rank, x.shape[-1])
-    # Shape: [..., P, *inst_shape=1, input_num]
+    # Shape: [..., input] -> [..., P=1, *inst_shape=1, input]
+    expanded_shape = (*x.shape[:-1], *(1,) * (inst_rank + 1), x.shape[-1])
+    x_expanded = x.view(expanded_shape)
+    # Shape: [..., P, *inst_shape=1, input]
     planes = torch.where(mask, x_expanded, x.new_zeros(()))
-    # Shape: [..., P, *inst_shape=1, input_num] -> [..., P, *inst_shape, input_num]
+    # Shape: [..., P, *inst_shape=1, input] -> [..., P, *inst_shape, input]
     return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, input_num)
 
 

@@ -175,7 +175,8 @@ def test_a_flat_lump_carries_the_constants_dtype_not_the_billed_layouts() -> Non
 @pytest.mark.parametrize("rank", [0, 1, 2])
 def test_a_flat_lump_matches_the_materialized_energy(rank: int) -> None:
     shape = (2, 3, 4, 5)
-    expanded, materialized = _Emitter(), _Other()
+    expanded = _Emitter()
+    materialized = _Other()
     stamp_names(expanded)
     stamp_names(materialized)
     with Profiler(leading_rank=rank) as p:

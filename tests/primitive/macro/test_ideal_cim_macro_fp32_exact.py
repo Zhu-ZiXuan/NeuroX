@@ -90,7 +90,7 @@ def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> t
     """Pre-masked WL planes via the engine mask formula."""
     p_num = input_num // max_active_num
     mask = torch.arange(input_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
-    # Shape: [..., input_num] -> [..., P, input_num]
+    # Shape: [..., input] -> [..., P, input]
     return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
 
@@ -181,7 +181,8 @@ class TestFastPathQuantized:
         _, x = _random_operands(macro_fast, batch=5, seed=303, device=torch.device("cpu"))
         _random_operands(macro_ref, batch=5, seed=303, device=torch.device("cpu"))
         planes = _masked_planes(x, input_num=64, max_active_num=16)
-        quantization_mode, adc_active_bits = 0, 4
+        quantization_mode = 0
+        adc_active_bits = 4
         y_fast = macro_fast.vec_mat_mul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         y_ref = macro_ref.vec_mat_mul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         assert y_fast.dtype == y_ref.dtype == torch.int32
@@ -191,7 +192,8 @@ class TestFastPathQuantized:
         macro = self._quantized_macro()
         w, x = _random_operands(macro, batch=5, seed=404, device=torch.device("cpu"))
         planes = _masked_planes(x, input_num=64, max_active_num=16)
-        quantization_mode, adc_active_bits = 0, 4
+        quantization_mode = 0
+        adc_active_bits = 4
         y_cpu = macro.vec_mat_mul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         macro.to(device)
         macro.program(w.to(device))
@@ -210,7 +212,8 @@ class TestFastPathQuantized:
         _, x = _random_operands(macro_fast, batch=5, seed=505, device=torch.device("cpu"))
         _random_operands(macro_ref, batch=5, seed=505, device=torch.device("cpu"))
         planes = _masked_planes(x, input_num=64, max_active_num=16)
-        quantization_mode, adc_active_bits = 0, 4
+        quantization_mode = 0
+        adc_active_bits = 4
         torch.manual_seed(7)
         y_fast = macro_fast.vec_mat_mul(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         torch.manual_seed(7)

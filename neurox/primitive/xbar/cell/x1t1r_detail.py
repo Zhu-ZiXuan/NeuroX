@@ -95,7 +95,7 @@ class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
 class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy, XbarCell1t1rDetailSnap]):
     """Series access-NMOS and RRAM cell with a condensed BL-to-SL branch."""
 
-    _state_to_g_map__uS: Tensor  # Shape: [w_state_num]
+    _state_to_g_map__uS: Tensor  # Shape: [w_state]
 
     def __init__(
         self,

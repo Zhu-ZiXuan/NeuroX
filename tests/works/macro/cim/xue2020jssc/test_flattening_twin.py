@@ -132,7 +132,9 @@ def test_vec_mat_mul_commutes_with_serialization(device: torch.device) -> None:
 
 
 def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch.device) -> None:
-    w_digit_num, scan_num, radix = 2, 2, 2
+    w_digit_num = 2
+    scan_num = 2
+    radix = 2
     config = build_config(
         w_digit_num=w_digit_num,
         lane_num=TINY_OUTPUT_NUM // scan_num,

@@ -42,7 +42,7 @@ class GeneralIdacPolicy(IdacPolicy):
 class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
     """General current DAC model — code-to-current LUT plus signal-independent output noise."""
 
-    _code_to_signal: Tensor  # Shape: [code_num]
+    _code_to_signal: Tensor  # Shape: [code]
 
     def __init__(
         self,

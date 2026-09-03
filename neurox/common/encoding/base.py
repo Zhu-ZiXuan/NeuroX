@@ -91,7 +91,7 @@ class Transcoder(ABC):
 
         Returns:
             Encoded tensor carrying a new digit axis at `dim`.
-            Shape: `[..., digit_count, ...]`.
+            Shape: `[..., digit, ...]`.
         """
         raise NotImplementedError
 
@@ -105,7 +105,7 @@ class Transcoder(ABC):
 
         Args:
             digits: Digit tensor produced by `encode`.
-                Shape: `[..., digit_count, ...]`.
+                Shape: `[..., digit, ...]`.
             dim: Axis of the digit dimension to reduce.
 
         Returns:

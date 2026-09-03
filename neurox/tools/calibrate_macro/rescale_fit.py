@@ -73,10 +73,10 @@ class ModeFitResult(TensorDataClassBase):
     fit: RescaleFit
     code: torch.Tensor
     """Macro output code entering the fit.
-    Shape: `[sample_num]`."""
+    Shape: `[sample]`."""
     ideal_value: torch.Tensor
     """Lossless ideal-macro value of the same pairs.
-    Shape: `[sample_num]`."""
+    Shape: `[sample]`."""
 
 
 def _fit_one_mode(

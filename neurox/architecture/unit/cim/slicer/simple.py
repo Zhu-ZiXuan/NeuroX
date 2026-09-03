@@ -86,5 +86,5 @@ class SimpleSlicer(Slicer):
         return tuple(r**i for i in range(self._slice_num))
 
     def slice(self, x: Tensor) -> Tensor:
-        # Shape: [...] -> [..., slice_num]
+        # Shape: [...] -> [..., slice]
         return self._transcoder.encode(x, dim=-1)

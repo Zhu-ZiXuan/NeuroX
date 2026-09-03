@@ -196,7 +196,7 @@ def _conv2d_int64_oracle(
                 i * s_h : i * s_h + d_h * (kh - 1) + 1 : d_h,
                 j * s_w : j * s_w + d_w * (kw - 1) + 1 : d_w,
             ]
-            # Shape: [..., 1, C_in, kh, kw] * [C_out, C_in, kh, kw] -> [..., C_out]
+            # Shape: [..., C_out=1, C_in, kh, kw] * [C_out, C_in, kh, kw] -> [..., C_out]
             out[..., :, i, j] = (patch.unsqueeze(-4) * w64).sum(dim=(-3, -2, -1))
     return out
 
@@ -263,7 +263,10 @@ def test_ideal_conv2d_exact(
     dilation: tuple[int, int],
 ) -> None:
     torch.manual_seed(400 + kernel[1] * 7 + stride[0] * 5 + padding[1] * 3 + dilation[0])
-    c_out, c_in, h, w = 3, 2, 8, 9
+    c_out = 3
+    c_in = 2
+    h = 8
+    w = 9
     kh, kw = kernel
     unit = _build_ideal_unit(
         w_logical_shape=(c_out, c_in, kh, kw),

@@ -155,7 +155,7 @@ def test_section_reader_distinguishes_managed_headers_from_prose_and_nested_labe
 
         Args:
             value: Tensor value.
-                Shape: `[item_num]`.
+                Shape: `[item]`.
 
         Examples:
             >>> probe()

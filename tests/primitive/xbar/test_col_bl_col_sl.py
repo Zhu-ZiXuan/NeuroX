@@ -404,7 +404,7 @@ def test_the_far_node_is_the_ladder_open_end(device: torch.device) -> None:
     dcop = solve_col_bl_col_sl_dc(**harness.solve_kwargs())
     g_bl = 1.0 / harness.bl_segment_r__MOhm
     v_bl__V = dcop.v_bl_node__V
-    # Shape: [..., col_num, row_num]
+    # Shape: [..., col, row]
     i_cell__uA = dcop.cell.i__uA
 
     # The far node: its cell current returns through the single link back.
@@ -438,7 +438,7 @@ def test_a_single_row_array_matches_the_one_link_closed_form(device: torch.devic
     dtype = harness.v_wl_drive__V.dtype
     cfg = harness.cell_config
     # Every access device is on at the harness WL drive.
-    # Shape: [col_num, row_num=1]
+    # Shape: [col, row=1]
     g_cell__uS = torch.tensor(cfg.g_cell_on_table__uS, device=device, dtype=dtype)[harness.w_state_idx]
     r_bl__MOhm = harness.bl_segment_r__MOhm
     r_sl__MOhm = harness.sl_segment_r__MOhm

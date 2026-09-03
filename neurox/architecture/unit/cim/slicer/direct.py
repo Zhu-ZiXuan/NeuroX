@@ -38,7 +38,7 @@ class DirectSlicer(Slicer):
 
         Returns:
             `x` with one appended slice axis.
-            Shape: `[..., slice_num=1]`.
+            Shape: `[..., slice=1]`.
         """
-        # Shape: [...] -> [..., slice_num=1]
+        # Shape: [...] -> [..., slice=1]
         return x.unsqueeze(-1)

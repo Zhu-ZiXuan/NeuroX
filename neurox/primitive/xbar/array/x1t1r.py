@@ -88,13 +88,17 @@ class XbarArray1t1rSteadyState(TensorDataClassBase):
     """Reassembled steady-state array output, one entry per conducting boundary."""
 
     i_bl_port__uA: Tensor
-    """BL port current at the converged operating point. Shape: `[..., col]`."""
+    """BL port current at the converged operating point.
+    Shape: `[..., col]`."""
     v_bl_clamp__V: Tensor
-    """BL clamp voltage at the converged operating point. Shape: `[..., col]`."""
+    """BL clamp voltage at the converged operating point.
+    Shape: `[..., col]`."""
     i_sl_port__uA: Tensor
-    """SL port current at the converged operating point. Shape: `[..., col]`."""
+    """SL port current at the converged operating point.
+    Shape: `[..., col]`."""
     v_sl_drive__V: Tensor
-    """SL drive voltage at the converged operating point. Shape: `[..., col]`."""
+    """SL drive voltage at the converged operating point.
+    Shape: `[..., col]`."""
 
 
 class XbarArray1t1rSolveProjection[SteadyStateT: XbarArray1t1rSteadyState](TensorDataClassBase):
@@ -224,7 +228,8 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         """
         # --- 1: read the canonical leading from the word-line drive ---
 
-        col_num, row_num = self._col_num, self._row_num
+        col_num = self._col_num
+        row_num = self._row_num
         if not wl_phase_dims:
             raise ValueError("wl_phase_dims must name at least one leading axis")
         wl_phase_dims = tuple(dim + v_wl__V.ndim if dim < 0 else dim for dim in wl_phase_dims)
@@ -377,9 +382,9 @@ class XbarArray1t1r[ConfigT: XbarArray1t1rConfig, PolicyT: XbarArray1t1rPolicy](
         config = self.config
         vdd__V = self._vdd__V
 
-        # Shape: [..., col] -> [..., col, 1]
+        # Shape: [..., col] -> [..., col, row=1]
         v_bl_rest__V = bl_driver_snap.v_ref__V.unsqueeze(-1)
-        # Shape: [..., col] -> [..., col, 1]
+        # Shape: [..., col] -> [..., col, row=1]
         v_sl_rest__V = sl_driver_snap.v_ref__V.unsqueeze(-1)
 
         # Shape: [..., col, row]

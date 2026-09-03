@@ -42,6 +42,6 @@ class Slicer(ABC):
 
         Returns:
             Positional slice values.
-            Shape: `[..., slice_num]`.
+            Shape: `[..., slice]`.
         """
         raise NotImplementedError

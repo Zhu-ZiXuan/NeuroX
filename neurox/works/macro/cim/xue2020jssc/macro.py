@@ -297,13 +297,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         Args:
             w: Logical weight tensor; entries must lie in `w_value_range`.
-                Shape: `[*inst_shape, input_num, output_num]`.
+                Shape: `[*inst_shape, input, output]`.
         """
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
-        # Shape: [..., input_num, output_num] -> [..., row, col, w_digit]
+        # Shape: [..., input, output] -> [..., row, col, w_digit]
         digits = self._w_transcoder.encode(w, dim=-1)
 
         # Positive digits occupy PWG; negative digits occupy NWG.
@@ -329,7 +329,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # Shape: [..., x_bit] -> [...]
         i_sample__uA = i_phase__uA.narrow(-1, 0, self.config.x_bit_num - 1).sum(dim=-1)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
-        q__fC = q__fC + q_conduction__fC(i_phase__uA.select(-1, -1), detect__ns)
+        q__fC = q__fC + q_conduction__fC(i_phase__uA[..., -1], detect__ns)
         e__fJ = e_supply_charge__fJ(self.config.vdd__V, q__fC)
         self._record_dynamic_energy(e__fJ, channel="cablc")
 
@@ -388,8 +388,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         sample__ns = config.t_sample__ns
         detect__ns = self.config.t_settle__ns + self.tmcsa.latency__ns(active_bits=adc_active_bits)
 
-        # Shape: [..., tap] -> [..., lane=1, scan=1, tap]
-        adc_i_refs__uA = self.tmcsa_iref.values()[..., quantization_mode, None, None, :]
+        # Shape: [..., mode, tap] -> [..., lane=1, scan=1, tap]
+        adc_i_refs__uA = self.tmcsa_iref.values()[..., quantization_mode, :].unsqueeze(-2).unsqueeze(-2)
 
         # --- 1: Bit-expand x into K binary WL-drive phases (LSB first) ---
 
@@ -399,8 +399,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
         seat_shape = (*v_wl__V.shape[:-1], self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        # Shape: [..., tap] -> [..., x_bit=1, lane=1, scan=1, polarity=1, w_digit=1]
-        bl_v_ref__V = self.cablc_vref.values()[..., None, None, None, None, None]
+        # Shape: [...] -> [..., x_bit=1, lane=1, scan=1, polarity=1, w_digit=1]
+        bl_v_ref__V = self.cablc_vref.values()
+        bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1)
+        bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
 
         # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, phys_col]
         bl_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
@@ -443,7 +445,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # --- 4: SINWP-SC temporal input-radix combine -> I_DL_PN ---
 
         # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, lane, scan, polarity]
-        i_sc_increment = (i_wdl * self._sinwp_bit_ratios.view(config.x_bit_num, 1, 1, 1, 1)).sum(dim=-1)
+        bit_ratios = self._sinwp_bit_ratios.view(config.x_bit_num, 1, 1, 1, 1)
+        i_sc_increment = (i_wdl * bit_ratios).sum(dim=-1)
         # Shape: [..., x_bit, lane, scan, polarity]
         i_sc_phase = i_sc_increment.cumsum(dim=-4)
         # Shape: [..., x_bit, lane, scan, polarity] -> [..., lane, scan, polarity]

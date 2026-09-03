@@ -35,26 +35,32 @@ from ._wire_kcl import f_kcl__uA, g_self__uS, i_drive__uA
 from .clamp_driver import ClampDcop, ClampDriver, ClampSnap
 from .resistive_cell import ResistiveCell, ResistiveDcop
 
-# The axis the wire ladders run along in `[..., col_num, row_num]`.
+# The axis the wire ladders run along in `[..., col, row]`.
 _WIRE_DIM: Final = -1
 
 
 class ColBlColSlDcop[CellDcopT: ResistiveDcop](DcopBase):
     i_bl_driver__uA: Tensor
-    """BL driver current. Shape: `[..., num_col]`."""
+    """BL driver current.
+    Shape: `[..., col]`."""
     i_sl_driver__uA: Tensor
-    """SL driver current. Shape: `[..., num_col]`."""
+    """SL driver current.
+    Shape: `[..., col]`."""
     v_bl_node__V: Tensor
-    """BL node voltages. Shape: `[..., num_col, num_row]`."""
+    """BL node voltages.
+    Shape: `[..., col, row]`."""
     v_sl_node__V: Tensor
-    """SL node voltages. Shape: `[..., num_col, num_row]`."""
+    """SL node voltages.
+    Shape: `[..., col, row]`."""
     cell: CellDcopT
     """Condensed cell DC working point at the converged node voltages,
     including the internal node voltage."""
     v_bl_clamp__V: Tensor
-    """BL clamp voltages. Shape: `[..., num_col]`."""
+    """BL clamp voltages.
+    Shape: `[..., col]`."""
     v_sl_drive__V: Tensor
-    """SL drive voltages. Shape: `[..., num_col]`."""
+    """SL drive voltages.
+    Shape: `[..., col]`."""
 
 
 class ColBlColSlRecord[CellDcopT: ResistiveDcop](RecordBase):
@@ -75,16 +81,20 @@ class ColBlColSlRecord[CellDcopT: ResistiveDcop](RecordBase):
     # === Outer clamp event ===
 
     f_bl_clamp__V: Tensor | None
-    """BL outer residual, target minus clamp. Shape: `[..., num_col]`."""
+    """BL outer residual, target minus clamp.
+    Shape: `[..., col]`."""
     f_sl_clamp__V: Tensor | None
-    """SL outer residual, target minus drive. Shape: `[..., num_col]`."""
+    """SL outer residual, target minus drive.
+    Shape: `[..., col]`."""
 
     # === Inner Newton step ===
 
     f_bl_kcl__uA: Tensor | None
-    """BL wire KCL residual per node. Shape: `[..., num_col, num_row]`."""
+    """BL wire KCL residual per node.
+    Shape: `[..., col, row]`."""
     f_sl_kcl__uA: Tensor | None
-    """SL wire KCL residual per node. Shape: `[..., num_col, num_row]`."""
+    """SL wire KCL residual per node.
+    Shape: `[..., col, row]`."""
 
     # === Terminal ===
 
@@ -261,17 +271,17 @@ def _solve_col_bl_col_sl_dc_impl[
 
     v_bl_seed__V = bl_driver_snap.v_ref__V
     v_sl_seed__V = sl_driver_snap.v_ref__V
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     cell_dcop = cell.solve_dc(v_bl_seed__V.unsqueeze(-1), v_sl_seed__V.unsqueeze(-1), cell_snap)
     i_cell__uA = cell_dcop.i__uA
 
     # --- 3: initialize the clamp voltages ---
 
-    # Shape: [..., num_col, num_row] -> [..., num_col]
+    # Shape: [..., col, row] -> [..., col]
     i_bl_seed__uA = i_cell__uA.sum(dim=-1)
-    # Shape: [..., num_col, num_row] -> [..., num_col]
+    # Shape: [..., col, row] -> [..., col]
     i_sl_seed__uA = -i_cell__uA.sum(dim=-1)
-    # Shape: [..., num_col]
+    # Shape: [..., col]
     v_bl_clamp__V = bl_driver.solve_dc(i_bl_seed__uA, bl_driver_snap, v_clamp_init__V=None).v_clamp__V
     v_sl_drive__V = sl_driver.solve_dc(i_sl_seed__uA, sl_driver_snap, v_clamp_init__V=None).v_clamp__V
 
@@ -279,11 +289,11 @@ def _solve_col_bl_col_sl_dc_impl[
 
     # The grid lift of the clamp boundaries is carried through the outer
     # loop and refreshed on every clamp update.
-    # Shape: [..., num_col] -> [..., num_col, 1]
+    # Shape: [..., col] -> [..., col, row=1]
     v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
     v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
 
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     v_bl_node__V, v_sl_node__V = _wire_ir_drop_seed(
         i_cell__uA,
         v_bl_clamp_grid__V,
@@ -310,7 +320,7 @@ def _solve_col_bl_col_sl_dc_impl[
         # K = ∂V_node[0]/∂V_clamp captures cross-rail cell coupling.
         g_cell_bl_eff__uS = di_dvbl__uS
         g_cell_sl_eff__uS = -di_dvsl__uS
-        # Shape: [..., num_col, 2, 2]
+        # Shape: [..., col, rail=2, rail=2]
         k_inner_2x2 = _compute_k_inner_coupled_2x2(
             g_cell_bl_eff__uS,
             g_cell_sl_eff__uS,
@@ -320,9 +330,9 @@ def _solve_col_bl_col_sl_dc_impl[
 
         # Port current through the driver's own link, and the BL / SL
         # clamp-driver targets it implies.
-        # Shape: [..., num_col]
-        i_bl_port__uA = (v_bl_clamp__V - v_bl_node__V.select(-1, 0)) * bl_g__uS
-        i_sl_port__uA = (v_sl_drive__V - v_sl_node__V.select(-1, 0)) * sl_g__uS
+        # Shape: [..., col]
+        i_bl_port__uA = (v_bl_clamp__V - v_bl_node__V[..., 0]) * bl_g__uS
+        i_sl_port__uA = (v_sl_drive__V - v_sl_node__V[..., 0]) * sl_g__uS
         bl_clamp_dcop = bl_driver.solve_dc(
             i_bl_port__uA,
             bl_driver_snap,
@@ -342,7 +352,7 @@ def _solve_col_bl_col_sl_dc_impl[
         # each clamp driver maps the port current through its own link to
         # a target clamp, and the 2×2 ∂F/∂V_clamp couples the driver slope,
         # the port-current sensitivity, and K_inner's V_node[0] response.
-        # Shape: [..., num_col]
+        # Shape: [..., col]
         f_bl_clamp__V = v_bl_target__V - v_bl_clamp__V
         f_sl_clamp__V = v_sl_target__V - v_sl_drive__V
 
@@ -375,9 +385,9 @@ def _solve_col_bl_col_sl_dc_impl[
             [-dg_sl * k10, dg_sl * (1.0 - k11) - 1.0],
             dim=-1,
         )
-        # Shape: [..., num_col, 2, 2]
+        # Shape: [..., col, rail=2, rail=2]
         df_outer = torch.stack([df_row0, df_row1], dim=-2)
-        # Shape: [..., num_col, 2]
+        # Shape: [..., col, rail=2]
         f_outer__V = torch.stack([f_bl_clamp__V, f_sl_clamp__V], dim=-1)
         # Solve 2×2 system per column: δ = -inv(df_outer) · f_outer.
         delta_2__V = block_solve(df_outer, -f_outer__V.unsqueeze(-1)).squeeze(-1)
@@ -387,7 +397,7 @@ def _solve_col_bl_col_sl_dc_impl[
         v_sl_drive__V = v_sl_drive__V + delta_sl__V
 
         # Solve the inner wire state at the updated clamp voltages.
-        # Shape: [..., num_col] -> [..., num_col, 1]
+        # Shape: [..., col] -> [..., col, row=1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
         v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
 
@@ -399,10 +409,10 @@ def _solve_col_bl_col_sl_dc_impl[
                 i_cell__uA = cell_dcop.i__uA
                 di_dvbl__uS = cell_dcop.di_dvbl__uS
                 di_dvsl__uS = cell_dcop.di_dvsl__uS
-            # Shape: [..., num_col, num_row]
+            # Shape: [..., col, row]
             g_cell_bl_eff__uS = di_dvbl__uS
             g_cell_sl_eff__uS = -di_dvsl__uS
-            # Shape: [..., num_col, num_row]
+            # Shape: [..., col, row]
             f_bl_kcl__uA = f_kcl__uA(v_bl_node__V, v_bl_clamp_grid__V, bl_g__uS, i_cell__uA, dim=_WIRE_DIM)
             f_sl_kcl__uA = f_kcl__uA(v_sl_node__V, v_sl_drive_grid__V, sl_g__uS, -i_cell__uA, dim=_WIRE_DIM)
 
@@ -469,22 +479,22 @@ def _wire_ir_drop_seed(
 
     Args:
         i_cell__uA: Signed cell branch currents.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         v_bl_clamp_grid__V: BL clamp voltages on the cell grid.
-            Shape: `[..., num_col, 1]`.
+            Shape: `[..., col, row=1]`.
         v_sl_drive_grid__V: SL drive voltages on the cell grid.
-            Shape: `[..., num_col, 1]`.
+            Shape: `[..., col, row=1]`.
         bl_segment_r__MOhm: BL rail resistance of one lattice link.
         sl_segment_r__MOhm: SL rail resistance of one lattice link.
 
     Returns:
         Initial BL and SL node voltages `(v_bl_node__V, v_sl_node__V)`.
-        Shape: `[..., num_col, num_row]`.
+        Shape: `[..., col, row]`.
     """
     # Current in the link that feeds node k: everything drawn at k and beyond.
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     i_link__uA = torch.flip(torch.cumsum(torch.flip(i_cell__uA, [-1]), -1), [-1])
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     i_cumulative__uA = torch.cumsum(i_link__uA, dim=-1)
     return (
         v_bl_clamp_grid__V - bl_segment_r__MOhm * i_cumulative__uA,
@@ -508,21 +518,21 @@ def _g_diag_blocks__uS(
 
     Args:
         g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         bl_segment_g__uS: BL rail conductance of one lattice link.
         sl_segment_g__uS: SL rail conductance of one lattice link.
 
     Returns:
         Diagonal blocks, rail-major within each block.
-        Shape: `[..., num_col, num_row, 2, 2]`.
+        Shape: `[..., col, row, rail=2, rail=2]`.
     """
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     bl_diag_node__uS = g_self__uS(g_cell_bl_eff__uS, bl_segment_g__uS, dim=_WIRE_DIM)
     sl_diag_node__uS = g_self__uS(g_cell_sl_eff__uS, sl_segment_g__uS, dim=_WIRE_DIM)
     # ∂F_BL/∂V_SL on the top row, ∂F_SL/∂V_BL on the bottom.
-    # Shape: [..., num_col, num_row, 2, 2]
+    # Shape: [..., col, row, rail=2, rail=2]
     return torch.stack(
         (
             torch.stack((bl_diag_node__uS, -g_cell_sl_eff__uS), dim=-1),
@@ -544,30 +554,30 @@ def _wire_newton_coupled_block2x2(
 
     Args:
         f_bl_kcl__uA: BL KCL residuals.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         f_sl_kcl__uA: SL KCL residuals.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         bl_segment_g__uS: BL rail conductance of one lattice link.
         sl_segment_g__uS: SL rail conductance of one lattice link.
 
     Returns:
         BL and SL Newton voltage steps `(dv_bl_node__V, dv_sl_node__V)`.
-        Shape: `[..., num_col, num_row]`.
+        Shape: `[..., col, row]`.
     """
-    # Shape: [..., num_col, num_row, 2, 2]
+    # Shape: [..., col, row, rail=2, rail=2]
     diag_blocks__uS = _g_diag_blocks__uS(g_cell_bl_eff__uS, g_cell_sl_eff__uS, bl_segment_g__uS, sl_segment_g__uS)
-    # Shape: [..., num_col, num_row, 2]
+    # Shape: [..., col, row, rail=2]
     rhs__uA = torch.stack((-f_bl_kcl__uA, -f_sl_kcl__uA), dim=-1)
 
     # The block solver claims the row axis as its N axis and the per-node
     # rail pair as its 2x2 block, so the column dim sits in its leading
     # batch. Neighbouring rows couple through their shared rail link
     # alone, which is the constant off-block it takes as two scalars.
-    # Shape: [..., num_col, num_row, 2]
+    # Shape: [..., col, row, rail=2]
     delta__V = solve_block_tridiagonal_2x2_uniform(
         diag_blocks__uS,
         rhs__uA,
@@ -592,26 +602,26 @@ def _compute_k_inner_coupled_2x2(
 
     Args:
         g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., num_col, num_row]`.
+            Shape: `[..., col, row]`.
         bl_segment_g__uS: BL rail conductance of one lattice link.
         sl_segment_g__uS: SL rail conductance of one lattice link.
 
     Returns:
         Dimensionless clamp-to-port-node sensitivity.
-        Shape: `[..., num_col, 2, 2]`.
+        Shape: `[..., col, rail=2, rail=2]`.
     """
-    # Shape: [..., num_col, num_row, 2, 2]
+    # Shape: [..., col, row, rail=2, rail=2]
     diag_blocks__uS = _g_diag_blocks__uS(g_cell_bl_eff__uS, g_cell_sl_eff__uS, bl_segment_g__uS, sl_segment_g__uS)
     off_block = (-bl_segment_g__uS, -sl_segment_g__uS)
 
     # Unit forcing at row 0, one rail at a time.
-    # Shape: [..., num_col, num_row]
+    # Shape: [..., col, row]
     zeros_node = torch.zeros_like(g_cell_bl_eff__uS)
     unit_row0 = F.pad(torch.ones_like(g_cell_bl_eff__uS[..., :1]), (0, g_cell_bl_eff__uS.shape[-1] - 1))
 
-    # Shape: [..., num_col, num_row, 2]
+    # Shape: [..., col, row, rail=2]
     u_bl = solve_block_tridiagonal_2x2_uniform(
         diag_blocks__uS,
         torch.stack((unit_row0, zeros_node), dim=-1),
@@ -625,7 +635,7 @@ def _compute_k_inner_coupled_2x2(
 
     # K[:, 0] is the BL-forced row-0 response, K[:, 1] the SL-forced one,
     # each carrying the conductance of the link that forced it.
-    # Shape: [..., num_col, 2]
-    k_col_bl = u_bl.select(-2, 0) * bl_segment_g__uS
-    k_col_sl = u_sl.select(-2, 0) * sl_segment_g__uS
+    # Shape: [..., col, rail=2]
+    k_col_bl = u_bl[..., 0, :] * bl_segment_g__uS
+    k_col_sl = u_sl[..., 0, :] * sl_segment_g__uS
     return torch.stack((k_col_bl, k_col_sl), dim=-1)

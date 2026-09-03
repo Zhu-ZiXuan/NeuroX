@@ -28,10 +28,10 @@ class AxisDistribution(TensorDataClassBase):
 
     values: Tensor
     """Allowed values, int64.
-    Shape: `[value_num]`."""
+    Shape: `[value]`."""
     probs: Tensor
     """Normalized probabilities matching `values`, float64.
-    Shape: `[value_num]`."""
+    Shape: `[value]`."""
 
 
 class Distribution(TensorDataClassBase):
@@ -170,7 +170,7 @@ def sample_w(
 
     Yields:
         Weight tensor.
-        Shape: `[batch_w, input_num, output_num]`.
+        Shape: `[weight_sample, input, output]`.
 
     Raises:
         ValueError: A non-positive `batch_w`, or an `n` that is not a multiple
@@ -219,7 +219,7 @@ def sample_x_batches(
     Yields:
         Int64 batch on `device`; the leading axis is `batch_size` except on the
         last batch, which carries whatever remains of `n_total`.
-        Shape: `[batch_size, input_num]`.
+        Shape: `[sample, input]`.
 
     Raises:
         ValueError: A non-positive `batch_size` or a negative `n_total`.

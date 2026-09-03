@@ -83,13 +83,13 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
     # === Nominal buffers ===
 
-    _nominal_c__fF: Tensor  # Shape: [cap_num]
+    _nominal_c__fF: Tensor  # Shape: [bit]
     _nominal_comparator_offset__V: Tensor  # Shape: []
 
     # === Fabricated state ===
 
-    _c_p__fF: Tensor  # Shape: [*inst_shape, cap_num]
-    _c_n__fF: Tensor  # Shape: [*inst_shape, cap_num]
+    _c_p__fF: Tensor  # Shape: [*inst_shape, bit]
+    _c_n__fF: Tensor  # Shape: [*inst_shape, bit]
     _comparator_offset__V: Tensor  # Shape: [*inst_shape]
 
     def __init__(
@@ -183,7 +183,7 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             v_refs__V: Injected reference taps; the CDAC swings against one
                 full-scale reference, so the single tap is read off the last
                 axis and the leading dims broadcast against the inputs.
-                Shape: `[..., 1]`.
+                Shape: `[..., tap=1]`.
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
@@ -196,15 +196,15 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         """
         self._validate_runtime_args(v_refs__V)
 
-        # Shape: [..., 1] -> [...]
+        # Shape: [..., tap=1] -> [...]
         v_ref__V = v_refs__V[..., 0]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self._c_p__fF
         c_n__fF = self._c_n__fF
-        # Shape: [..., cap_num] -> [...]
+        # Shape: [..., bit] -> [...]
         c_p_total__fF = c_p__fF.sum(dim=-1)
-        # Shape: [..., cap_num] -> [...]
+        # Shape: [..., bit] -> [...]
         c_n_total__fF = c_n__fF.sum(dim=-1)
 
         # --- 1: sample and hold ---
@@ -233,13 +233,13 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
         # The active capacitor slice is indexed directly by the SAR bit.
         cap_lo = self.bits - active_bits + 1
-        # Shape: [..., cap_num] -> [..., active_bits-1]
+        # Shape: [..., bit]
         c_p_used__fF = c_p__fF[..., cap_lo : self.bits]
-        # Shape: [..., cap_num] -> [..., active_bits-1]
+        # Shape: [..., bit]
         c_n_used__fF = c_n__fF[..., cap_lo : self.bits]
-        # Shape: [...] -> [..., 1]
+        # Shape: [...] -> [..., bit=1]
         c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
-        # Shape: [...] -> [..., 1]
+        # Shape: [...] -> [..., bit=1]
         c_n_total_e__fF = c_n_total__fF.unsqueeze(-1)
         v_p_step_table__V = v_cm__V * c_p_used__fF / c_p_total_e__fF
         v_n_step_table__V = v_cm__V * c_n_used__fF / c_n_total_e__fF
@@ -247,9 +247,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         # --- 4: run the SAR decisions ---
 
         for k in range(active_bits - 2, -1, -1):
-            # Shape: [..., active_bits-1] -> [...]
+            # Shape: [..., bit] -> [...]
             v_p_step__V = v_p_step_table__V[..., k]
-            # Shape: [..., active_bits-1] -> [...]
+            # Shape: [..., bit] -> [...]
             v_n_step__V = v_n_step_table__V[..., k]
             v_p_top__V = torch.where(last_bit, v_p_top__V + v_p_step__V, v_p_top__V - v_p_step__V)
             v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
@@ -269,14 +269,14 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
 
             shifts = torch.arange(1, active_bits, device=code.device, dtype=code.dtype)
-            # Shape: [...] -> [..., active_bits-1]
+            # Shape: [...] -> [..., bit]
             bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
-            # Shape: [..., active_bits-1] -> [...]
+            # Shape: [..., bit] -> [...]
             e_detect__fJ = (
                 torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
                 + active_bits * self.config.energy_per_bit__fJ
             )
-            # Shape: [..., active_bits-1] -> [...]
+            # Shape: [..., bit] -> [...]
             c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
             e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
             self._record_dynamic_energy(e_sample__fJ + e_detect__fJ + e_reset__fJ)

@@ -262,9 +262,9 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         sliced = self.weight_slice.slice(weight)
         # Shape: [N, K, Sw] -> [D, G, Q, Tc, L, Sw]
         partitioned = self.placement.partition_weight(sliced)
-        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output_num]
+        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output]
         arranged = self.weight_slice.arrange_weight(partitioned)
-        # Shape: [Sw, Tc, G, D, L, output_num] -> [M=1, Sx=1, Sw, Tc, G, input_num, output_num]
+        # Shape: [Sw, Tc, G, D, L, output] -> [M=1, Sx=1, Sw, Tc, G, input, output]
         return self.placement.pack_weight(arranged)
 
     def _organize_x(self, input: Tensor) -> Tensor:
@@ -310,19 +310,19 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         organized = self._organize_x(input)
         # Shape: [..., M, Sx, Sw, Tc, G, L] -> [..., M, Sx, Sw, Tc, G, P, L]
         phased = self.input_activation.unroll_input_phases(organized)
-        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., D, P, M, Sx, Sw, Tc, G, input_num]
+        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., D, P, M, Sx, Sw, Tc, G, input]
         code = self.placement.unroll_block_steps(phased)
-        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input_num] -> [..., D, P, M, Sx, Sw, Tc, G, output_num]
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input] -> [..., D, P, M, Sx, Sw, Tc, G, output]
         code = self.cim_macro.vec_mat_mul(
             code,
             quantization_mode=quantization_mode,
             adc_active_bits=adc_active_bits,
         ).to(torch.int64)
-        # Shape: [..., D, P, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, Tc, G, output_num]
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, output] -> [..., D, M, Sx, Sw, Tc, G, output]
         code = self.input_activation.accumulate_phases(code)
-        # Shape: [..., D, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, G, output_num]
+        # Shape: [..., D, M, Sx, Sw, Tc, G, output] -> [..., D, M, Sx, Sw, G, output]
         code = self.placement.accumulate_contraction_tiles(code)
-        # Shape: [..., D, M, Sx, Sw, G, output_num] -> [..., D, M, Sx, G, Q]
+        # Shape: [..., D, M, Sx, Sw, G, output] -> [..., D, M, Sx, G, Q]
         code = self.weight_slice.aggregate(code)
         # Shape: [..., D, M, Sx, G, Q] -> [..., D, M, G, Q]
         code = self.x_slice.aggregate(code)

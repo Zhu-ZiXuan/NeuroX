@@ -411,7 +411,9 @@ def test_direct_engine_unit_matches_torch_matmul_for_shape_cases(n: int, k: int,
 
 def test_direct_engine_unit_handles_wide_macro_weight_range() -> None:
     torch.manual_seed(1)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_linear(_direct_config(w_value_range=(-15, 15)), w_logical_shape=(n, k))
     weight = torch.randint(-15, 16, (n, k), dtype=torch.int32)
     activation = torch.randint(0, 2, (m, k), dtype=torch.int32)
@@ -460,7 +462,9 @@ def test_inter_array_slice_engine_unit_matches_torch_for_slice_range_cases(
     x_value_range: tuple[int, int],
 ) -> None:
     torch.manual_seed(4000 + w_slice_num * 100 + x_slice_num * 10 + macro_w_value_range[1])
-    n, k, m = 17, 19, 5
+    n = 17
+    k = 19
+    m = 5
     config = _inter_config(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
@@ -488,7 +492,9 @@ def test_intra_array_slice_engine_unit_matches_torch_for_slice_range_cases(
     x_value_range: tuple[int, int],
 ) -> None:
     torch.manual_seed(5000 + w_slice_num * 100 + x_slice_num * 10 + macro_w_value_range[1])
-    n, k, m = 17, 19, 5
+    n = 17
+    k = 19
+    m = 5
     config = _intra_config(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
@@ -503,7 +509,9 @@ def test_intra_array_slice_engine_unit_matches_torch_for_slice_range_cases(
 
 def test_direct_and_inter_slice_one_agree() -> None:
     torch.manual_seed(4)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     direct = _build_linear(_direct_config(), w_logical_shape=(n, k))
     inter = _build_linear(_inter_config(w_slice_num=1, x_slice_num=1), w_logical_shape=(n, k))
     weight = torch.randint(-3, 4, (n, k), dtype=torch.int32)
@@ -519,7 +527,9 @@ def test_direct_and_inter_slice_one_agree() -> None:
 
 def test_inter_and_intra_slice_engines_agree() -> None:
     torch.manual_seed(5)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     inter = _build_linear(_inter_config(w_slice_num=3, x_slice_num=4), w_logical_shape=(n, k))
     intra = _build_linear(_intra_config(w_slice_num=3, x_slice_num=4), w_logical_shape=(n, k))
     weight = torch.randint(-63, 64, (n, k), dtype=torch.int32)
@@ -547,7 +557,9 @@ def test_unit_program_replaces_owned_weight_state(
     config: IdealLinearUnitConfig | LinearCimUnitConfig,
 ) -> None:
     torch.manual_seed(6000)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit_for_kind(macro_kind, config, w_logical_shape=(n, k))
     activation = _randint_in_range(unit.x_value_range, (m, k))
     weight_a = _randint_in_range(unit.w_value_range, (n, k))
@@ -600,7 +612,9 @@ def test_multi_input_phase_exact_unit_matches_torch_matmul(
 ) -> None:
     """P=4 exact input phases still match `torch.matmul`."""
     torch.manual_seed(8000)
-    n, k, m = 13, 20, 8
+    n = 13
+    k = 20
+    m = 8
     unit = _build_unit_for_kind(macro_kind, config, w_logical_shape=(n, k))
     weight = _randint_in_range(unit.w_value_range, (n, k))
     activation = _randint_in_range(unit.x_value_range, (m, k))
@@ -610,7 +624,9 @@ def test_multi_input_phase_exact_unit_matches_torch_matmul(
 def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     """P=2 output equals per-phase quantized codes accumulated over P."""
     torch.manual_seed(8100)
-    n, k, m = 8, 16, 5
+    n = 8
+    k = 16
+    m = 5
     adc_bits = 6
     max_active_num = 8
     input_phase_num = 2
@@ -639,7 +655,7 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     xp = activation.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     wp = weight.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     plane_dot = torch.einsum("mpa,npa->mpn", xp, wp)
-    # Shape: [m, input_phase_num, n] -> [m, n]
+    # Shape: [m, input_phase, n] -> [m, n]
     expected = _convert(plane_dot).sum(dim=-2)
 
     assert actual.shape == (m, n)
@@ -654,7 +670,9 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
 def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
     """The phase accumulator bills one operation per arriving per-phase code: P=2 logs twice the energy of P=1."""
     torch.manual_seed(8200)
-    n, k, m = 8, 16, 5
+    n = 8
+    k = 16
+    m = 5
     energies: dict[int, float] = {}
     for max_active_num in (16, 8):  # P = 1, P = 2
         config = _wrap_unit(

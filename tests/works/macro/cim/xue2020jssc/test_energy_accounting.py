@@ -178,7 +178,8 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
 
 
 def test_dynamic_energy_scales_with_conduction_windows(device: torch.device) -> None:
-    w, x = _w_full(), _x_full(2)
+    w = _w_full()
+    x = _x_full(2)
     base_cfg = build_config(t_sample__ns=1.0, t_settle__ns=2.0)
 
     prof_base, rep_base = _run(base_cfg, w, x, device=device)
@@ -196,7 +197,8 @@ def test_dynamic_energy_scales_with_conduction_windows(device: torch.device) -> 
 
 def test_runtime_adc_width_selects_every_sensing_window(device: torch.device) -> None:
     config = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
     rows: list[dict[str, float]] = []
     for bits in range(1, config.tmcsa_config.bits + 1):
         profiler, reporter = _run(config, w, x, device=device, adc_active_bits=bits)
@@ -242,7 +244,8 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
 
 def test_array_cap_row_rides_the_shared_core_supply(device: torch.device) -> None:
     base = build_config()
-    w, x = _w_full(), _x_full(2)
+    w = _w_full()
+    x = _x_full(2)
 
     def array_row(config: Xue2020JsscCimMacroConfig) -> float:
         prof, reporter = _run(config, w, x, device=device)
@@ -268,7 +271,8 @@ def test_control_count_mux_times_batch(device: torch.device) -> None:
 
 
 def test_pn_isub_channel_present_and_uses_detection(device: torch.device) -> None:
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
 
     def pnisub(cfg: Xue2020JsscCimMacroConfig) -> float:
         return _channel_energies(cfg, w, x, device=device)["pn_isub"]
@@ -296,7 +300,8 @@ def test_pn_isub_per_op_energy_is_billed_per_scan_and_lane(device: torch.device)
 
 
 def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
     energies = [
         _channel_energies(
             build_config(x_bit_num=3, t_sample__ns=ts, t_settle__ns=1.0),
@@ -316,7 +321,8 @@ def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
 
 
 def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
     energies = [
         _channel_energies(
             build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=ts),
@@ -336,7 +342,8 @@ def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
 
 
 def test_sc_earlier_current_stays_active_through_later_phases(device: torch.device) -> None:
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
     base_cfg = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
     wide_cfg = dataclasses.replace(base_cfg, t_sample__ns=4.0)
     base = _channel_energies(base_cfg, w, x, device=device)["sinwp_sc"]
@@ -374,7 +381,8 @@ def test_live_bit_conducts_during_detection_independent_of_sampling(device: torc
     detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
     assert detect__ns == cfg.t_settle__ns + TINY_ADC_BITS * cfg.tmcsa_config.latency_per_bit__ns
 
-    w, x = _w_full(), _x_full(3)
+    w = _w_full()
+    x = _x_full(3)
 
     def cablc_settle_slope(t_sample: float) -> float:
         lo = _channel_energies(

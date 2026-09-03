@@ -53,11 +53,11 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
 
     # === Nominal buffers ===
 
-    _nominal_c__fF: Tensor  # Shape: [cap_num]
+    _nominal_c__fF: Tensor  # Shape: [cap]
 
     # === Fabricated state ===
 
-    _c__fF: Tensor  # Shape: [*inst_shape, cap_num]
+    _c__fF: Tensor  # Shape: [*inst_shape, cap]
 
     def __init__(
         self,
@@ -119,7 +119,7 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
 
         Args:
             v_in__V: Per-cap sampled voltages.
-                Shape: `[..., cap_num]`.
+                Shape: `[..., cap]`.
 
         Returns:
             Charge-weighted mean the shared node settles to.
@@ -134,7 +134,7 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
         if self._is_dynamic_energy_profile_active():
-            # Shape: [..., cap_num] -> [...]
+            # Shape: [..., cap] -> [...]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
             # The cap axis is already summed above; the collector sums the
             # remaining work and instance axes past the call's leading dims.

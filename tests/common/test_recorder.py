@@ -106,7 +106,8 @@ def test_a_record_is_frozen_once_built() -> None:
 def test_a_record_equals_only_itself() -> None:
     """A record is a measurement event, not a value: two of equal content stay two entries."""
     value = torch.tensor(1.0)
-    first, second = _Record(value=value), _Record(value=value)
+    first = _Record(value=value)
+    second = _Record(value=value)
     assert first == first
     assert first != second
     assert len({first, second}) == 2
@@ -275,7 +276,8 @@ def test_a_clean_exit_parks_the_records_on_the_declared_device() -> None:
 def test_the_sweep_covers_the_whole_book_on_every_clean_exit() -> None:
     """No new-versus-old bookkeeping: an already-parked record is swept again."""
     recorder = _FamilyA(sync_device=_CPU)
-    first, second = _SpyRecord(value=torch.tensor(1.0), moves=[]), _SpyRecord(value=torch.tensor(2.0), moves=[])
+    first = _SpyRecord(value=torch.tensor(1.0), moves=[])
+    second = _SpyRecord(value=torch.tensor(2.0), moves=[])
     with recorder:
         _FamilyA.submit(first)
     assert first.moves == [_CPU]

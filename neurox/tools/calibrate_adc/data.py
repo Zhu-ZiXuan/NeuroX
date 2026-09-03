@@ -15,10 +15,10 @@ class AdcProbeData(TensorDataClassBase):
     input_name: str
     input_value: Tensor
     """ADC decision input, CPU float32.
-    Shape: `[sample_num]`."""
+    Shape: `[sample]`."""
     ideal_value: Tensor
     """Lossless macro result, CPU int64.
-    Shape: `[sample_num]`."""
+    Shape: `[sample]`."""
     ideal_value_support: tuple[int, ...]
     """Reachable exact results under the declared value domains."""
 

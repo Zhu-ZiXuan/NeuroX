@@ -138,7 +138,7 @@ def build_operating_grid(
         `state_idx` carries the programmed-state index at each point, so the
         caller programs the cell per distinct state and selects the matching
         points.
-        Shape: `[n_terminal^2 * 2 * w_state_num]`.
+        Shape: `[operating_point]`.
     """
     v_axis = torch.linspace(
         grid.v_terminal_min__V,
@@ -152,7 +152,7 @@ def build_operating_grid(
     state_axis = torch.arange(n_states, dtype=torch.long, device=device)
 
     # Cartesian product over (v_bl__V, v_sl__V, v_wl__V, state), then flattened.
-    # Shape: [n_terminal, n_terminal, 2, w_state_num] -> [n_terminal**2 * 2 * w_state_num]
+    # Shape: [v_bl, v_sl, wl_state, w_state] -> [operating_point]
     grids = torch.meshgrid(v_axis, v_axis, v_wl_axis, state_axis.to(dtype), indexing="ij")
     v_bl__V = grids[0].reshape(-1)
     v_sl__V = grids[1].reshape(-1)

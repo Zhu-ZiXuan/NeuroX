@@ -79,12 +79,10 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
         macro access. The macro contract knows no phase — planes in, codes out
         — so `P` reaches it as one more broadcast leading axis.
         """
+        mask = self._active_input_mask
         # Shape: [P, L] -> [..., P, L]
-        mask = self._active_input_mask.reshape(
-            *(1,) * (x.ndim - 1),
-            self._input_phase_num,
-            x.shape[-1],
-        )
+        mask_shape = (*(1,) * (x.ndim - 1), *mask.shape)
+        mask = mask.view(mask_shape)
         # Shape: [..., M, Sx, Sw, Tc, G, L] -> [..., M, Sx, Sw, Tc, G, P, L]
         return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 

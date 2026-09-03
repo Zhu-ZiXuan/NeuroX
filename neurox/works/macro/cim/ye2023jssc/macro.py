@@ -136,7 +136,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     # === Functional buffers ===
 
     _v_wl_scan__V: Tensor  # Shape: [scan, row]
-    _scan_indices: Tensor  # Shape: [scan, 1]
+    _scan_indices: Tensor  # Shape: [scan, lane=1]
     _tbl_row_indices: Tensor  # Shape: [scan, lane]
     _v_bl__V: Tensor  # Shape: []
     _v_sl__V: Tensor  # Shape: []
@@ -253,9 +253,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         )
 
     def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
-        # Shape: [row, row] -> [lane, scan, row] -> [scan, row]
-        scan_wl_on = torch.eye(self.row_num, dtype=dtype).unflatten(0, (self.lane_num, self.scan_num)).sum(dim=0)
-        # Shape: [scan, 1]
+        # Shape: [row, row] -> [lane, scan, row]
+        scan_wl_on = torch.eye(self.row_num, dtype=dtype).unflatten(0, (self.lane_num, self.scan_num))
+        # Shape: [lane, scan, row] -> [scan, row]
+        scan_wl_on = scan_wl_on.sum(dim=0)
+        # Shape: [scan] -> [scan, lane=1]
         scan_indices = torch.arange(self.scan_num).unsqueeze(-1)
         # Shape: [scan, lane]
         tbl_row_indices = scan_indices + torch.arange(self.lane_num).unsqueeze(0) * self.scan_num
@@ -280,15 +282,15 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         Args:
             w: Logical unsigned weight tensor.
-                Shape: `[*inst_shape, input_num, output_num]`.
+                Shape: `[*inst_shape, input, output]`.
         """
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
-        # Shape: [..., input_num, output_num] -> [..., w_digit, input_num, output_num]
+        # Shape: [..., input, output] -> [..., w_digit, input, output]
         digits = self._w_transcoder.encode(w.long(), dim=-3)
-        # Shape: [..., w_digit, input_num, output_num] -> [..., col, row]
+        # Shape: [..., w_digit, input, output] -> [..., col, row]
         state_idx = self._append_disabled_rsm(digits, dim=-3).flatten(-3, -2)
         # Shape: [..., col, row] -> [..., scan=1, col, row]
         state_idx = state_idx.unsqueeze(-3)
@@ -308,9 +310,9 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- 1: drive each logical input across the physical columns ---
 
-        # Shape: [..., input_num] -> [..., w_digit, input_num]
+        # Shape: [..., input] -> [..., w_digit, input]
         x_code = x.unsqueeze(-2).expand(*leading_shape, self._w_digit_num, self.input_num)
-        # Shape: [..., w_digit, input_num] -> [..., col]
+        # Shape: [..., w_digit, input] -> [..., col]
         bl_code = self._append_disabled_rsm(x_code, dim=-2).flatten(-2)
         # Shape: [..., col]
         v_bl__V = bl_code * self._v_bl__V
@@ -338,8 +340,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.bl_driver.drive(i_port__uA=steady_state.i_bl_port__uA)
         self.sl_driver.drive(i_port__uA=steady_state.i_sl_port__uA)
 
-        # Shape: [..., scan, row] -> [..., scan, lane] -> [..., lane, scan]
-        i_tbl__uA = steady_state.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices].movedim(-1, -2)
+        # Shape: [..., scan, row] -> [..., scan, lane]
+        i_tbl__uA = steady_state.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices]
+        # Shape: [..., scan, lane] -> [..., lane, scan]
+        i_tbl__uA = i_tbl__uA.movedim(-1, -2)
 
         # --- 4: array conduction ---
 
@@ -355,10 +359,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- 5: RS-CSA quantize against its single reference current ---
 
-        # Shape: [..., mode_num] -> [...]
-        i_refs__uA = self.rscsa_reference.values().select(-1, quantization_mode)
+        # Shape: [..., mode] -> [...]
+        i_refs__uA = self.rscsa_reference.values()[..., quantization_mode]
         # Shape: [...] -> [..., lane=1, scan=1, tap=1]
-        i_refs__uA = i_refs__uA.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        i_refs_shape = (*i_refs__uA.shape, 1, 1, 1)
+        i_refs__uA = i_refs__uA.view(i_refs_shape)
         # Shape: [..., lane, scan]
         i_signal__uA = i_tbl__uA - self.array.i_tbl_leak__uA
         # Shape: [..., lane, scan]

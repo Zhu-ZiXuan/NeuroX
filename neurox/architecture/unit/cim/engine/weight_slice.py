@@ -103,7 +103,7 @@ class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStag
 
         Returns:
             Weight codes in macro-facing order.
-            Shape: `[Sw, Tc, G, D, L, output_num]`.
+            Shape: `[Sw, Tc, G, D, L, output]`.
         """
         raise NotImplementedError
 
@@ -133,11 +133,11 @@ class DirectWeightSliceStage(WeightSliceStage[DirectWeightSliceStageConfig, Dire
         return DirectSlicer(value_range=macro_w_value_range)
 
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        # Shape: [D, G, Q, Tc, L, Sw=1] -> [Sw=1, Tc, G, D, L, output_num]
+        # Shape: [D, G, Q, Tc, L, Sw=1] -> [Sw=1, Tc, G, D, L, output]
         return weight.permute([5, 3, 1, 0, 4, 2])
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., D, M, Sx, Sw=1, G, output_num] -> [..., D, M, Sx, G, output_num]
+        # Shape: [..., D, M, Sx, Sw=1, G, output] -> [..., D, M, Sx, G, output]
         return code.squeeze(-3)
 
 
@@ -202,11 +202,11 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
         )
 
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output_num]
+        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output]
         return weight.permute([5, 3, 1, 0, 4, 2])
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., D, M, Sx, Sw, G, output_num] -> [..., D, M, Sx, G, output_num]
+        # Shape: [..., D, M, Sx, Sw, G, output] -> [..., D, M, Sx, G, output]
         return self.shift_adder.shift_add(code, dim=-3, init_val=None)
 
 
@@ -284,15 +284,15 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
         arranged = weight.permute([3, 1, 0, 4, 2, 5])
         # Shape: [Tc, G, D, L, Q, Sw] -> [Tc, G, D, L, Q*Sw]
         arranged = arranged.flatten(start_dim=-2, end_dim=-1)
-        # Shape: [Tc, G, D, L, Q*Sw] -> [Tc, G, D, L, output_num]
+        # Shape: [Tc, G, D, L, Q*Sw] -> [Tc, G, D, L, output]
         arranged = F.pad(arranged, (0, self._output_num - arranged.shape[-1]))
-        # Shape: [Tc, G, D, L, output_num] -> [Sw=1, Tc, G, D, L, output_num]
+        # Shape: [Tc, G, D, L, output] -> [Sw=1, Tc, G, D, L, output]
         return arranged.unsqueeze(0)
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., D, M, Sx, Sw=1, G, output_num] -> [..., D, M, Sx, G, output_num]
+        # Shape: [..., D, M, Sx, Sw=1, G, output] -> [..., D, M, Sx, G, output]
         code = code.squeeze(-3)
-        # Shape: [..., D, M, Sx, G, output_num] -> [..., D, M, Sx, G, Q*Sw]
+        # Shape: [..., D, M, Sx, G, output] -> [..., D, M, Sx, G, Q*Sw]
         code = code[..., : self._used_output_num]
         # Shape: [..., D, M, Sx, G, Q*Sw] -> [..., D, M, Sx, G, Q, Sw]
         code = code.unflatten(-1, (self._weights_per_macro, self.config.w_slice_num))

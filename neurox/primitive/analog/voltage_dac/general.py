@@ -53,8 +53,8 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
 
     # === Functional buffers ===
 
-    _code_to_signal: Tensor  # Shape: [code_num]
-    _code_to_per_op_energy__fJ: Tensor  # Shape: [code_num]
+    _code_to_signal: Tensor  # Shape: [code]
+    _code_to_per_op_energy__fJ: Tensor  # Shape: [code]
 
     def __init__(
         self,

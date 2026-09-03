@@ -46,7 +46,8 @@ def latency_per_token__ns(model: nn.Module) -> float:
         if not isinstance(layer, QuantLinear):
             continue
         root = layer.macro
-        # Shape: [K], the fan-in one output channel contracts over.
+        # Shape: [K]
+        # K is the fan-in contracted by one output channel.
         total__ns += root.latency__ns(
             (layer.in_features,),
             adc_active_bits=layer.adc_active_bits,

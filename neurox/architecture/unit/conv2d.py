@@ -80,7 +80,7 @@ class Conv2dUnit(UnitBase, ABC):
         if input.ndim not in (3, 4):
             raise ValueError(f"conv2d() expects input [C_in, H, W] or [B, C_in, H, W]; got ndim {input.ndim}")
         unbatched = input.ndim == 3
-        # Shape: [C_in, H, W] -> [1, C_in, H, W]
+        # Shape: [C_in, H, W] -> [B=1, C_in, H, W]
         x = input.unsqueeze(0) if unbatched else input
         out_hw = self._conv2d_out_hw(x.shape[-2], x.shape[-1])
         planes = self._conv2d_planes(x, out_hw=out_hw)
@@ -88,10 +88,10 @@ class Conv2dUnit(UnitBase, ABC):
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
         if int_bias is not None:
-            # Shape: [C_out] -> [C_out, 1, 1]
+            # Shape: [C_out] -> [C_out, H_out=1, W_out=1]
             y = y + int_bias.view(-1, 1, 1)
         if unbatched:
-            # Shape: [1, C_out, H_out, W_out] -> [C_out, H_out, W_out]
+            # Shape: [B=1, C_out, H_out, W_out] -> [C_out, H_out, W_out]
             y = y.squeeze(0)
         return y
 

@@ -57,7 +57,8 @@ def test_descent_stops_at_the_first_neurox_module() -> None:
 
 
 def test_a_plain_container_may_hold_several_roots() -> None:
-    first, second = _Node(), _Node()
+    first = _Node()
+    second = _Node()
 
     class _Host(nn.Module):
         def __init__(self) -> None:

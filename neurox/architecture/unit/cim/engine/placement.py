@@ -60,8 +60,8 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     # === Functional buffers ===
 
-    _block_slot_mask: Tensor  # Shape: [D, input_num]
-    _input_source_index: Tensor  # Shape: [D, input_num]
+    _block_slot_mask: Tensor  # Shape: [D, input]
+    _input_source_index: Tensor  # Shape: [D, input]
 
     def __init__(
         self,
@@ -136,12 +136,12 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     def pack_weight(self, weight: Tensor) -> Tensor:
         """Pack canonical `[D, L]` slots into the macro input axis."""
-        # Shape: [Sw, Tc, G, D, L, output_num] -> [Sw, Tc, G, D*L, output_num]
+        # Shape: [Sw, Tc, G, D, L, output] -> [Sw, Tc, G, D*L, output]
         packed = weight.flatten(start_dim=-3, end_dim=-2)
-        # Shape: [Sw, Tc, G, D*L, output_num] -> [Sw, Tc, G, input_num, output_num]
+        # Shape: [Sw, Tc, G, D*L, output] -> [Sw, Tc, G, input, output]
         packed = F.pad(packed, (0, 0, 0, self._input_num - packed.shape[-2]))
-        # Shape: [Sw, Tc, G, input_num, output_num] -> [M=1, Sx=1, Sw, Tc, G, input_num, output_num]
-        return packed.unsqueeze(0).unsqueeze(0)
+        # Shape: [Sw, Tc, G, input, output] -> [M=1, Sx=1, Sw, Tc, G, input, output]
+        return packed.view(1, 1, *packed.shape)
 
     def organize_x(self, x: Tensor) -> Tensor:
         """Partition sliced inputs into the canonical macro-aligned layout."""
@@ -163,21 +163,18 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
     def unroll_block_steps(self, x: Tensor) -> Tensor:
         """Route phased local inputs through CIM block steps."""
         inst_rank = self._macro_inst_rank
-        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., M, Sx, Sw, Tc, G, P, D, input_num]
+        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., M, Sx, Sw, Tc, G, P, D, input]
         routed = x[..., self._input_source_index]
-        # Shape: [..., M, Sx, Sw, Tc, G, P, D, input_num] -> [..., D, M, Sx, Sw, Tc, G, P, input_num]
+        # Shape: [..., M, Sx, Sw, Tc, G, P, D, input] -> [..., D, M, Sx, Sw, Tc, G, P, input]
         routed = routed.movedim(-2, -(inst_rank + 3))
-        # Shape: [..., D, M, Sx, Sw, Tc, G, P, input_num] -> [..., D, P, M, Sx, Sw, Tc, G, input_num]
+        # Shape: [..., D, M, Sx, Sw, Tc, G, P, input] -> [..., D, P, M, Sx, Sw, Tc, G, input]
         routed = routed.movedim(-2, -(inst_rank + 2))
 
-        # Shape: [D, input_num] -> [D, P=1, *inst_shape=1, input_num]
-        mask = self._block_slot_mask.reshape(
-            self.plan.block_slot_num,
-            1,
-            *(1,) * inst_rank,
-            self._input_num,
-        )
-        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input_num]
+        mask = self._block_slot_mask
+        # Shape: [D, input] -> [D, P=1, *inst_shape=1, input]
+        mask_shape = (mask.shape[0], *(1,) * (inst_rank + 1), mask.shape[-1])
+        mask = mask.view(mask_shape)
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input]
         return torch.where(mask, routed, routed.new_zeros(()))
 
     def accumulate_contraction_tiles(self, code: Tensor) -> Tensor:

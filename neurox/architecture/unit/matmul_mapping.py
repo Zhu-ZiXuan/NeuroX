@@ -105,7 +105,7 @@ def make_block_slot_routing(
 ) -> BlockSlotRouting:
     """Map local input indices into geometric block slots."""
     input_positions = torch.arange(placement.tile_input_capacity)
-    # Shape: [block_slot] -> [block_slot, 1]
+    # Shape: [block_slot] -> [block_slot, tile_input=1]
     block_starts = torch.arange(placement.block_slot_num).unsqueeze(-1) * placement.contraction_block_size
     # Shape: [block_slot, tile_input]
     local_indices = input_positions - block_starts
@@ -126,7 +126,7 @@ def make_activation_group_mask(*, activation: InputActivationPlan) -> Tensor:
         Shape: `[activation_group, block_input]`.
     """
     input_positions = torch.arange(activation.input_block_size)
-    # Shape: [activation_group] -> [activation_group, 1]
+    # Shape: [activation_group] -> [activation_group, block_input=1]
     activation_groups = torch.arange(activation.activation_group_num).unsqueeze(-1)
     # Shape: [activation_group, block_input]
     return input_positions // activation.active_input_limit == activation_groups

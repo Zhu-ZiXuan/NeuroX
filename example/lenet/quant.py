@@ -94,13 +94,13 @@ def derive_multiplier_and_shift_tensor(
 
     Args:
         scale_tensor: Per-channel scale factors.
-            Shape: `[num_channels]`.
+            Shape: `[channel]`.
         mult_bits: Multiplier precision.
 
     Returns:
         `(multiplier, rshift)` int32 tensors reproducing the scale as
         `x × multiplier >> rshift`.
-        Shape: `[num_channels]`.
+        Shape: `[channel]`.
     """
     mult_max = (1 << mult_bits) - 1
     significand, exponent = torch.frexp(scale_tensor)
@@ -185,7 +185,7 @@ class PerChannelSymmObserver(nn.Module):
 
     # === Runtime buffers ===
 
-    abs_max: Tensor  # Shape: [num_channels]
+    abs_max: Tensor  # Shape: [channel]
     frozen: Tensor  # Shape: []
 
     def __init__(self, num_channels: int, qmax: int, momentum: float = 0.1) -> None:
@@ -247,13 +247,14 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
 
     Args:
         weight: Float weight tensor; axis 0 is the output channel.
-            Shape: `[num_channels, ...]`.
+            Shape: `[channel, ...]`.
         scale: Per-channel scale.
-            Shape: `[num_channels]`.
+            Shape: `[channel]`.
         qmax: Symmetric grid half-width — values clamp into `[-qmax, +qmax]`.
     """
-    shape = [scale.shape[0]] + [1] * (weight.ndim - 1)
-    sw = scale.view(shape)
+    # Shape: [channel] -> [channel, ...]
+    scale_shape = (scale.shape[0], *(1,) * (weight.ndim - 1))
+    sw = scale.view(scale_shape)
     w_int = torch.round(weight / sw).clamp(-qmax, qmax)
     w_fq = w_int * sw
     return weight + (w_fq - weight).detach()
@@ -302,7 +303,9 @@ class QATConv2d(nn.Conv2d):
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()
         s_y, zp_y = self.out_observer.qparams()
-        sw_expanded = s_w.view([-1] + [1] * (self.weight.ndim - 1))
+        # Shape: [channel] -> [channel, ...]
+        scale_shape = (s_w.shape[0], *(1,) * (self.weight.ndim - 1))
+        sw_expanded = s_w.view(scale_shape)
         weight_int = torch.round(self.weight / sw_expanded).clamp(-W_QMAX, W_QMAX).to(torch.int8)
         return {
             "kind": "conv2d",
@@ -346,7 +349,7 @@ class QATLinear(nn.Linear):
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()
         s_y, zp_y = self.out_observer.qparams()
-        weight_int = torch.round(self.weight / s_w.view(-1, 1)).clamp(-W_QMAX, W_QMAX).to(torch.int8)
+        weight_int = torch.round(self.weight / s_w.unsqueeze(-1)).clamp(-W_QMAX, W_QMAX).to(torch.int8)
         return {
             "kind": "linear",
             "in_features": self.in_features,
@@ -385,11 +388,14 @@ class _FoldedScales(TensorDataClassBase):
     """Integer rescale terms the runtime forward applies to macro codes."""
 
     mult: Tensor
-    """Int32 multiplier of the folded scale. Shape: `[num_channels]`."""
+    """Int32 multiplier of the folded scale.
+    Shape: `[channel]`."""
     rshift: Tensor
-    """Right-shift paired with `mult`. Shape: `[num_channels]`."""
+    """Right-shift paired with `mult`.
+    Shape: `[channel]`."""
     bias_int: Tensor
-    """Bias plus input zero-point correction, in macro codes. Shape: `[num_channels]`."""
+    """Bias plus input zero-point correction, in macro codes.
+    Shape: `[channel]`."""
     mac_per_code: float
 
 
@@ -483,7 +489,7 @@ def _unfold_conv_input(
 def _fold_conv_output(y: Tensor, out_channels: int, batch_shape: tuple[int, ...], out_h: int, out_w: int) -> Tensor:
     """Reverse of `_unfold_conv_input` for the per-row matmul output."""
     n = y.shape[0]
-    # Shape: [N, OH*OW, out_channels] -> [N, out_channels, OH, OW]
+    # Shape: [N, OH*OW, output_channel] -> [N, output_channel, OH, OW]
     y = y.transpose(1, 2).reshape(n, out_channels, out_h, out_w)
     if batch_shape:
         y = y.reshape(*batch_shape, out_channels, out_h, out_w)
@@ -568,7 +574,7 @@ class QuantConv2d(nn.Module):
             adc_active_bits=self.adc_active_bits,
         ).to(torch.int32)
         # Apply the per-out-channel mult / rshift.
-        # Shape: [N, OH*OW, out_channels]
+        # Shape: [N, OH*OW, output_channel]
         y = (code + self.bias_int.view(1, 1, -1)) * self.mult.view(1, 1, -1)
         y = stochastic_floor_div(y, self.rshift.view(1, 1, -1), training=False)
         y = (y + self.zp_y.to(torch.int32)).clamp(Y_QMIN, Y_QMAX)
@@ -658,7 +664,7 @@ class QuantLinear(nn.Module):
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
         # Linear passes the leading dims through.
-        # Shape: [..., K] -> [..., 1, K]
+        # Shape: [..., K] -> [..., M=1, K]
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
         code = (
             self.macro.linear(

@@ -8,8 +8,7 @@ the ladder's open end at the far index, which has no link onward.
 The wire axis is a parameter rather than a per-orientation function: `dim` is
 the NEGATIVE index of the axis the ladder runs along, which is what makes the
 trailing-pad width exact. Shapes below are written for a generic wire axis;
-the present call sites pass `dim=-1` over cell grids at `[..., col_num,
-row_num]`.
+the present call sites pass `dim=-1` over cell grids at `[..., col, row]`.
 """
 
 from __future__ import annotations
@@ -31,17 +30,17 @@ def f_kcl__uA(
 
     Args:
         v_node__V: Wire node voltages.
-            Shape: `[..., node_num, ...]`.
+            Shape: `[..., node, ...]`.
         v_drive__V: Drive voltage, of extent 1 along `dim`.
-            Shape: `[..., 1, ...]`.
+            Shape: `[..., node=1, ...]`.
         segment_g__uS: Conductance of one lattice link.
         i_inject__uA: Cell current drawn at each node.
-            Shape: `[..., node_num, ...]`.
+            Shape: `[..., node, ...]`.
         dim: Negative index of the axis the wire runs along.
 
     Returns:
         KCL residual tensor.
-        Shape: `[..., node_num, ...]`.
+        Shape: `[..., node, ...]`.
     """
     # `F.pad` reads its argument from the last axis backwards, two entries per
     # axis: a negative `dim` sits behind exactly `-dim - 1` untouched axes and
@@ -49,13 +48,13 @@ def f_kcl__uA(
     pad = (0, 0) * (-dim - 1) + (0, 1)
     # dv_to_left__V[k] = v_node__V[k] - v_node__V[k-1] for k >= 1;
     # v_node__V[0] - v_drive__V at k = 0.
-    # Shape: [..., wire_point, ...]
+    # Shape: [..., point, ...]
     v_with_drive__V = torch.cat((v_drive__V, v_node__V), dim=dim)
-    # Shape: [..., wire_point, ...] -> [..., node_num, ...]
+    # Shape: [..., point, ...] -> [..., node, ...]
     dv_to_left__V = torch.diff(v_with_drive__V, dim=dim)
     # dv_to_right__V[k] = v_node__V[k] - v_node__V[k+1] for k <= N-2; the open
     # end at k = N-1 has no link onward, so its difference is padded away.
-    # Shape: [..., node_num, ...]
+    # Shape: [..., node, ...]
     dv_to_right__V = F.pad(-torch.diff(v_node__V, dim=dim), pad)
 
     return i_inject__uA + (dv_to_left__V + dv_to_right__V) * segment_g__uS
@@ -77,16 +76,16 @@ def g_self__uS(
 
     Args:
         g_cell_eff__uS: Per-node cell branch derivative.
-            Shape: `[..., node_num, ...]`.
+            Shape: `[..., node, ...]`.
         segment_g__uS: Conductance of one lattice link.
         dim: Negative index of the axis the wire runs along.
 
     Returns:
         Per-node self-conductance.
-        Shape: `[..., node_num, ...]`.
+        Shape: `[..., node, ...]`.
     """
     node_num = g_cell_eff__uS.shape[dim]
-    # Shape: [..., node_num, ...]
+    # Shape: [..., node, ...]
     return torch.cat(
         (
             torch.narrow(g_cell_eff__uS, dim, 0, node_num - 1) + 2.0 * segment_g__uS,
@@ -107,16 +106,16 @@ def i_drive__uA(
 
     Args:
         v_node__V: Wire node voltages.
-            Shape: `[..., node_num, ...]`.
+            Shape: `[..., node, ...]`.
         v_drive__V: Drive voltage, of extent 1 along `dim`.
-            Shape: `[..., 1, ...]`.
+            Shape: `[..., node=1, ...]`.
         segment_g__uS: Conductance of one lattice link — the driver reaches
             node 0 through exactly one of them.
         dim: Negative index of the axis the wire runs along.
 
     Returns:
         Drive current, the wire axis dropped.
-        Shape: `[..., ...]`.
+        Shape: `[...]`.
     """
-    # Shape: [..., 1, ...] -> [..., ...]
+    # Shape: [..., node=1, ...] -> [...]
     return (v_drive__V.squeeze(dim) - v_node__V.select(dim, 0)) * segment_g__uS
