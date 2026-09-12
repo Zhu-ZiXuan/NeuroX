@@ -1,0 +1,6 @@
+[cim_macro]
+_neurox_use_preset = "works/ye2023jssc:cim_macro"
+
+[cim_macro.adc_config]
+latency_per_bit__ns = 20.0          # [measured p7 Fig. 18] PH1-PH4 test duration
+init__ns = 0.0                      # [derived] equal duration for all four test phases

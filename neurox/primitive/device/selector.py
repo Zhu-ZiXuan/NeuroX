@@ -4,13 +4,21 @@ See Also:
     docs/reference/primitive/device/selector.md
 """
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
+
+__all__ = [
+    "Selector",
+    "SelectorConfig",
+    "SelectorPolicy",
+]
 
 
 class SelectorConfig(ConfigBase):

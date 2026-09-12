@@ -126,19 +126,17 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
     ref_shape = (*leading, phys_col_num)
     v_blc = macro.cablc_vref.values()
-    steady = macro.array.solve_array(
+    dcop = macro.array.solve_dc(
         v_wl__V=v_wl,
         wl_phase_dims=(-2,),
-        bl_driver=macro.cablc,
         bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
-        sl_driver=macro.sl_driver,
         sl_driver_snap=macro.sl_driver.snapshot(
             v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
             shape=ref_shape,
         ),
     )
     phase_duration__ns = v_wl.new_tensor((*([sample__ns] * (cfg.x_bit_num - 1)), detect__ns))
-    energy__fJ = (vdd__V * steady.i_bl_port__uA).sum(dim=-1) * phase_duration__ns
+    energy__fJ = (vdd__V * dcop.i_bl_port__uA).sum(dim=-1) * phase_duration__ns
     return float(energy__fJ.sum())
 
 

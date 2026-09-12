@@ -1,9 +1,4 @@
-"""Fabrication traversal tests for a concrete 1T1R array tree.
-
-The traversal test verifies that `fabricate()` reaches every fabricable node
-exactly once in the documented pre-order. All policies are off; the spy counts
-sampling calls regardless of whether a perturbation is enabled.
-"""
+"""Array fabrication visits each registered module once in pre-order."""
 
 from __future__ import annotations
 
@@ -12,17 +7,14 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.primitive.device import MosfetConfig, MosfetPolicy, Nmos, Rram, RramConfig, RramPolicy
-from neurox.primitive.xbar.array import (
-    XbarArray1t1r,
-    XbarArray1t1rConfig,
-    XbarArray1t1rPolicy,
-)
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy, VoltageDriverSnap
+from neurox.primitive.device.mosfet import MosfetConfig, MosfetPolicy, Nmos
+from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy
+from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
-from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 
-type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
+type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy, VoltageDriverSnap, VoltageDriverSnap]
 type _Module = ModuleBase[ConfigBase, PolicyBase]
 
 
@@ -37,7 +29,6 @@ def _array_config() -> XbarArray1t1rConfig:
         access_nmos_W__um=0.1,
         access_nmos_L__um=0.05,
         rram_g_max__uS=100.0,
-        newton_iter_num=2,
     )
     return XbarArray1t1rConfig(
         row_cell_space__um=1.0,
@@ -49,7 +40,6 @@ def _array_config() -> XbarArray1t1rConfig:
         sl_node_c__fF=0.1,
         wl_node_c__fF=0.1,
         cell_config=cell_config,
-        solver_config=ColBlColSlSolverConfig(n_outer=1, n_inner=1),
     )
 
 
@@ -57,6 +47,8 @@ def _build_array(*, device: torch.device) -> _Array:
     """Build a minimal standalone 1T1R pure array, every policy toggle off."""
     policy = _array_policy(solve_chunk_size=0)
     array = XbarArray1t1r(
+        bl_driver=_driver(device=device),
+        sl_driver=_driver(device=device),
         config=_array_config(),
         policy=policy,
         inst_shape=(),
@@ -69,6 +61,23 @@ def _build_array(*, device: torch.device) -> _Array:
     array.to(device)
     array.eval()
     return array
+
+
+def _driver(*, device: torch.device) -> VoltageDriver:
+    return VoltageDriver(
+        config=VoltageDriverConfig(
+            r_out__MOhm=0.0,
+            offset_sigma__V=0.0,
+            thermal_sigma__V=0.0,
+            energy_per_op__fJ=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        ),
+        policy=VoltageDriverPolicy(offset=False, thermal=False),
+        inst_shape=(2,),
+        dtype=torch.float64,
+        T__K=300.0,
+    ).to(device)
 
 
 def _array_policy(*, solve_chunk_size: int) -> XbarArray1t1rPolicy:
@@ -102,8 +111,6 @@ def test_array_fabricate_resamples_each_node_once_preorder(
     # Snapshot the true tree BEFORE patching so traversal is untouched.
     nodes = [node for node in array.modules() if isinstance(node, ModuleBase)]
 
-    # The cell/array split must still expose the cell + its RRAM / NMOS as
-    # fabricable descendants of the array.
     node_types = {type(n) for n in nodes}
     assert XbarArray1t1r in node_types
     assert XbarCell1t1rDetail in node_types

@@ -13,7 +13,8 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.base import UnitBase
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.registry_mixin import RegistryMixin
 
 from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
 

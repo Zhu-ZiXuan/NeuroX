@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from neurox.common import stochastic_round
+from neurox.common.quantization import stochastic_round
 
 
 def test_evaluation_uses_floor_rounding() -> None:

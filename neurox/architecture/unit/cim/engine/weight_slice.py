@@ -13,8 +13,9 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer, SimpleSlicer, Slicer
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.common.encoding import Encoding
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.registry_mixin import RegistryMixin
 from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 

@@ -10,14 +10,9 @@ import torch
 import torch.nn as nn
 
 from neurox import fabricate
-from neurox.common import (
-    ConfigBase,
-    ModuleBase,
-    PolicyBase,
-    RegistryMixin,
-    TensorDataClassBase,
-)
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.profile_mixin import ProfileMixin
+from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.serialize import dataclass_from_dict
 
 
@@ -131,15 +126,6 @@ def test_policy_validation_runs_after_construction() -> None:
 
 
 @pytest.mark.parametrize("base", [ConfigBase, PolicyBase])
-def test_config_and_policy_reject_custom_post_init(base: type) -> None:
-    with pytest.raises(TypeError, match=r"must implement validate\(\), not __post_init__\(\)"):
-
-        class _InvalidStructuredInput(base):
-            def __post_init__(self) -> None:
-                pass
-
-
-@pytest.mark.parametrize("base", [ConfigBase, PolicyBase])
 def test_config_and_policy_reject_custom_init(base: type) -> None:
     with pytest.raises(TypeError, match=r"must declare dataclass fields, not __init__\(\)"):
 
@@ -221,29 +207,6 @@ def test_config_and_policy_reject_an_initial_value(base: type) -> None:
     with pytest.raises(TypeError, match=r"_InvalidStructuredInput\.value carries an initial value"):
 
         class _InvalidStructuredInput(base):
-            value: int = 3
-
-
-def test_tensor_data_class_rejects_a_custom_init() -> None:
-    with pytest.raises(TypeError, match=r"must declare dataclass fields, not __init__\(\)"):
-
-        class _InvalidTensorData(TensorDataClassBase):
-            def __init__(self) -> None:
-                pass
-
-
-def test_tensor_data_class_rejects_a_custom_post_init() -> None:
-    with pytest.raises(TypeError, match=r"carries data only; it declares fields, not __post_init__\(\)"):
-
-        class _InvalidTensorData(TensorDataClassBase):
-            def __post_init__(self) -> None:
-                pass
-
-
-def test_tensor_data_class_rejects_an_initial_value() -> None:
-    with pytest.raises(TypeError, match=r"_InvalidTensorData\.value carries an initial value"):
-
-        class _InvalidTensorData(TensorDataClassBase):
             value: int = 3
 
 

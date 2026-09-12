@@ -4,12 +4,12 @@ Evidence that each model in [Reference](../reference/README.md) is both physical
 
 ## Calibration campaigns
 
-The repository's `validations/` directory holds one calibration campaign per published design point, each under its own `validations/<paper>/`. A campaign anchors a scheme's PPA model to that paper's reported numbers and is the citable evidence for that scheme. Each per-paper directory carries a fixed file set:
+The repository's `validations/` directory holds one calibration campaign per published design point, each under its own `validations/<paper>/`. A campaign anchors a scheme's PPA model to that paper's reported numbers and is the citable evidence for that scheme. Its paper design point lives in the bundled `neurox/presets/works/<paper>.toml` preset, and each per-paper campaign directory carries a fixed file set:
 
-- `params.toml` — the paper design point (geometry, anchors, window and seat knobs).
+- `config.toml` — the campaign binding to the bundled work preset, expressed with `_neurox_use_preset`; paper test-bench conditions that differ from normal evaluation are inline overrides here, while the preset retains the normal evaluation values.
 - `policy.toml` — the policy the campaign runs under (all-off when the scheme models no non-idealities).
 - `anchors.toml` — the paper targets, with reported design facts, simulated results, and silicon measurements distinguished, plus the declared dyn/static and data conventions the calibration assumes.
-- `validate.py` and `tools/` — the campaign itself: build from `params.toml`, draw inputs per the declared data conventions, average the profiler per-op energies and read the static report, convert to per-block power, and gate. Commands write their reports to run logs instead of maintaining a second hand-copied report.
+- `validate.py` and `tools/` — the campaign itself: build through `config.toml`, draw inputs per the declared data conventions, average the profiler per-op energies and read the static report, convert to per-block power, and gate. Commands use the shared offline run lifecycle for their logs and output directories; the [offline tool API](../api/tools.md) exposes the reusable interfaces.
 
 The campaigns that ship today, one per bundled scheme, run as `make validate_<paper>`. They live outside `docs/`, so this page names their paths instead of linking them:
 
@@ -25,7 +25,7 @@ Four conventions govern every campaign:
 
 ### Provenance tags
 
-Every key of `params.toml` and `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: registry dispatch keys (`_neurox_class`) and pure selectors. This table is the authoritative legend:
+Every key of `neurox/presets/works/<paper>.toml`, every campaign override in `config.toml`, and every key of `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: composition and registry directives (`_neurox_use_preset`, `_neurox_class`) and pure selectors. This table is the authoritative legend:
 
 | Tag | Meaning |
 | --- | --- |
@@ -42,4 +42,4 @@ These value-level campaign tags are distinct from the module-parameter **Source*
 
 ## TODO
 
-Per-subsystem validation notes cross-linked from each Reference document's *Validation* section, solver verification (converged-residual, per-cell finite-difference device-derivative, and chunking bit-exactness checks), and cross-tool / cross-simulator comparison.
+Per-subsystem validation notes cross-linked from each Reference document's *Validation* section, solver verification (converged-residual, per-cell finite-difference device-derivative, and dtype-aware chunking agreement checks), and cross-tool / cross-simulator comparison.

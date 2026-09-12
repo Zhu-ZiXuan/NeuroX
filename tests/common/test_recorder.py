@@ -11,7 +11,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox.common import RecordBase, RecorderBase
+from neurox.common.recorder import RecordBase, RecorderBase
 
 _CPU = torch.device("cpu")
 _ELSEWHERE = torch.device("meta")  # a second device every host has

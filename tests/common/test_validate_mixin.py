@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from neurox.common import ValidateMixin
+from neurox.common.validate_mixin import ValidateMixin
 
 
 @pytest.mark.parametrize(

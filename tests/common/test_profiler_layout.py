@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 
 _E_OP__FJ = 0.5
 

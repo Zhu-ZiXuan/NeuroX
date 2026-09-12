@@ -64,7 +64,8 @@ def test_macro_matches_unsigned_mac_and_uses_configured_schedule(device: torch.d
     code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
     highest_precision_code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None)
 
-    assert torch.equal(code, (x @ weight).clamp(max=15))
+    expected = (x.unsqueeze(-1) * weight).sum(dim=-2).clamp(max=15)
+    assert torch.equal(code, expected)
     assert torch.equal(highest_precision_code, code)
     assert macro.latency__ns(adc_active_bits=ADC_BITS) == 9.0 * OUTPUT_NUM
     assert macro.latency__ns(adc_active_bits=None) == macro.latency__ns(adc_active_bits=ADC_BITS)
@@ -108,7 +109,8 @@ def test_parallel_readout_lanes_preserve_output_order_and_reduce_latency(
 
     code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
 
-    assert torch.equal(code, (x @ weight).clamp(max=15))
+    expected = (x.unsqueeze(-1) * weight).sum(dim=-2).clamp(max=15)
+    assert torch.equal(code, expected)
     assert macro.lane_num == 2
     assert macro.scan_num == 2
     assert macro.rscsa.inst_shape[-2:] == (2, 1)

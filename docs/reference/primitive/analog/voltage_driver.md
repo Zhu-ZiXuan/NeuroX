@@ -2,7 +2,7 @@
 
 ## Physical model
 
-The clamp is modelled as a Thevenin equivalent: a reference voltage source $V_{\mathrm{ref}}$ (the open-circuit clamp voltage) in series with a constant output resistance $R_{\mathrm{out}}$. The source sets the held voltage at zero current; the series resistance is the lumped output impedance through which the port current flows, so the clamp voltage droops linearly with the current the clamp sources or sinks. The model lumps the small-signal output impedance of a bounded-impedance drive or sense node, over the operating range, into the single constant $R_{\mathrm{out}}$; setting $R_{\mathrm{out}} = 0$ recovers the ideal voltage source whose held voltage never droops. The reference voltage $V_{\mathrm{ref}}$ is a supplied input, not an internal constant of the clamp, and it is the nominal level: the two modelled non-idealities — a systematic per-instance offset and thermal noise — are the clamp's own and are carried as a separate additive perturbation $V_{\mathrm{pert}}$ on top of it.
+The clamp is modelled as a Thevenin equivalent: a reference voltage source $V_{\mathrm{ref}}$ (the open-circuit port voltage) in series with a constant output resistance $R_{\mathrm{out}}$. The source sets the held voltage at zero current; the series resistance is the lumped output impedance through which the port current flows, so the port voltage droops linearly with the current the clamp sources or sinks. The model lumps the small-signal output impedance of a bounded-impedance drive or sense node, over the operating range, into the single constant $R_{\mathrm{out}}$; setting $R_{\mathrm{out}} = 0$ recovers the ideal voltage source whose held voltage never droops. The reference voltage $V_{\mathrm{ref}}$ is a supplied input, not an internal constant of the clamp, and it is the nominal level: the two modelled non-idealities — a systematic per-instance offset and thermal noise — are the clamp's own and are carried as a separate additive perturbation $V_{\mathrm{pert}}$ on top of it.
 
 Delivering the clamp once at a settled port state cycles the interface node, a fixed switching quantum $E_{\mathrm{op}}$ — one full $C V^2$ interface-node precharge cycle at the modeled design point — that is flat and independent of the port state. The model receives no conduction duration and therefore excludes duration-dependent branch dissipation, including the $I_{\mathrm{port}}^{2}R_{\mathrm{out}}$ loss in the lumped series resistance. Static power includes leakage and any internal amplifier or bias network.
 
@@ -10,19 +10,19 @@ Delivering the clamp once at a settled port state cycles the interface node, a f
 
 The clamp transfer function is the Thevenin map
 
-$$V_{\mathrm{clamp}} = V_{\mathrm{ref}} + V_{\mathrm{pert}} - I_{\mathrm{port}} \, R_{\mathrm{out}},$$
+$$V_{\mathrm{port}} = V_{\mathrm{ref}} + V_{\mathrm{pert}} - I_{\mathrm{port}} \, R_{\mathrm{out}},$$
 
-where $V_{\mathrm{ref}}$ is the nominal reference / zero-current clamp voltage, $V_{\mathrm{pert}}$ the clamp's own additive perturbation, and $R_{\mathrm{out}}$ the series output resistance. The small-signal output resistance is the constant slope
+where $V_{\mathrm{ref}}$ is the nominal reference / zero-current port voltage, $V_{\mathrm{pert}}$ the clamp's own additive perturbation, and $R_{\mathrm{out}}$ the series output resistance. The small-signal output resistance is the constant slope
 
-$$\frac{\partial V_{\mathrm{clamp}}}{\partial I_{\mathrm{port}}} = -R_{\mathrm{out}},$$
+$$\frac{\partial V_{\mathrm{port}}}{\partial I_{\mathrm{port}}} = -R_{\mathrm{out}},$$
 
-a resistance in MOhm; in the consistent unit set $\mathrm{uA} \times \mathrm{MOhm} = \mathrm{V}$. At $R_{\mathrm{out}} = 0$ the map collapses to the constant $V_{\mathrm{clamp}} = V_{\mathrm{ref}} + V_{\mathrm{pert}}$ with a zero derivative — the ideal constant-voltage source, which holds exactly $V_{\mathrm{ref}}$ once both perturbations are off. The response is monotone, non-increasing for $R_{\mathrm{out}} \ge 0$.
+a resistance in MOhm; in the consistent unit set $\mathrm{uA} \times \mathrm{MOhm} = \mathrm{V}$. At $R_{\mathrm{out}} = 0$ the map collapses to the constant $V_{\mathrm{port}} = V_{\mathrm{ref}} + V_{\mathrm{pert}}$ with a zero derivative — the ideal constant-voltage source, which holds exactly $V_{\mathrm{ref}}$ once both perturbations are off. The response is monotone, non-increasing for $R_{\mathrm{out}} \ge 0$.
 
 The energy the clamp accounts for one delivered access is the interface quantum alone,
 
 $$E = E_{\mathrm{op}},$$
 
-per port operation of the settled pair $(I_{\mathrm{port}}, V_{\mathrm{clamp}})$ — one operation per clamped port position, so a clamp holding $n$ ports over one access accounts $n E_{\mathrm{op}}$.
+per port operation of the settled pair $(I_{\mathrm{port}}, V_{\mathrm{port}})$ — one operation per clamped port position, so a clamp holding $n$ ports over one access accounts $n E_{\mathrm{op}}$.
 
 ## Numerical method
 
@@ -43,7 +43,7 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 
 | Parameter | Meaning | Unit | Constraint | Source |
 | --- | --- | --- | --- | --- |
-| `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance, whose negative is the constant clamp slope | MOhm | $\geq 0$ | Design |
+| `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance, whose negative is the constant port-voltage slope | MOhm | $\geq 0$ | Design |
 | `offset_sigma__V` | Gaussian sigma of the systematic clamp offset | V | $\geq 0$ | Measured |
 | `thermal_sigma__V` | Gaussian sigma of the clamp thermal noise | V | $\geq 0$ | Measured |
 | `energy_per_op__fJ` ($E_{\mathrm{op}}$) | interface-node switching energy per port operation | fJ | $\geq 0$ | Design |
@@ -55,11 +55,11 @@ The reference $V_{\mathrm{ref}}$ is a supplied runtime input, not a config param
 
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
-| $V_{\mathrm{clamp}}$ | clamp voltage | V | `v_clamp__V` |
-| $V_{\mathrm{ref}}$ | nominal reference / zero-current clamp voltage (supplied input) | V | `v_ref__V` |
+| $V_{\mathrm{port}}$ | port voltage | V | `v_port__V` |
+| $V_{\mathrm{ref}}$ | nominal reference / zero-current port voltage (supplied input) | V | `v_ref__V` |
 | $V_{\mathrm{pert}}$ | clamp's own additive perturbation (offset plus thermal draw) | V | `v_perturb__V` |
 | $R_{\mathrm{out}}$ | series output resistance | MOhm | `r_out__MOhm` |
-| $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ | small-signal clamp slope | MOhm | `dvclamp_di__MOhm` |
+| $\partial V_{\mathrm{port}}/\partial I_{\mathrm{port}}$ | small-signal port-voltage slope | MOhm | `dvport_di__MOhm` |
 | $I_{\mathrm{port}}$ | port current | uA | `i_port__uA` |
 | $E_{\mathrm{op}}$ | interface-node switching energy per port operation | fJ | `energy_per_op__fJ` |
 

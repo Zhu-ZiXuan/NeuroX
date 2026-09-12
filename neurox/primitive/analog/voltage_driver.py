@@ -5,17 +5,19 @@ See Also:
     docs/system_design/ppa_accounting.md
 """
 
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 
 
 class VoltageDriverConfig(ConfigBase):
     r_out__MOhm: float
-    """Series output resistance — its NEGATIVE is the constant clamp slope
-    ∂V_clamp/∂I; 0 recovers the ideal voltage-source limit."""
+    """Series output resistance — its NEGATIVE is the constant port-voltage slope
+    ∂V_port/∂I; 0 recovers the ideal voltage-source limit."""
     offset_sigma__V: float
     """σ of the static systematic per-instance offset on the reference."""
     thermal_sigma__V: float
@@ -50,17 +52,17 @@ class VoltageDriverPolicy(PolicyBase):
 
 
 class VoltageDriverDcop(DcopBase):
-    v_clamp__V: Tensor
-    """Clamp voltage held at the evaluated port current."""
-    dvclamp_di__MOhm: Tensor
-    """Clamp slope against the port current — the NEGATED constant series
+    v_port__V: Tensor
+    """Port voltage held at the evaluated port current."""
+    dvport_di__MOhm: Tensor
+    """Port-voltage slope against the port current — the NEGATED constant series
     output resistance, broadcast to the port current; ≤ 0 for r_out ≥ 0, and
     exactly 0 in the ideal-source limit."""
 
 
 class VoltageDriverSnap(SnapBase):
     v_ref__V: Tensor
-    """NOMINAL reference clamp voltage — the ideal value, carrying no offset
+    """NOMINAL reference port voltage — the ideal value, carrying no offset
     or thermal draw."""
     v_perturb__V: Tensor
     """Driver-owned perturbation on top of the nominal reference — the static
@@ -74,7 +76,7 @@ class VoltageDriverSnap(SnapBase):
 class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
     """Generic Thevenin voltage-source clamp driver.
 
-    The clamp follows `v_clamp = v_ref + v_perturb - i_port * r_out`, where
+    The port voltage follows `v_port = v_ref + v_perturb - i_port * r_out`, where
     `v_perturb` is this driver's own offset / thermal perturbation on top of
     the nominal reference it is handed. A zero output resistance represents an
     ideal voltage source.
@@ -158,7 +160,7 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
         shares one sample across accesses that are physically distinct.
 
         Args:
-            v_ref__V: Injected reference / zero-current clamp voltage — the
+            v_ref__V: Injected reference / zero-current port voltage — the
                 Thevenin open-circuit voltage, broadcastable to `shape`.
             shape: Full per-call shape to expand the reference and the
                 fabricated offset onto and to draw the thermal noise at.
@@ -187,24 +189,25 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
         i_port__uA: Tensor,
         snap: VoltageDriverSnap,
         *,
-        v_clamp_init__V: Tensor | None,
+        v_port_init__V: Tensor | None,
     ) -> VoltageDriverDcop:
-        """Solve the Thevenin clamp at the present port current.
+        """Solve the Thevenin driver's port voltage at the present port current.
 
         Args:
             i_port__uA: Port current.
             snap: Sampled clamp state the solve reads.
-            v_clamp_init__V: Optional warm-start hint. Accepted and ignored —
-                the clamp is closed-form.
+            v_port_init__V: Optional initial port voltage for a warm start.
+                Accepted and ignored — this driver is closed-form.
 
         Returns:
-            Clamp state, where `v_clamp__V = snap.v_ref__V +
+            Port state, where `v_port__V = snap.v_ref__V +
             snap.v_perturb__V - i_port__uA * snap.r_out__MOhm` and
-            `dvclamp_di__MOhm = -snap.r_out__MOhm` broadcast to `i_port__uA`
+            `dvport_di__MOhm = -snap.r_out__MOhm` broadcast to `i_port__uA`
             — the derivative of that map, which the series drop makes
             non-positive.
         """
+        del v_port_init__V
         return VoltageDriverDcop(
-            v_clamp__V=snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm,
-            dvclamp_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),
+            v_port__V=snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm,
+            dvport_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),
         )

@@ -1,0 +1,119 @@
+# Xue2020 JSSC 1T1R macro. Tags follow docs/validation/campaigns.md; pages use printed numbering.
+
+[cim_macro]
+_neurox_class = "Xue2020JsscCimMacroConfig"
+
+input_num = 256                  # [reported p211 Fig.20(c)] physical array rows
+max_active_num = 9                # [reported p206] Maximum active rows for a 3x3 kernel block.
+w_digit_num = 2                   # [reported p206] 2 magnitude digits (MSB/LSB two-mirror)
+w_digit_radix = 2                 # [reported p206] single-bit magnitude cell (LRS/HRS)
+x_bit_num = 2                     # [reported p206] K=2 input bits -> 2 serial WL sub-phases, LSB first
+lane_num = 4                      # [derived p207] 128 outputs / reported 32:1 column MUX
+scan_num = 32                     # [reported p207] serial positions per readout lane
+
+dswct_ratio_msb = 0.5             # [derived] [reported p206 Fig.6(a)] 2/k at k = 4
+sc_ratio_msb = 0.5                # [derived] [reported p206 Fig.7] normalized live-leg ratio
+
+# [assumed] One uniform 3.11 ns ADC decision period represents the simulated 3.16/3.07/3.11 ns steps.
+t_sample__ns = 2.85               # [derived] [measured p211] 14.60 - 11.75 ns
+t_settle__ns = 2.42               # [derived] 11.75 - 3 * 3.11 ns under the uniform-step assumption
+v_wl_on__V = 1.0                 # [reported p206] Binary WL-drive high level
+vdd__V = 1.0                      # [reported p209,p211] simulation supply, nominal test supply
+
+pn_isub_energy_per_op__fJ = 47.7  # [calibrated] Three-inverter and sign-latch event from the [simulated p210 Fig.18] SINWP-SC+PN-ISUB paired target.
+
+area_per_inst__um2 = 0.0          # [assumed] unreported
+leakage_per_inst__uW = 0.0        # [assumed] no remainder, reference & control are modeled
+
+rescale_factors = [10.000]        # [calibrated] Magnitude map: [0,9] -> 0, [10,19] -> 1, ..., [70,+inf] -> 7.
+
+
+
+[cim_macro.array_config]
+
+row_cell_space__um = 0.45         # [assumed] Fig.20(c) 0.2025 um2 cell area, square shape
+col_cell_space__um = 0.45         # [assumed] Fig.20(c) 0.2025 um2 cell area, square shape
+
+bl_segment_r__MOhm = 5e-7         # [assumed] unreported, use typical value for the size and technology
+sl_segment_r__MOhm = 5e-7         # [assumed] unreported, use typical value for the size and technology
+
+bl_node_c__fF = 0.0               # [assumed] unreported, paper simulation tend to use zero parasitic cap
+x_node_c__fF = 0.0                # [assumed] unreported, paper simulation tend to use zero parasitic cap
+sl_node_c__fF = 0.0               # [assumed] unreported, paper simulation tend to use zero parasitic cap
+wl_node_c__fF = 0.0               # [assumed] unreported, paper simulation tend to use zero parasitic cap
+
+
+
+[cim_macro.array_config.cell_config]
+_neurox_class = "XbarCell1t1rLinearConfig"
+
+g_cell_off_table__uS = [1e-3, 1e-3]     # [assumed] unreported, use a reasonable value
+g_cell_on_table__uS = [23.8, 138.9]     # [derived Fig.14,Fig.21] 1 a.u. = 7 uA, HRS ~ 42.0 kOhm, LRS ~ 7.2 kOhm
+
+vx_ratio_off_table = [0.0, 0.0]         # [assumed] use a reasonable value
+vx_ratio_on_table = [0.98, 0.89]        # [assumed] calculated using NMOS r_on = 800 Ohm
+
+v_wl_on_threshold__V = 0.5              # [derived] Midpoint of the declared 0.0/1.0 V WL levels.
+
+
+
+[cim_macro.cablc_config]
+r_out__MOhm = 1e-4                # [derived Fig.14] 100 Ohm Thevenin resistance around the 30-a.u. operating region.
+
+offset_sigma__V = 0.0             # [assumed] do not care for energy
+thermal_sigma__V = 0.0            # [assumed] do not care for energy
+
+energy_per_op__fJ = 0.0
+area_per_inst__um2 = 0.0          # [assumed] unreported
+leakage_per_inst__uW = 0.0
+
+
+
+[cim_macro.cablc_vref_config]
+values = 0.30                     # [reported Fig.14] 0.30 V CABLC target.
+
+tolerance_sigma_relative = 0.0    # [assumed] do not care for energy
+area_per_inst__um2 = 0.0          # [assumed] unreported
+leakage_per_inst__uW = 0.0        # [assumed] merged into reference energy
+
+
+
+[cim_macro.sl_driver_config]
+r_out__MOhm = 0.0                 # [assumed] direct to gnd, do not care
+offset_sigma__V = 0.0             # [assumed] direct to gnd, do not care
+thermal_sigma__V = 0.0            # [assumed] direct to gnd, do not care
+energy_per_op__fJ = 0.0           # [assumed] direct to gnd, do not care
+area_per_inst__um2 = 0.0          # [assumed] direct to gnd, do not care
+leakage_per_inst__uW = 0.0        # [assumed] direct to gnd, do not care
+
+
+
+[cim_macro.tmcsa_config]
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+bits = 3                          # [reported] 3-b sensing, seven references I_REF[6:0]
+
+latency_per_bit__ns = 3.11        # [assumed] Uniform period representing the 3.16/3.07/3.11 ns decisions
+
+comparator_offset_sigma__uA = 0.0   # [assumed] do not care for energy
+
+t_ph2__ns = 0.6                   # [derived Fig.10(b)] ratio and full window, [calibrated] absolute phase window
+t_ph3__ns = 1.0                   # [derived Fig.10(b)] ratio and full window, [calibrated] absolute phase window
+
+energy_per_bit__fJ = 50.0         # [assumed] reasonable value for PH4 latch
+
+
+
+[cim_macro.tmcsa_iref_config]
+area_per_inst__um2 = 0.0          # [assumed] unreported
+leakage_per_inst__uW = 151.98     # [derived Fig.18] 23.7% * 5.13 mW / 8
+values = [[17.719, 36.217, 53.754, 70.464, 86.626, 101.77, 116.20]] # [calibrated] with neurox tools
+tolerance_sigma_relative = 0.0    # [assumed] do not care for energy
+
+
+
+[cim_macro.control_config]
+area_per_inst__um2 = 0.0          # [assumed] unreported
+energy_per_op__fJ = 6553.6        # [derived Fig.18] 29.2% of 32.0625 pJ/access, with typical 70% dynamic
+leakage_per_inst__uW = 56.174     # [derived Fig.18] Remaining 30% static over the 50 ns period

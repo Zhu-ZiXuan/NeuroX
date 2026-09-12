@@ -44,7 +44,7 @@ def main() -> None:
         "--dataset-dir", type=Path, required=True, help="HuggingFace cache directory for SST-2 + tokenizer"
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output float state_dict path")
-    parser.add_argument("--device", type=str, default="cuda:1", help="Torch device")
+    parser.add_argument("--device", type=str, required=True, help="Torch device")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=2e-5, help="AdamW learning rate")

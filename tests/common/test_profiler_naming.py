@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 
 
 class _Config(ConfigBase):

@@ -27,7 +27,7 @@ from neurox.primitive.macro.cim import (
     CimMacroPolicy,
     CimMacroQuantizationScheme,
 )
-from neurox.primitive.physics import e_supply_charge__fJ, q_conduction__fC
+from neurox.primitive.physics import e_charge__fJ, q_conduction__fC
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,
@@ -205,18 +205,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         config = self.config
         policy = self.policy
-        # Scan is a macro timing axis; the array contains every physical column.
-        self.array = XbarArray1t1r(
-            config=config.array_config,
-            policy=policy.array_policy,
-            inst_shape=(*self.inst_shape, 1),
-            row_num=self.row_num,
-            col_num=self.col_num,
-            vdd__V=config.vdd__V,
-            dtype=dtype,
-            T__K=T__K,
-        )
-
         self.cablc = VoltageDriver(
             config=config.cablc_config,
             policy=policy.cablc_policy,
@@ -236,6 +224,20 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
             inst_shape=(*self.inst_shape, 1, self.lane_num, 1, _POLARITY_NUM, config.w_digit_num),
+            dtype=dtype,
+            T__K=T__K,
+        )
+
+        # Scan is a macro timing axis; the array contains every physical column.
+        self.array = XbarArray1t1r(
+            config=config.array_config,
+            policy=policy.array_policy,
+            inst_shape=(*self.inst_shape, 1),
+            row_num=self.row_num,
+            col_num=self.col_num,
+            vdd__V=config.vdd__V,
+            bl_driver=self.cablc,
+            sl_driver=self.sl_driver,
             dtype=dtype,
             T__K=T__K,
         )
@@ -330,7 +332,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_sample__uA = i_phase__uA.narrow(-1, 0, self.config.x_bit_num - 1).sum(dim=-1)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
         q__fC = q__fC + q_conduction__fC(i_phase__uA[..., -1], detect__ns)
-        e__fJ = e_supply_charge__fJ(self.config.vdd__V, q__fC)
+        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
         self._record_dynamic_energy(e__fJ, channel="cablc")
 
     def _record_dswct_dynamic_energy(
@@ -346,7 +348,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_sample__uA = i_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
         q__fC = q__fC + q_conduction__fC(i_phase__uA.select(-4, -1), detect__ns)
-        e__fJ = e_supply_charge__fJ(self.config.vdd__V, q__fC)
+        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
         self._record_dynamic_energy(e__fJ, channel="dswct")
 
     def _record_sinwp_sc_dynamic_energy(
@@ -360,7 +362,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_sample__uA = i_sc_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
         q__fC = q__fC + q_conduction__fC(i_sc_phase__uA.select(-4, -1), detect__ns)
-        e__fJ = e_supply_charge__fJ(self.config.vdd__V, q__fC)
+        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
         self._record_dynamic_energy(e__fJ, channel="sinwp_sc")
 
     def _record_pn_isub_dynamic_energy(
@@ -373,7 +375,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     ) -> None:
         i_branch__uA = i_p__uA + i_n__uA + i_sub__uA
         q__fC = q_conduction__fC(i_branch__uA, detect__ns)
-        e__fJ = e_supply_charge__fJ(self.config.vdd__V, q__fC) + self.config.pn_isub_energy_per_op__fJ
+        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC) + self.config.pn_isub_energy_per_op__fJ
         self._record_dynamic_energy(e__fJ, channel="pn_isub")
 
     def _vec_mat_mul_impl(
@@ -405,23 +407,21 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
 
         # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, phys_col]
-        bl_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
+        bl_driver_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
         # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, phys_col]
-        sl_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
+        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
 
         # Shape: [..., x_bit, row]
-        steady = self.array.solve_array(
+        array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
             wl_phase_dims=(-2,),
-            bl_driver=self.cablc,
-            bl_driver_snap=bl_snap,
-            sl_driver=self.sl_driver,
-            sl_driver_snap=sl_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
         )
         # Shape: [..., x_bit, phys_col] -> [..., x_bit, lane, scan, polarity, w_digit]
         seat_axes = (self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        i_bl_seat__uA = steady.i_bl_port__uA.unflatten(-1, seat_axes)
-        i_sl_seat__uA = steady.i_sl_port__uA.unflatten(-1, seat_axes)
+        i_bl_seat__uA = array_dcop.i_bl_port__uA.unflatten(-1, seat_axes)
+        i_sl_seat__uA = array_dcop.i_sl_port__uA.unflatten(-1, seat_axes)
         self.cablc.drive(i_port__uA=i_bl_seat__uA)
         self.sl_driver.drive(i_port__uA=i_sl_seat__uA)
 

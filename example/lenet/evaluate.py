@@ -23,9 +23,8 @@ from example.lenet.macro_factory import build_macro_factory
 from example.lenet.model_quant import QuantLeNet5
 from example.lenet.quant import QuantConv2d, QuantLinear
 from example.lenet.train_quant import QAT_SCHEMA
-from neurox import Reporter, fabricate, stamp_names
+from neurox import Profiler, Reporter, fabricate, stamp_names
 from neurox.architecture.unit import LinearUnit
-from neurox.common import Profiler
 
 CONFIG_DIR = Path(__file__).parent
 
@@ -145,7 +144,7 @@ def main() -> None:
         help="Tile implementation. 'ideal' swaps the configured tile for its to_ideal() twin, "
         "the faithful reference of a physical macro; 'physical' runs the macro as configured.",
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, required=True)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--max-samples", type=int, default=None, help="Cap on samples processed")
     args = parser.parse_args()

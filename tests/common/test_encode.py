@@ -73,9 +73,6 @@ class TestCanonicalEncoder:
     def test_torch_compile_compatibility(self, device: torch.device) -> None:
         if not hasattr(torch, "compile"):
             pytest.skip("PyTorch version does not support torch.compile")
-        if device.type != "cuda":
-            pytest.skip("NeuroX tests compile tensor code only on CUDA")
-
         radix = 4
         digits = 6
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)

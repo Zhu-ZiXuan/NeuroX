@@ -18,15 +18,14 @@ from typing import Any, ClassVar, Self, cast, final
 import torch
 from torch import Tensor
 
-from .tensor_dataclass import TensorDataClassBase
-from .tensor_fields import walk_tensor_fields
+from .tensor_dataclass_mixin import TensorDataClassMixin, walk_single_tensor_fields
 from .torch_compat import torch_compiler_disable
 
 
-class RecordBase(TensorDataClassBase):
+class RecordBase(TensorDataClassMixin):
     """One item a side channel collects.
 
-    `TensorDataClassBase` fixes how a subclass declares its fields and settles
+    `TensorDataClassMixin` fixes how a subclass declares its fields and settles
     identity equality for the whole hierarchy. Override `detach` or `to` only
     for a record whose tensors need what a walk of the declared fields cannot
     express.
@@ -62,30 +61,28 @@ class RecordBase(TensorDataClassBase):
             changed = changed or result is not tensor
             return result
 
-        rebuilt = walk_tensor_fields(self, track)
+        rebuilt = walk_single_tensor_fields(track, self)
         return rebuilt if changed else self
 
 
 class RecorderBase[RecordT: RecordBase](ABC):
-    """Collect one family's records for as long as its context is open.
+    """Collect one family's records while its context is open.
 
-    Subclass this base directly to open a family, binding the family's record
-    type as `RecorderBase[SomeRecord]`; activation, accumulation, and
-    finalization belong here, so the only collection logic such a subclass adds
-    is a `_submit_impl` hook deciding which of the family's records it keeps. A
-    family is that direct subclass together with everything below it, sharing
-    the one active slot it owns: at most one recorder of a family collects at a
-    time, and entering a second raises `RuntimeError`. An exception frees the
-    slot but skips the parking. An emit site reads the family's slot through
-    `active` or `current` and hands records to `submit`.
+    Each direct subclass opens a family and binds its record type. The family
+    and its descendants share one active slot. `_submit_impl` decides admission
+    and calls `_submit_record` to retain a detached record. Emitters use `active`
+    or `current` to guard record construction, then call `submit`.
 
-    Re-entering one instance accumulates into the same book; a fresh book is a
-    fresh instance.
+    Context entry activates collection; clean exit moves retained records to
+    `sync_device`. Exceptional exit frees the active slot without moving records.
+    Re-entering an instance appends to its existing collection.
 
     Args:
-        sync_device: Device a clean exit parks the collected records on. The
-            default `None` leaves each record where it was recorded, so a book
-            parks on one device only when a caller names it.
+        sync_device: Destination for records on clean exit. `None` leaves each
+            record on its original device.
+
+    Raises:
+        RuntimeError: Another recorder of this family is active on entry.
     """
 
     _family_root: ClassVar[type[RecorderBase[Any]] | None] = None
@@ -110,6 +107,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         """The book so far, in submission order; each access returns a snapshot."""
         return tuple(self.__records)
 
+    @final
     def __enter__(self) -> Self:
         root = self._root()
         if root._active_recorder is not None:  # noqa: SLF001
@@ -117,6 +115,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         root._active_recorder = self  # noqa: SLF001
         return self
 
+    @final
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
@@ -128,6 +127,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
             self._finalize()
 
     @classmethod
+    @final
     def _root(cls) -> type[RecorderBase[Any]]:
         """Return the family root holding this class's active slot.
 
@@ -142,24 +142,23 @@ class RecorderBase[RecordT: RecordBase](ABC):
 
     @classmethod
     @torch_compiler_disable
+    @final
     def current(cls) -> Self | None:
         """Return the family's active recorder, or `None` outside a context.
 
-        The read is kept out of every graph on purpose: the slot is Python state
-        a trace cannot guard on. Dynamo folds an empty slot into the trace as a
-        constant, so a region first compiled outside any context would stay
-        pinned to "inactive" and silently collect nothing ever after.
+        This access crosses a compiler boundary so every call reads the live
+        Python slot rather than a value captured during tracing.
         """
         return cast(Self, cls._root()._active_recorder)  # noqa: SLF001
 
     @classmethod
     @torch_compiler_disable
+    @final
     def active(cls) -> bool:
         """Return whether the family has an active recorder.
 
-        The read is kept out of every graph, so an emit site gating its billing
-        work on it breaks the graph there and gets the live answer on every
-        call.
+        This access crosses a compiler boundary so emitters can gate record
+        construction on the live Python slot.
         """
         return cls.current() is not None
 
@@ -199,13 +198,12 @@ class RecorderBase[RecordT: RecordBase](ABC):
             return
         recorder.__records.append(record.detach())  # noqa: SLF001
 
+    @final
     def _finalize(self) -> None:
-        """Park every collected record on this recorder's `sync_device`.
+        """Move retained records to `sync_device` on clean context exit.
 
-        Without one the records stay where they were recorded. The sweep visits
-        the whole book on every clean exit; a record already on that device is
-        returned unchanged, and each record parks itself, so a cross-device book
-        of `N` records costs `N` transfers.
+        `None` leaves records in place. Each record's `to` method handles its own
+        transfer; records already on the destination device remain unchanged.
         """
         if self._sync_device is None:
             return

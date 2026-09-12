@@ -10,6 +10,14 @@ $$E = V_{\mathrm{rail}}q = V_{\mathrm{rail}}It.$$
 
 The runtime scales close directly: $1\,\mathrm{uA}\cdot1\,\mathrm{ns}=1\,\mathrm{fC}$ and $1\,\mathrm{V}\cdot1\,\mathrm{fC}=1\,\mathrm{fJ}$.
 
+## Capacitive charge change
+
+For a constant capacitance $C$, a signed voltage change $\Delta V$ produces the signed charge change
+
+$$\Delta q = C\,\Delta V.$$
+
+The runtime units satisfy $1\,\mathrm{fF}\cdot1\,\mathrm{V}=1\,\mathrm{fC}$. This change retains its sign; supply-draw accounting uses its magnitude separately.
+
 ## Capacitive supply draw
 
 Moving a grounded capacitance $C$ by $\Delta V$ transfers a charge $C\,\lvert\Delta V\rvert$, and that charge leaves the supply at the supply's own potential. The energy the supply delivers is therefore
@@ -20,7 +28,7 @@ in which the node's own level does not appear. The $\tfrac{1}{2} C\,\Delta V^{2}
 
 ## One charging leg per excursion
 
-A node driven from its rest level to a working level and back travels a round trip of two legs. Only one leg draws from the supply — the return leg hands its charge to ground — so an excursion is billed exactly once, at the magnitude of its displacement, whichever direction it travels first. Billing both legs, or billing the square of a level in place of a displacement, either doubles a real excursion or invents one that never happened.
+A node driven from its rest level to a working level and back travels a round trip of two legs. Only one leg draws from the supply — the return leg hands its charge to ground — so an excursion is billed exactly once, at the magnitude of its displacement, whichever direction it travels first.
 
 ## Rail attribution
 
@@ -46,13 +54,16 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
 | $q$ | charge transferred during a conduction window | fC | `q_conduction__fC` |
+| $\Delta q$ | signed capacitive charge change | fC | `delta_q_cap__fC` |
 | $I$ | branch current | uA | `i__uA` |
 | $t$ | conduction-window duration | ns | `duration__ns` |
-| $E$ | energy delivered with charge $q$ | fJ | `e_supply_charge__fJ` |
-| $E$ | energy a supply delivers for one excursion | fJ | `e_cap_excursion__fJ` |
-| $V_{\mathrm{rail}}$ | potential of the supply that delivers the charge | V | `v_rail__V` |
+| $E$ | supply energy consumed for a nonnegative charge magnitude | fJ | `e_charge__fJ` |
+| $E$ | supply energy for a capacitive voltage-change magnitude | fJ | `e_cap__fJ` |
+| $E$ | supply energy for one rest-to-work-to-rest capacitive excursion | fJ | `e_cap_excursion__fJ` |
+| $V_{\mathrm{rail}}$ | potential of the supply that delivers the charge | V | `v_supply__V` |
 | $C$ | node-to-ground capacitance | fF | `c__fF` |
 | $\Delta V$ | signed displacement between rest and working level | V | `delta_v__V` |
+| $\lvert\Delta V\rvert$ | magnitude of the capacitive voltage change | V | `delta_v_abs__V` |
 | $V_T$ | thermal voltage $k_B T / q$ | V | `thermal_voltage__V` |
 
 ## Assumptions and validity

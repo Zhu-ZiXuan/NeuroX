@@ -33,7 +33,7 @@ Applies to foundational electrical models such as devices and other primitive I/
 
 Use the common checklist, then:
 
-- Use the family's config and policy role types. Add specialized descendants only when the primitive introduces fields or a distinct dispatch identity; do not create empty per-class types merely to match its name. The common bases supply their frozen, keyword-only dataclass representation. Declare no per-instance area / leakage fields, as the owner budgets them.
+- Use the family's config and policy role types. Add specialized descendants only when the primitive introduces fields or a distinct dispatch identity; do not create empty per-class types merely to match its name. Declare no per-instance area / leakage fields, as the owner budgets them.
 - Implement the primitive as a `ModuleBase` leaf that stays a non-reporter: its area and leakage are counted once at the owner, and it emits no dynamic event of its own. Declare the profile-target class variable as [code_style](../conventions/code_style.md) prescribes.
 - Follow the physical-state and lifecycle contracts in [physical_state](../system_design/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
@@ -47,10 +47,10 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 Use the common checklist, then:
 
 - Use or extend the subsystem config and policy bases. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
-- Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
+- Inherit `ModuleBase` and use its `ProfileMixin` hooks.
 - Implement the family or leaf primary method defined by its base class.
-- Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.
-- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract. `ModuleBase` does not impose a timing interface.
+- Emit dynamic energy for quantities this leaf owns through `_record_dynamic_energy`.
+- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract.
 - At a functional boundary, `latency__ns` covers one complete public operation, including every serial axis owned below that boundary. Compose it explicitly from known execution structure; do not infer it by traversing the module tree or by treating every child latency as additive.
 - Keep paper measurement periods, external clock periods, and leakage-integration windows in validation code unless the runtime model explicitly implements their scheduling semantics.
 - Test shape contract, dtype behavior, PPA emissions, and edge cases for the primary method.
@@ -102,7 +102,7 @@ Use the common checklist, then:
 - Document the mathematical method in Reference; the implementation constraints belong to the docstrings of the symbols that impose them.
 - State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
 - Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
-- Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the [compile contract](../system_design/compile.md).
+- Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the [compile-safety rules](../conventions/code_style.md#compile-safety).
 - Test residuals, convergence / fixed-iteration behavior, shape edge cases, dtype behavior, and chunk reassembly.
 
 ## Add a value-domain primitive
@@ -139,5 +139,5 @@ Applies to mixins, `ModuleBase` / config / policy bases, profiler, non-ideality 
 Use the common checklist, then:
 
 - Identify all callers and downstream contracts before implementation.
-- Update the public contract document that owns the mechanism.
+- Update the owning docstrings. Update System Design only when the top-level mechanism or behavior changes.
 - Add tests at the shared contract level and at least one representative downstream use.

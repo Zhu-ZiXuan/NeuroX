@@ -12,7 +12,8 @@ from typing import final
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.registry_mixin import RegistryMixin
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 
 

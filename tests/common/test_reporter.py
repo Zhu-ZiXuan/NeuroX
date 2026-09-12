@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from neurox import Profiler, Reporter, stamp_names
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 
 _AREA_PER_INST__UM2 = 2.0
 _LEAKAGE_PER_INST__UW = 0.5

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from neurox.common import SerializeMixin
+from neurox.common.serialize_mixin import SerializeMixin
 
 
 @dataclass(frozen=True)

@@ -11,18 +11,35 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LIBRARY_ROOT = REPO_ROOT / "neurox"
 IMPORT_SCAN_ROOTS = (LIBRARY_ROOT, REPO_ROOT / "validations")
 CLI_ROOT = LIBRARY_ROOT / "tools"
+API_ROOT = LIBRARY_ROOT / "api"
+COMMON_ROOT = LIBRARY_ROOT / "common"
+DIRECT_IMPORT_ROOTS = frozenset({API_ROOT, COMMON_ROOT})
+EMPTY_PACKAGE_FACES = frozenset(root / "__init__.py" for root in DIRECT_IMPORT_ROOTS)
 PACKAGE = "neurox"
 
 _ROOT_LIFT_EXCEPTIONS = {
-    "common": frozenset({"Profiler", "Reporter", "check_unique_neurox_bindings", "fabricate", "stamp_names"})
+    "api": frozenset(
+        {
+            "Profiler",
+            "Reporter",
+            "check_unique_binding",
+            "fabricate",
+            "stamp_names",
+            "cim_macro_from_file",
+            "cim_unit_from_file",
+            "diff_vadc_from_file",
+            "iadc_from_file",
+        }
+    ),
 }
 
 _ALLOWED_TOP_LEVEL_DEPENDENCIES: dict[str, frozenset[str]] = {
-    "common": frozenset({"common"}),
+    "api": frozenset({"api", "architecture", "common", "primitive"}),
+    "common": frozenset({"api", "common"}),
     "primitive": frozenset({"common", "primitive"}),
     "architecture": frozenset({"architecture", "common", "primitive"}),
     "works": frozenset({"architecture", "common", "primitive", "works"}),
-    "tools": frozenset({"architecture", "common", "primitive", "tools", "works"}),
+    "tools": frozenset({"api", "architecture", "common", "primitive", "tools", "works"}),
 }
 
 
@@ -57,6 +74,20 @@ def _dotted_path(name: str) -> Path:
 def _module_file(name: str) -> Path | None:
     path = _dotted_path(name).with_suffix(".py")
     return path if path.is_file() else None
+
+
+def _is_direct_import_module(path: Path) -> bool:
+    return path.parent in DIRECT_IMPORT_ROOTS
+
+
+def _is_root_api_lift(path: Path, node: ast.ImportFrom) -> bool:
+    return (
+        path == LIBRARY_ROOT / "__init__.py"
+        and node.level == 1
+        and node.module is not None
+        and node.module.startswith("api.")
+        and all(alias.name in _ROOT_LIFT_EXCEPTIONS["api"] and alias.asname is None for alias in node.names)
+    )
 
 
 def _package_face(name: str) -> Path | None:
@@ -173,6 +204,8 @@ def test_package_surfaces_are_static_and_explicit() -> None:
     private_modules = _private_modules()
 
     for path in _iter_package_faces():
+        if path in EMPTY_PACKAGE_FACES:
+            continue
         exports = _declared_exports(path)
         if exports is None:
             malformed.append(str(path.relative_to(REPO_ROOT)))
@@ -201,11 +234,39 @@ def test_package_surfaces_are_static_and_explicit() -> None:
         if private_sources:
             details.append("Package faces importing private files:\n  " + "\n  ".join(private_sources))
         pytest.fail(
-            "Rule: every importable library package declares its public face once as an unannotated "
-            "literal string list. Its entries are unique and public, and no public face draws from a "
-            "leading-underscore file. Command-line-only packages under `neurox/tools` are exempt.\n"
+            "Rule: every aggregate library package except the empty direct-import packages declares "
+            "its public face once as an unannotated literal string list. Its entries are unique and public, "
+            "and no public face draws from a leading-underscore file. Command-line-only packages under "
+            "`neurox/tools` are exempt.\n"
             "Fix: write one `__all__ = [...]`; move a public definition to a non-underscore file before "
             "exporting it.\n" + "\n".join(details)
+        )
+
+
+def test_direct_import_packages_have_no_aggregate_surfaces() -> None:
+    nonempty_faces = sorted(
+        str(face.relative_to(REPO_ROOT)) for face in EMPTY_PACKAGE_FACES if face.read_text(encoding="utf-8")
+    )
+    if nonempty_faces:
+        pytest.fail(
+            "Rule: direct-import packages have empty root `__init__.py` files; definitions directly owned "
+            "by those directories are imported from their concrete modules.\nNonempty faces:\n  "
+            + "\n  ".join(nonempty_faces)
+        )
+
+    offenders: list[str] = []
+    empty_package_names = {f"{PACKAGE}.{root.name}" for root in DIRECT_IMPORT_ROOTS}
+    for path in _iter_source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        offenders.extend(
+            f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in empty_package_names
+        )
+    if offenders:
+        pytest.fail(
+            "Rule: names are not imported from an empty direct-import package face.\n"
+            "Fix: import each name from the concrete module that defines it.\nOffenders:\n  " + "\n  ".join(offenders)
         )
 
 
@@ -221,12 +282,7 @@ def test_parent_faces_do_not_lift_child_package_members() -> None:
                 continue
             lifted = []
             for alias in node.names:
-                allowed = (
-                    path == LIBRARY_ROOT / "__init__.py"
-                    and node.module in _ROOT_LIFT_EXCEPTIONS
-                    and alias.name in _ROOT_LIFT_EXCEPTIONS[node.module]
-                    and alias.asname is None
-                )
+                allowed = _is_root_api_lift(path, node)
                 if not allowed:
                     lifted.append(alias.name)
             if lifted:
@@ -263,8 +319,10 @@ def test_relative_imports_reach_only_direct_files_or_child_package_faces() -> No
                         f"(not direct children: {', '.join(unresolved)})"
                     )
                 continue
-            if "." in node.module:
+            if "." in node.module and not _is_root_api_lift(path, node):
                 invalid_targets.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}")
+                continue
+            if _is_root_api_lift(path, node):
                 continue
             module, package = _relative_target(path, node.module)
             if module is None and package is None:
@@ -315,6 +373,8 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
                     offender = f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}"
                     if relationship == "same package":
                         wrong_form.append(f"{offender} (sibling file requires a relative import)")
+                    elif _is_direct_import_module(module):
+                        continue
                     elif (exports := _declared_exports(module)) is None:
                         concrete_crossings.append(f"{offender} ({relationship})")
                     else:
@@ -359,6 +419,8 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
                         offender = f"{path.relative_to(REPO_ROOT)}:{node.lineno} {ast.unparse(node)}"
                         if relationship == "same package":
                             wrong_form.append(f"{offender} (sibling file requires a relative import)")
+                        elif _is_direct_import_module(module):
+                            continue
                         elif _declared_exports(module) is None:
                             concrete_crossings.append(f"{offender} ({relationship})")
                         continue
@@ -384,10 +446,11 @@ def test_absolute_imports_match_ownership_and_package_surfaces() -> None:
         pytest.fail(
             "Rule: sibling files and direct child packages use single-dot relative imports; a descendant "
             "uses a strict ancestor's directly owned file by absolute path; every other NeuroX dependency "
-            "uses an absolute package or public-module `__all__` face. The same rule applies to library, "
-            "tool, and validation callers.\nFix: choose the import form from the ownership relationship, "
-            "and export cross-package names from their owning package or an intentional public module.\n"
-            + "\n".join(details)
+            "uses an absolute package or public-module `__all__` face. Concrete modules directly owned by "
+            "the empty `neurox.api` and `neurox.common` package faces are imported directly. The same rule "
+            "applies to library, tool, and validation callers.\nFix: choose the import form from the "
+            "ownership relationship, and export cross-package names from their owning package or an"
+            "intentional public module.\n" + "\n".join(details)
         )
 
 

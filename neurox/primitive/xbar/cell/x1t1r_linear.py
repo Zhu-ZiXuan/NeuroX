@@ -84,10 +84,14 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """BL-side drop fraction with the WL off."""
 
 
-@XbarCell1t1r.register_neurox_module(config_type=XbarCell1t1rLinearConfig, policy_type=XbarCell1t1rLinearPolicy)
-class XbarCell1t1rLinear[ConfigT: XbarCell1t1rLinearConfig, PolicyT: XbarCell1t1rLinearPolicy](
-    XbarCell1t1r[ConfigT, PolicyT, XbarCell1t1rLinearSnap]
-):
+_Dcop = XbarCell1t1rDcop
+_Config = XbarCell1t1rLinearConfig
+_Policy = XbarCell1t1rLinearPolicy
+_Snap = XbarCell1t1rLinearSnap
+
+
+@XbarCell1t1r.register_neurox_module(config_type=_Config, policy_type=_Policy)
+class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[ConfigT, PolicyT, _Snap]):
     # === Functional buffers ===
 
     _g_cell_off_table__uS: Tensor  # Shape: [w_state]
@@ -160,14 +164,14 @@ class XbarCell1t1rLinear[ConfigT: XbarCell1t1rLinearConfig, PolicyT: XbarCell1t1
         self,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
-        snap: XbarCell1t1rLinearSnap,
-    ) -> XbarCell1t1rDcop:
+        snap: _Snap,
+    ) -> _Dcop:
         """Full branch working point including the divider V_X."""
         on = self.is_wl_on(snap)
         g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
         vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
         dv__V = v_bl__V - v_sl__V
-        return XbarCell1t1rDcop(
+        return _Dcop(
             i__uA=g_cell__uS * dv__V,
             di_dvbl__uS=g_cell__uS,
             di_dvsl__uS=-g_cell__uS,
@@ -179,19 +183,13 @@ class XbarCell1t1rLinear[ConfigT: XbarCell1t1rLinearConfig, PolicyT: XbarCell1t1
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        t_elapsed: float,
-    ) -> XbarCell1t1rLinearSnap:
-        """Bundle the programmed branch parameters with the WL control drive.
-
-        `t_elapsed` is unused: the linear model holds no time-dependent read
-        state.
-        """
-        del t_elapsed
+    ) -> _Snap:
+        """Bundle the programmed branch parameters with the WL control drive."""
 
         def view(buf: Tensor) -> Tensor:
             return buf.expand(shape) if shape else buf
 
-        return XbarCell1t1rLinearSnap(
+        return _Snap(
             v_wl__V=control,
             g_cell_on__uS=view(self._g_cell_on__uS),
             g_cell_off__uS=view(self._g_cell_off__uS),

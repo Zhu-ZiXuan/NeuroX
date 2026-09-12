@@ -43,7 +43,7 @@ N/A — the I-V surface and its three node partials are evaluated in closed form
 Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise on the per-instance threshold and transconductance maps.
 
 - **$V_{\mathrm{th}}$ mismatch** (`A_vt_mismatch`, fabricate time) — additive Gaussian on $V_{\mathrm{th,nom}}$ with sigma $\sigma_{V_{\mathrm{th}}} = A_{V_{\mathrm{th}}}\cdot 10^{-3}/\sqrt{W L}$ (the $10^{-3}$ converts the mV-um matching coefficient to V).
-- **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{W L}$; since $\beta_{\mathrm{nom}}$ is a positive magnitude, $\sigma_\beta$ is positive directly.
+- **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{W L}$, followed by a lower clamp to a strictly positive representable magnitude.
 
 $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coefficients: both sigma values scale as $1/\sqrt{W L}$, so larger devices match better; the shared area-scaled mismatch law is in [nonideality](../nonideality.md). They are static device-to-device variation, not per-read noise.
 

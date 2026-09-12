@@ -1,5 +1,5 @@
 [macro]
-config_files = ["../params.toml"]
+config_files = ["../config.toml"]
 config_section = "cim_macro"
 policy_file = "../policy.toml"
 policy_section = "policy"

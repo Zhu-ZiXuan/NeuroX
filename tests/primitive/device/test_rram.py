@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from neurox.primitive.device import Rram, RramConfig, RramPolicy
+from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy
 
 
 def _policy(*, drift: bool) -> RramPolicy:
@@ -35,19 +35,37 @@ def test_rram_config_requires_positive_drift_reference_time() -> None:
         replace(config, drift_t0=0.0)
 
 
-def test_rram_drift_is_controlled_by_policy() -> None:
+def test_rram_config_requires_positive_minimum_conductance() -> None:
+    config = RramConfig.from_preset("process/rram:default")
+    with pytest.raises(ValueError, match="g_min__uS"):
+        replace(config, g_min__uS=0.0)
+
+
+def test_rram_requires_conductance_bounds_representable_by_dtype() -> None:
+    config = RramConfig.from_preset("process/rram:default")
+    config = replace(config, g_min__uS=torch.finfo(torch.float32).tiny / 2.0)
+
+    with pytest.raises(ValueError, match="normal value representable"):
+        Rram(
+            config=config,
+            policy=_policy(drift=False),
+            inst_shape=(),
+            dtype=torch.float32,
+            T__K=300.0,
+            g_max__uS=100.0,
+        )
+
+
+def test_rram_program_uses_zero_elapsed_time() -> None:
     target = torch.tensor(50.0, dtype=torch.float64)
-    elapsed = 4.0
 
     drift_off = _rram(drift=False)
-    drift_off.program(target, elapsed)
+    drift_off.program(target)
     actual_off = drift_off.snapshot(shape=()).g__uS
 
     drift_on = _rram(drift=True)
-    drift_on.program(target, elapsed)
+    drift_on.program(target)
     actual_on = drift_on.snapshot(shape=()).g__uS
 
-    config = drift_on.config
-    expected_on = target * (elapsed / config.drift_t0) ** (-config.drift_decay_rate)
     assert torch.equal(actual_off, target)
-    assert torch.allclose(actual_on, expected_on)
+    assert torch.equal(actual_on, target)

@@ -11,7 +11,8 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.registry_mixin import RegistryMixin
 
 
 class IdacConfig(ConfigBase, ABC):

@@ -29,7 +29,7 @@ The two composition directives are mutually exclusive in one table, and neither 
 
 ## Presets
 
-`neurox/presets/` holds the bundled process presets — the device parameter sets a design draws on — pulled in via `_neurox_use_preset` and self-describing their own `_neurox_class`. A config or policy dataclass can also load one directly via `Cls.from_preset("family/file:section")`, without a host file.
+`neurox/presets/` holds bundled parameter sets: process fragments under `process/` and published design points under `works/`. They can be pulled in via `_neurox_use_preset` and self-describe their own `_neurox_class`. A config or policy dataclass can also load one directly via `Cls.from_preset("family/file:section")`, without a host file.
 
 Resolution enters preset mode at a `_neurox_use_preset` and stays there: inside a preset, `_neurox_use` is rejected, and a preset path may not be absolute, start with `./`, or contain a `..` segment. A preset therefore references only other presets, by a forward path inside the presets root.
 

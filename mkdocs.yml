@@ -64,7 +64,7 @@ nav:
     - Overview: guides/calibration/README.md
     - ADC input characterization: guides/calibration/calibrate_adc.md
     - Macro calibration: guides/calibration/calibrate_macro.md
-    - Solver iteration counts: guides/calibration/solver_iteration_counts.md
+    - Cell linearization and solver contract: guides/calibration/solver_tolerances.md
     - Tool conventions: guides/calibration/tool_conventions.md
 - Reference:
   - Overview: reference/README.md
@@ -131,20 +131,19 @@ nav:
 - Validation:
   - Overview: validation/README.md
   - Campaigns: validation/campaigns.md
+  - Adaptive solve validation: validation/structured_while_solve.md
 - API:
   - Overview: api/README.md
   - Configuration: api/configuration.md
   - Python: api/python.md
-  - Common: api/common.md
+  - Offline tools: api/tools.md
 - System design:
   - Overview: system_design/README.md
   - Construction: system_design/construction.md
   - Physical state: system_design/physical_state.md
   - PPA accounting: system_design/ppa_accounting.md
-  - Compile boundary: system_design/compile.md
   - CIM execution: system_design/cim_execution.md
-  - Crossbar DC solve: system_design/xbar_solve.md
-  - Non-ideality kernels: system_design/nonideality_kernels.md
+  - Non-ideality composition: system_design/nonideality_kernels.md
 - Conventions:
   - Overview: conventions/README.md
   - Code style: conventions/code_style.md

@@ -13,8 +13,9 @@ from typing import TYPE_CHECKING, final
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.common.encoding import Encoding, Transcoder
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.registry_mixin import RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro

@@ -1,26 +1,14 @@
-"""Wire-ladder KCL residuals, node self-conductances, and driver currents.
-
-Every wire is a UNIFORM ladder: one lattice link joins each pair of adjacent
-nodes and the same link joins the driver to the node at index 0, so a whole
-rail is described by one scalar conductance. The only distinguished node is
-the ladder's open end at the far index, which has no link onward.
-
-The wire axis is a parameter rather than a per-orientation function: `dim` is
-the NEGATIVE index of the axis the ladder runs along, which is what makes the
-trailing-pad width exact. Shapes below are written for a generic wire axis;
-the present call sites pass `dim=-1` over cell grids at `[..., col, row]`.
-"""
+"""Uniform wire-ladder KCL with a driven first node and an open far end."""
 
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 
 def f_kcl__uA(
     v_node__V: Tensor,
-    v_drive__V: Tensor,
+    v_port__V: Tensor,
     segment_g__uS: float,
     i_inject__uA: Tensor,
     *,
@@ -31,7 +19,7 @@ def f_kcl__uA(
     Args:
         v_node__V: Wire node voltages.
             Shape: `[..., node, ...]`.
-        v_drive__V: Drive voltage, of extent 1 along `dim`.
+        v_port__V: Array-port voltage, of extent 1 along `dim`.
             Shape: `[..., node=1, ...]`.
         segment_g__uS: Conductance of one lattice link.
         i_inject__uA: Cell current drawn at each node.
@@ -42,46 +30,42 @@ def f_kcl__uA(
         KCL residual tensor.
         Shape: `[..., node, ...]`.
     """
-    # `F.pad` reads its argument from the last axis backwards, two entries per
-    # axis: a negative `dim` sits behind exactly `-dim - 1` untouched axes and
-    # takes the single trailing pad itself.
-    pad = (0, 0) * (-dim - 1) + (0, 1)
-    # dv_to_left__V[k] = v_node__V[k] - v_node__V[k-1] for k >= 1;
-    # v_node__V[0] - v_drive__V at k = 0.
-    # Shape: [..., point, ...]
-    v_with_drive__V = torch.cat((v_drive__V, v_node__V), dim=dim)
-    # Shape: [..., point, ...] -> [..., node, ...]
-    dv_to_left__V = torch.diff(v_with_drive__V, dim=dim)
-    # dv_to_right__V[k] = v_node__V[k] - v_node__V[k+1] for k <= N-2; the open
-    # end at k = N-1 has no link onward, so its difference is padded away.
+    node_num = v_node__V.shape[dim]
+    node_index_shape = [1] * v_node__V.ndim
+    node_index_shape[dim] = node_num
+    node_index = torch.arange(node_num, device=v_node__V.device).reshape(node_index_shape)
+
     # Shape: [..., node, ...]
-    dv_to_right__V = F.pad(-torch.diff(v_node__V, dim=dim), pad)
+    dv_to_prev__V = v_node__V - torch.roll(v_node__V, shifts=1, dims=dim)
+    dv_to_prev__V = torch.where(node_index == 0, v_node__V - v_port__V, dv_to_prev__V)
+    # Shape: [..., node, ...]
+    dv_to_next__V = v_node__V - torch.roll(v_node__V, shifts=-1, dims=dim)
+    dv_to_next__V = torch.where(node_index == node_num - 1, 0.0, dv_to_next__V)
 
-    return i_inject__uA + (dv_to_left__V + dv_to_right__V) * segment_g__uS
+    return i_inject__uA + (dv_to_prev__V + dv_to_next__V) * segment_g__uS
 
 
-def g_self__uS(
+def dfkcl_dvnode__uS(
     g_cell_eff__uS: Tensor,
     segment_g__uS: float,
     *,
     dim: int,
 ) -> Tensor:
-    """Self-conductance of every node of one wire ladder.
+    """Differentiate each node's KCL residual with respect to its own voltage.
 
-    A node's own conductance is its cell branch plus every rail link attached
-    to it. An interior node has two — the one back towards the driver and the
-    one onward — while the far index is the ladder's open end and has only the
-    first. Index 0 is NOT distinguished: its driver-side link is one standard
-    lattice pitch like any other.
+    Other node and driver voltages stay fixed. Each attached wire link adds
+    its conductance to the cell-current derivative. The open far end has one
+    link; all other nodes have two, including the driver link at index zero.
 
     Args:
-        g_cell_eff__uS: Per-node cell branch derivative.
+        g_cell_eff__uS: Signed derivative of the cell current leaving each node
+            with respect to that node's voltage.
             Shape: `[..., node, ...]`.
         segment_g__uS: Conductance of one lattice link.
         dim: Negative index of the axis the wire runs along.
 
     Returns:
-        Per-node self-conductance.
+        Diagonal entries of the node KCL Jacobian.
         Shape: `[..., node, ...]`.
     """
     node_num = g_cell_eff__uS.shape[dim]
@@ -95,27 +79,39 @@ def g_self__uS(
     )
 
 
-def i_drive__uA(
+def f_kcl_roundoff__uA(
     v_node__V: Tensor,
-    v_drive__V: Tensor,
+    v_port__V: Tensor,
     segment_g__uS: float,
     *,
     dim: int,
 ) -> Tensor:
-    """Net current from one wire ladder's driver into the wire.
+    """Estimate each node's wire-current uncertainty from voltage rounding.
+
+    Only voltages attached to a node contribute to its scale. The allowance
+    uses the node dtype's precision and positive segment conductance.
 
     Args:
         v_node__V: Wire node voltages.
             Shape: `[..., node, ...]`.
-        v_drive__V: Drive voltage, of extent 1 along `dim`.
+        v_port__V: Array-port voltage, broadcastable with nodes and of extent 1
+            along `dim`.
             Shape: `[..., node=1, ...]`.
-        segment_g__uS: Conductance of one lattice link — the driver reaches
-            node 0 through exactly one of them.
         dim: Negative index of the axis the wire runs along.
 
     Returns:
-        Drive current, the wire axis dropped.
-        Shape: `[...]`.
+        Local wire-rounding current allowances.
+        Shape: `[..., node, ...]`.
     """
-    # Shape: [..., node=1, ...] -> [...]
-    return (v_drive__V.squeeze(dim) - v_node__V.select(dim, 0)) * segment_g__uS
+    node_num = v_node__V.shape[dim]
+    node_index_shape = [1] * v_node__V.ndim
+    node_index_shape[dim] = node_num
+    node_index = torch.arange(node_num, device=v_node__V.device).reshape(node_index_shape)
+
+    # Replace rolled endpoints with the actual driver and open-end boundaries.
+    # Shape: [..., node, ...]
+    v_abs__V = v_node__V.abs()
+    v_left__V = torch.where(node_index == 0, v_port__V.abs(), torch.roll(v_abs__V, shifts=1, dims=dim))
+    v_right__V = torch.where(node_index == node_num - 1, 0.0, torch.roll(v_abs__V, shifts=-1, dims=dim))
+    v_scale__V = torch.maximum(v_abs__V, torch.maximum(v_left__V, v_right__V))
+    return (2.0 * torch.finfo(v_node__V.dtype).eps * segment_g__uS) * v_scale__V

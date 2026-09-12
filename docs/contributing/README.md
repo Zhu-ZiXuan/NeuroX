@@ -8,7 +8,7 @@ Prepare and verify a source checkout through [workflow](workflow.md). For a chan
 
 - [writing_family_docs](writing_family_docs.md) — the shared Reference science a component family obeys
 - [writing_module_docs](writing_module_docs.md) — a single module's Reference document
-- [writing_system_design](writing_system_design.md) — a software contract spanning components
+- [writing_system_design](writing_system_design.md) — system mechanisms and behavior across components
 - [workflow](workflow.md) — branch / PR flow and quality gates
 - [recipes](recipes.md) — task-shape checklists and routing
 

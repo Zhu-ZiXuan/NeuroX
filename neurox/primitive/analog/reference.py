@@ -5,10 +5,12 @@ See Also:
     docs/system_design/physical_state.md
 """
 
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_relative_gaussian
 
 type FloatArray = float | tuple[FloatArray, ...]

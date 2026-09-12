@@ -1,7 +1,6 @@
-"""Shared pytest fixtures for device placement and CUDA-only compilation."""
+"""Shared pytest fixtures for device placement and compiler isolation."""
 
 import contextlib
-from collections.abc import Iterator
 
 import pytest
 import torch
@@ -32,7 +31,6 @@ def device(request: pytest.FixtureRequest) -> torch.device:
 
 
 @pytest.fixture(autouse=True)
-def _compile_only_on_cuda(request: pytest.FixtureRequest) -> Iterator[None]:
-    target = request.getfixturevalue("device") if "device" in request.fixturenames else torch.device("cpu")
-    with torch._dynamo.config.patch(disable=target.type != "cuda"):
-        yield
+def _reset_compiler_state() -> None:
+    # Keep cached frames and recompilation limits local to each test.
+    torch.compiler.reset()

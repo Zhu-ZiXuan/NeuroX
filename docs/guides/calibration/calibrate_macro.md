@@ -9,7 +9,7 @@ Every reference operating point has one corresponding entry in `rescale_factors`
 When the macro implements an exact integer mapping, derive the factor from that mapping and store it directly. Use `rescale_fit` only when the complete macro transfer makes the relationship empirical. The tool requests each macro's highest available precision, comparing the physical macro's maximum-width output with its ideal twin's exact result; it does not inspect the ADC type or use an ADC probe.
 
 ```bash
-python -m neurox.tools.calibrate_macro.rescale_fit \
+python -m neurox.tools.calibration.cim_macro \
     --config validations/<paper>/tools/calibrate_macro_rescale.toml \
     --device cuda:0
 ```
@@ -18,7 +18,7 @@ Logical weights have shape `[Bw, input_num, output_num]`. Logical inputs have sh
 
 $$\mathrm{ideal\ value}\approx\mathrm{macro\ code}\times\mathrm{rescale\ factor}.$$
 
-The command emits one complete `rescale_factors = [...]` assignment, preserving entries for modes not selected by `--modes`, and plots the paired maximum-resolution output codes with the fitted line. Lower ADC resolutions derive their effective factors from the macro family law.
+The command emits one complete `rescale_factors = [...]` assignment, preserving entries for modes not selected by `--modes`, and plots the paired maximum-resolution output codes with the fitted line. The assignment is saved as `rescale.toml` in the run directory; per-mode figures live in its `figures/` child. Lower ADC resolutions derive their effective factors from the macro family law.
 
 ## Comparing against an idealized macro
 

@@ -4,12 +4,14 @@
 [target]
 # [simulated p210] Macro power at the 2-bit-input, 3-bit-weight operating point.
 total_macro__mW = 5.13
-op_frequency__MHz = 20.0          # [simulated p210] simulated access rate
 sub_array_num = 8                 # [reported p211 Fig.20(c)] independent 256x512 sub-arrays
 input_bits = 2                    # [reported p210] power-evaluation input precision
 weight_bits = 3                   # [reported p210] power-evaluation weight precision
 vdd__V = 1.0                      # [reported p209] simulation supply; [measured p211] nominal test supply
-per_access__fJ = 32062.5          # [derived] 5.13 mW / 8 / 20 MHz = 32.0625 pJ per sub-array access
+per_access__fJ = 32062.5          # [derived] 5.13 mW * 50 ns / 8 = 32.0625 pJ per sub-array access
+
+[measurement]
+cycle__ns = 50.0                  # [derived] reciprocal of the [simulated p210] 20 MHz access rate
 
 # Hard gate
 [gate]

@@ -10,7 +10,7 @@ from neurox.primitive.analog.current_adc import (
     SarIadcConfig,
     SarIadcPolicy,
 )
-from neurox.primitive.physics import e_supply_charge__fJ, q_conduction__fC
+from neurox.primitive.physics import e_charge__fJ, q_conduction__fC
 
 
 class TmcsaConfig(SarIadcConfig):
@@ -73,4 +73,4 @@ class Tmcsa(SarIadc[TmcsaConfig, TmcsaPolicy]):
         i_common__uA = i_in__uA + i_ref__uA
         q_ph2__fC = q_conduction__fC(3.0 * i_common__uA, config.t_ph2__ns)
         q_ph3__fC = q_conduction__fC(2.0 * i_common__uA, config.t_ph3__ns)
-        return e_supply_charge__fJ(self._vdd__V, q_ph2__fC + q_ph3__fC) + config.energy_per_bit__fJ
+        return e_charge__fJ(self._vdd__V, q_ph2__fC + q_ph3__fC) + config.energy_per_bit__fJ

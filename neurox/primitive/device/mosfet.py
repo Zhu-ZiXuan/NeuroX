@@ -4,6 +4,8 @@ See Also:
     docs/reference/primitive/device/mosfet.md
 """
 
+from __future__ import annotations
+
 import math
 from abc import ABC, abstractmethod
 from typing import ClassVar
@@ -12,9 +14,19 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
+
+__all__ = [
+    "Mosfet",
+    "MosfetConfig",
+    "MosfetDcop",
+    "MosfetPolicy",
+    "MosfetSnap",
+    "Nmos",
+    "Pmos",
+]
 
 
 class MosfetConfig(ConfigBase):
@@ -117,10 +129,15 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
 
         if self.polarity not in (1, -1):
             raise ValueError(f"require: polarity ({self.polarity}) in (1, -1)")
-        if not (W__um > 0.0):
+        if not (math.isfinite(T__K) and T__K > 0.0):
+            raise ValueError(f"require: T__K ({T__K}) finite and > 0.0")
+        if not (math.isfinite(W__um) and W__um > 0.0):
             raise ValueError(f"require: W__um ({W__um}) > 0.0")
-        if not (L__um > 0.0):
+        if not (math.isfinite(L__um) and L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
+        if not dtype.is_floating_point:
+            raise TypeError(f"Mosfet requires a floating-point dtype; got {dtype}")
+        dtype_info = torch.finfo(dtype)
 
         temperature_ratio = T__K / config.T_nom__K
         mu_scale = math.pow(temperature_ratio, -config.ute)
@@ -137,6 +154,11 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         # 1e8 (cm^2 -> um^2) · 1e-15 (fF -> F) · 1e6 (A -> uA) = 0.1.
         nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
         nominal_vth__V = config.vth0__V + vth_shift__V
+        if not (dtype_info.tiny <= nominal_beta__uA_per_V2 <= dtype_info.max):
+            raise ValueError(
+                f"nominal_beta__uA_per_V2 ({nominal_beta__uA_per_V2}) is not a positive normal value "
+                f"representable by {dtype}"
+            )
 
         self._register_fabrication_buffers(
             dtype=dtype,
@@ -148,6 +170,8 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
         self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
         self._sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
+        if not (math.isfinite(self._sigma_beta__uA_per_V2) and self._sigma_beta__uA_per_V2 <= dtype_info.max):
+            raise ValueError(f"sigma_beta__uA_per_V2 ({self._sigma_beta__uA_per_V2}) is not representable by {dtype}")
 
     @property
     @abstractmethod
@@ -176,11 +200,15 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         )
 
     def _sample_fabrication_variation(self) -> None:
-        self._beta__uA_per_V2 = apply_gaussian(
+        beta__uA_per_V2 = apply_gaussian(
             self._nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
             self._sigma_beta__uA_per_V2,
             enabled=self.policy.A_beta_mismatch,
         )
+        if self.policy.A_beta_mismatch:
+            dtype_info = torch.finfo(beta__uA_per_V2.dtype)
+            beta__uA_per_V2 = beta__uA_per_V2.clamp(min=dtype_info.tiny, max=dtype_info.max)
+        self._beta__uA_per_V2 = beta__uA_per_V2
         self._vth__V = apply_gaussian(
             self._nominal_vth__V.clone().expand(self.inst_shape),
             self._sigma_vth__V,

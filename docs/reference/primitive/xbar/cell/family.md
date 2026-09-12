@@ -27,10 +27,10 @@ These definite signs are an invariant of the resistive branch: raising the bit-l
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl__V` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl__V` |
 | $\mathbf{V}_{\mathrm{int}}$ | internal-node voltage vector (condensed in the cell) | V | result of `ResistiveCell.solve_dc` |
-| $\mathbf{F}_{\mathrm{int}}$ | internal-node KCL residual vector, where the topology has one | uA | concrete cell's own probe-channel record |
-| $I$ | condensed branch current (BL $\to$ SL) | uA | `ResistiveDcop.i__uA` |
-| $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `ResistiveDcop.di_dvbl__uS` |
-| $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `ResistiveDcop.di_dvsl__uS` |
+| $\mathbf{F}_{\mathrm{int}}$ | internal-node KCL residual vector, where the topology has one | uA | topology-specific optional trace |
+| $I$ | condensed branch current (BL $\to$ SL) | uA | `ResistiveCellDcop.i__uA` |
+| $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `ResistiveCellDcop.di_dvbl__uS` |
+| $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `ResistiveCellDcop.di_dvsl__uS` |
 
 ## Noise & non-idealities
 

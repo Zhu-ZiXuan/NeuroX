@@ -11,7 +11,7 @@ The bundled pipelines walk the whole route end to end:
 
 Both directories carry the same set of scripts: `model_float.py` and `model_quant.py` (the float model and its quantized twin), `data.py` (the dataset loader), `train_float.py` and `train_quant.py` (the two training stages), `quant.py` (the per-layer quantized conv and linear operators), `macro_factory.py` (config and policy loading, one unit per layer), and `evaluate.py` (the measured run).
 
-Every runnable script takes `--device` and defaults to a CUDA device, so pass `--device cpu` explicitly when no GPU is available. LeNet is feasible on CPU; BERT is not.
+Every runnable script requires `--device`; no script selects a CPU or GPU implicitly. LeNet is feasible on CPU; BERT is not.
 
 ## Step 1 — train the float reference
 
@@ -65,7 +65,7 @@ The run names the config and policy it used, then prints accuracy beside the PPA
 
 Leakage power and latency stay separate figures rather than being multiplied into a static energy: static energy is leakage times the measurement or duty-cycle period chosen by the deployment model. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
 
-The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Common API](../../api/common.md)).
+The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Python API](../../api/python.md)).
 
 ## Comparing against an idealized macro
 
@@ -84,4 +84,4 @@ Each quantization mode the chip declares has one calibrated entry in `rescale_fa
 
 ## Bounding memory on the physical path
 
-The physical path is memory-heavy: a conv layer's window expansion puts one row per output position on the leading batch the array solve sees. Keep `--batch-size` small on the first run, then tune `solve_chunk_size` under the array's policy table. The knob bounds the peak memory of one call and moves no number, so a result is bit-identical across chunk sizes; it has to be tuned against the compiled path, whose per-chunk peak exceeds an eager run's at the same size. Both properties are stated in [crossbar DC solve](../../system_design/xbar_solve.md) and [compile boundary](../../system_design/compile.md).
+The physical path can require substantial memory, especially for convolution workloads. Start with a small `--batch-size`, then tune `solve_chunk_size` under the array's policy table using the compiled workload. Smaller chunks reduce intermediate storage while full-call inputs and outputs remain live. Results should agree across chunk sizes within numerical tolerance, with the same physical accesses and sampled values. Use the [performance measurement procedure](../../validation/structured_while_solve.md#compiled-execution-checks) to distinguish compilation cost, execution time, and peak allocation.

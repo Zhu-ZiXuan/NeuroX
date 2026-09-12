@@ -24,7 +24,7 @@ The four tables are flat and indexed by the weight-state index: entry $s$ of `g_
 
 $$g_{\mathrm{cell}} = \frac{I}{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{SL}}^{\mathrm{op}}}, \qquad r_{\mathrm{X}} = \frac{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{X}}}{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{SL}}^{\mathrm{op}}},$$
 
-evaluated on the converged detailed branch per state and WL level, so the linear branch reproduces the detailed branch current and access node exactly at the extraction point. Both denominators are the fixed read span, so a cut-off branch stays well-conditioned: its chord conductance is its honest leakage value ($g_{\mathrm{cell}} = 0$ is legal — array nonsingularity is carried by the wire conductances). The extraction is performed by the cell-calibration tool — see the [calibration guide](../../../../guides/calibration/solver_iteration_counts.md).
+evaluated on the converged detailed branch per state and WL level, so the linear branch reproduces the detailed branch current and access node exactly at the extraction point. Both denominators are the fixed read span, so a cut-off branch stays well-conditioned: its chord conductance is its honest leakage value ($g_{\mathrm{cell}} = 0$ is legal — array nonsingularity is carried by the wire conductances). The extraction is performed by the cell-calibration tool — see the [calibration guide](../../../../guides/calibration/solver_tolerances.md).
 
 ## Noise & non-idealities
 

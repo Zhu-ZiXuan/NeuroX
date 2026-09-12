@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import final
 
 from .module import ConfigBase, ModuleBase, PolicyBase
 
@@ -13,6 +14,8 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
     The class that first mixes this in owns one registry table keyed by
     `(config type, policy type)`; every class below it in the family shares that
     same table, so one pair selects one implementation family-wide.
+    Registration occurs when the implementation module is imported; import
+    implementations before resolving their config and policy pairs.
 
     Mix this in on the family base class, parameterized with the family's
     abstract config, policy, and module types, and decorate each concrete
@@ -32,6 +35,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
         cls._module_registry = {}
 
     @classmethod
+    @final
     def register_neurox_module(
         cls,
         *,
@@ -65,6 +69,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
         return _decorator
 
     @classmethod
+    @final
     def _lookup_neurox_module(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
         """Return the module class selected by concrete config and policy types.
 

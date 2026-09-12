@@ -1,5 +1,7 @@
 """Dict <-> file I/O for TOML and YAML."""
 
+from __future__ import annotations
+
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -20,9 +22,11 @@ def dict_from_toml(file: Path) -> ConfigDict:
 def dict_to_toml(data: Mapping[str, ConfigValue], file: Path) -> None:
     """Write a mapping to a TOML file.
 
-    TOML has no null literal, so a `None` value is dropped from a mapping and
-    its key is absent from the file. A `None` inside a list is not dropped and
-    raises `TypeError`.
+    Mapping entries with `None` values are omitted recursively because TOML
+    has no null literal. List entries are retained.
+
+    Raises:
+        TypeError: A list contains `None`.
     """
     normalized = normalize_config_dict(data)
     with file.open(mode="wb") as f:
@@ -69,9 +73,13 @@ supported_suffixes = toml_suffixes | yaml_suffixes
 
 
 def dict_from_file(file: Path, *, encoding: str | None = "utf-8") -> ConfigDict:
-    """Load a dict from a TOML or YAML file (dispatched by suffix).
+    """Load a dictionary from a TOML or YAML file selected by suffix.
 
-    `encoding` is the YAML text encoding and is ignored for TOML.
+    Args:
+        encoding: YAML text encoding; ignored for TOML.
+
+    Raises:
+        ValueError: The file suffix is unsupported.
     """
     suffix = file.suffix.lower()
     if suffix in toml_suffixes:
@@ -82,7 +90,14 @@ def dict_from_file(file: Path, *, encoding: str | None = "utf-8") -> ConfigDict:
 
 
 def dict_to_file(data: Mapping[str, ConfigValue], file: Path, *, encoding: str | None = "utf-8") -> None:
-    """Write a mapping to a TOML or YAML file (dispatched by suffix)."""
+    """Write a mapping to a TOML or YAML file selected by suffix.
+
+    Args:
+        encoding: YAML text encoding; ignored for TOML.
+
+    Raises:
+        ValueError: The file suffix is unsupported.
+    """
     suffix = file.suffix.lower()
     if suffix in toml_suffixes:
         dict_to_toml(data, file)

@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.matmul_mapping import make_activation_group_mask, make_input_activation_plan
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.digital import AccumulatorConfig, DigitalPolicy, SerialAccumulator
 
 

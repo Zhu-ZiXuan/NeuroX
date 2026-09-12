@@ -4,6 +4,8 @@ See Also:
     docs/reference/primitive/digital/accumulator.md
 """
 
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 

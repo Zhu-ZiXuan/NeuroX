@@ -22,7 +22,7 @@ where $g_{\mathrm{R}} = \partial I_{\mathrm{R}}/\partial(V_{\mathrm{BL}} - V_{\m
 
 ## Numerical method
 
-The internal KCL $F_{\mathrm{X}}(V_{\mathrm{X}}) = 0$ is strictly monotone in $V_{\mathrm{X}}$: $I_{\mathrm{N}}$ is increasing in $V_{\mathrm{X}}$ and $I_{\mathrm{R}}$ is decreasing in $V_{\mathrm{X}}$, so $F_{\mathrm{X}} = I_{\mathrm{N}} - I_{\mathrm{R}}$ is strictly increasing and has a unique root for any $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$. The root is found by a Pade current-divider seed — a first-order split of the BL-to-SL drop across the NMOS output conductance and the programmed RRAM conductance — followed by a fixed number of Newton steps on $F_{\mathrm{X}}$. The step count is a calibrated numerical knob (see §Parameters); convergence is fast because the seed lands near the root and the residual decreases geometrically once in the Newton regime.
+The internal KCL $F_{\mathrm{X}}(V_{\mathrm{X}}) = 0$ is strictly monotone in $V_{\mathrm{X}}$: $I_{\mathrm{N}}$ is increasing in $V_{\mathrm{X}}$ and $I_{\mathrm{R}}$ is decreasing in $V_{\mathrm{X}}$, so $F_{\mathrm{X}} = I_{\mathrm{N}} - I_{\mathrm{R}}$ is strictly increasing and has a unique root for any $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$. The initial access voltage selects a physical endpoint from the sampled NMOS state: $V_{\mathrm{X},0}=V_{\mathrm{SL}}$ when $V_{\mathrm{WL}}-V_{\mathrm{SL}}>V_{\mathrm{th}}$, otherwise $V_{\mathrm{X},0}=V_{\mathrm{BL}}$. Newton iteration stops when the KCL residual satisfies the absolute-plus-relative current tolerance.
 
 ## Noise & non-idealities
 
@@ -40,7 +40,6 @@ In addition to the [shared family parameters](1t1r.md):
 | `access_nmos_W__um` | access-NMOS width | um | $> 0$ | Design |
 | `access_nmos_L__um` | access-NMOS length | um | $> 0$ | Design |
 | `rram_g_max__uS` | maximum programmable RRAM conductance | uS | $> G_{\mathrm{min}}$ | Design |
-| `newton_iter_num` | per-cell access-node Newton iteration count | — | $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md). A config file selects this model with `_neurox_class = "XbarCell1t1rDetailConfig"` in the cell table and its policy file with `XbarCell1t1rDetailPolicy`; the `_neurox_class` directive and the file-level schema are specified in [configuration](../../../../api/configuration.md).
 

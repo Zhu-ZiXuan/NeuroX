@@ -1,9 +1,4 @@
-"""Closed-form and registry checks for `XbarCell1t1rLinear`.
-
-Covers registry dispatch from the config type, the WL-switched
-division-free branch math against hand-built tables, table validation
-bounds, and the empty-policy deserialization path.
-"""
+"""Linear-cell branch equations, table validation, and registry dispatch."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +6,8 @@ from pathlib import Path
 import pytest
 import torch
 
-from neurox.primitive.device import MosfetPolicy, RramPolicy
+from neurox.primitive.device.mosfet import MosfetPolicy
+from neurox.primitive.device.rram import RramPolicy
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
     XbarCell1t1rDetailPolicy,
@@ -71,7 +67,7 @@ def test_solve_dc_matches_table_conductance() -> None:
     # A word line runs along a row and is shared by every column, so the array
     # gates every cell of a row at the same voltage on the per-cell grid.
     v_wl__V = torch.tensor([0.0, 0.9], dtype=torch.float64).expand(2, 2)
-    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl__V, shape=(2, 2))
 
     g_cell_off = torch.tensor(_G_CELL_OFF_TABLE__uS, dtype=torch.float64)[w_state]
     g_cell_on = torch.tensor(_G_CELL_ON_TABLE__uS, dtype=torch.float64)[w_state]
@@ -96,7 +92,7 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
     i_levels = []
     for v_wl__V in (_V_WL_ON_THRESHOLD__V, _V_WL_ON_THRESHOLD__V + 0.01):
         v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=torch.float64)
-        snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1), t_elapsed=0.0)
+        snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1))
         i_levels.append(float(cell.solve_dc(v_bl__V, v_sl__V, snap).i__uA))
     i_at_threshold, i_above = i_levels
 
@@ -111,7 +107,7 @@ def test_solve_dc_vx_multiplication_form() -> None:
     v_bl__V = torch.full((1, 1), 0.3, dtype=torch.float64)
     v_sl__V = torch.zeros((1, 1), dtype=torch.float64)
     v_wl__V = torch.full((1, 1), 0.9, dtype=torch.float64)
-    snap = cell.snapshot(control=v_wl__V, shape=(1, 1), t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl__V, shape=(1, 1))
 
     dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
 

@@ -28,7 +28,11 @@ from neurox.primitive.macro.cim import (
     CimMacroQuantizationScheme,
 )
 
-from .array import Ye2023Jssc2t1rArray, Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArrayPolicy
+from .array import (
+    Ye2023Jssc2t1rArray,
+    Ye2023Jssc2t1rArrayConfig,
+    Ye2023Jssc2t1rArrayPolicy,
+)
 from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 
 
@@ -185,21 +189,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # [m0, m0, m0, ..., m1, m1, m1, ..., m2, m2, m2, ...], each multiplier is repeated input_num times
         col_t2_multipliers = tuple(m for m in (*w_pv, w_pv[-1]) for _ in range(self.input_num))
 
-        # --- Transposed array: physical rows are outputs ---
-
-        self.array = Ye2023Jssc2t1rArray(
-            config=config.array_config,
-            policy=policy.array_policy,
-            inst_shape=(*self.inst_shape, 1),
-            row_num=self.row_num,
-            col_num=self.col_num,
-            t2_multipliers=col_t2_multipliers,
-            v_tbl__V=config.v_tbl__V,
-            vdd__V=config.vdd__V,
-            dtype=dtype,
-            T__K=T__K,
-        )
-
         # --- BL and SL boundary clamps ---
 
         self.bl_driver = VoltageDriver(
@@ -213,6 +202,23 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
             inst_shape=(*self.inst_shape, 1, self.col_num),
+            dtype=dtype,
+            T__K=T__K,
+        )
+
+        # --- Transposed array: physical rows are outputs ---
+
+        self.array = Ye2023Jssc2t1rArray(
+            config=config.array_config,
+            policy=policy.array_policy,
+            inst_shape=(*self.inst_shape, 1),
+            row_num=self.row_num,
+            col_num=self.col_num,
+            t2_multipliers=col_t2_multipliers,
+            v_tbl__V=config.v_tbl__V,
+            vdd__V=config.vdd__V,
+            bl_driver=self.bl_driver,
+            sl_driver=self.sl_driver,
             dtype=dtype,
             T__K=T__K,
         )
@@ -325,23 +331,21 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # --- 3: solve every scan phase ---
 
         port_shape = (*leading_shape, self.scan_num, self.col_num)
-        bl_snap = self.bl_driver.snapshot(v_ref__V=v_bl__V.unsqueeze(-2), shape=port_shape)
-        sl_snap = self.sl_driver.snapshot(v_ref__V=self._v_sl__V, shape=port_shape)
-        steady_state = self.array.solve_array(
+        bl_driver_snap = self.bl_driver.snapshot(v_ref__V=v_bl__V.unsqueeze(-2), shape=port_shape)
+        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._v_sl__V, shape=port_shape)
+        array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
             wl_phase_dims=(-2,),
-            bl_driver=self.bl_driver,
-            bl_driver_snap=bl_snap,
-            sl_driver=self.sl_driver,
-            sl_driver_snap=sl_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
         )
 
         # Complete both boundary accesses at the converged port-current layout.
-        self.bl_driver.drive(i_port__uA=steady_state.i_bl_port__uA)
-        self.sl_driver.drive(i_port__uA=steady_state.i_sl_port__uA)
+        self.bl_driver.drive(i_port__uA=array_dcop.i_bl_port__uA)
+        self.sl_driver.drive(i_port__uA=array_dcop.i_sl_port__uA)
 
         # Shape: [..., scan, row] -> [..., scan, lane]
-        i_tbl__uA = steady_state.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices]
+        i_tbl__uA = array_dcop.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices]
         # Shape: [..., scan, lane] -> [..., lane, scan]
         i_tbl__uA = i_tbl__uA.movedim(-1, -2)
 
@@ -349,7 +353,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         if self._is_dynamic_energy_profile_active():
             self._record_dynamic_energy(
-                steady_state.v_bl_clamp__V * steady_state.i_bl_port__uA * access__ns,
+                array_dcop.v_bl_port__V * array_dcop.i_bl_port__uA * access__ns,
                 channel="bl_conduction",
             )
             self._record_dynamic_energy(

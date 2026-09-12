@@ -1,7 +1,4 @@
-"""Tests for what a module tree tells about the NeuroX modules it holds.
-
-Names from `stamp_names`, and roots from the descent that stops at the first NeuroX module.
-"""
+"""Tree naming and discovery of outermost NeuroX modules."""
 
 from __future__ import annotations
 
@@ -9,9 +6,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from neurox import check_unique_neurox_bindings, stamp_names
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.module import _neurox_roots
+from neurox import check_unique_binding, stamp_names
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase, neurox_roots
 
 
 class _Config(ConfigBase):
@@ -47,13 +43,13 @@ class _Owner(nn.Module):
 
 def test_a_neurox_module_is_its_own_root() -> None:
     node = _Node()
-    assert _neurox_roots(node) == [node]
+    assert neurox_roots(node) == [node]
 
 
 def test_descent_stops_at_the_first_neurox_module() -> None:
     inner = _Node()
     outer = _Node(inner)
-    assert _neurox_roots(nn.Sequential(outer)) == [outer]
+    assert neurox_roots(nn.Sequential(outer)) == [outer]
 
 
 def test_a_plain_container_may_hold_several_roots() -> None:
@@ -67,7 +63,7 @@ def test_a_plain_container_may_hold_several_roots() -> None:
             self.first = first
             self.block = nn.Sequential(nn.ReLU(), second)
 
-    assert _neurox_roots(_Host()) == [first, second]
+    assert neurox_roots(_Host()) == [first, second]
 
 
 def test_a_module_bound_under_two_parents_is_one_root() -> None:
@@ -79,11 +75,11 @@ def test_a_module_bound_under_two_parents_is_one_root() -> None:
             self.left = nn.Sequential(shared)
             self.right = nn.Sequential(shared)
 
-    assert _neurox_roots(_Host()) == [shared]
+    assert neurox_roots(_Host()) == [shared]
 
 
 def test_a_tree_without_neurox_modules_has_no_root() -> None:
-    assert _neurox_roots(nn.Sequential(nn.Linear(2, 2), nn.ReLU())) == []
+    assert neurox_roots(nn.Sequential(nn.Linear(2, 2), nn.ReLU())) == []
 
 
 # === Stamps ===
@@ -147,7 +143,7 @@ def test_duplicate_bindings_can_be_checked_before_stamping() -> None:
             self.right = shared
 
     with pytest.raises(ValueError, match="bound at both"):
-        check_unique_neurox_bindings(_Host())
+        check_unique_binding(_Host())
 
 
 def test_an_unstamped_module_refuses_to_name_itself() -> None:

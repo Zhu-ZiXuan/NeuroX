@@ -13,10 +13,12 @@ See Also:
     docs/system_design/nonideality_kernels.md
 """
 
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase
+from neurox.common.module import ConfigBase
 
 
 class StuckAtFaultConfig(ConfigBase):

@@ -12,7 +12,6 @@ from neurox.primitive.analog import (
     VoltageDriverPolicy,
 )
 from neurox.primitive.macro.cim import CimMacro
-from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 from neurox.works.macro.cim.ye2023jssc import (
     Ye2023JsscCimMacro,
     Ye2023JsscCimMacroConfig,
@@ -77,7 +76,6 @@ def build_config(
         t2_gate_unit_c__fF=0.05,
         tbl_node_unit_c__fF=0.5,
         cell_config=cell_config(),
-        solver_config=ColBlColSlSolverConfig(n_outer=2, n_inner=3),
     )
     zero_block = UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0, energy_per_op__fJ=0.0)
     zero_driver = VoltageDriverConfig(

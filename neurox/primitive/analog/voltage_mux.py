@@ -4,10 +4,12 @@ See Also:
     docs/reference/primitive/analog/voltage_mux.md
 """
 
+from __future__ import annotations
+
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
 

@@ -81,7 +81,7 @@ def main() -> None:
         "--float-checkpoint", type=Path, required=True, help="Pretrained float state_dict from train_float.py"
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output QAT checkpoint path")
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, required=True)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr", type=float, default=2e-5)

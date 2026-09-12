@@ -1,13 +1,20 @@
-"""Resistive-cell role consumed by DC solvers."""
+"""Resistive-cell role consumed by array DC solvers."""
+
+from __future__ import annotations
 
 from typing import Protocol
 
 from torch import Tensor
 
-from neurox.common import SnapBase
+__all__ = [
+    "ResistiveCell",
+    "ResistiveCellDcop",
+]
 
 
-class ResistiveDcop(Protocol):
+class ResistiveCellDcop(Protocol):
+    """Branch current and terminal derivatives required by an array solver."""
+
     @property
     def i__uA(self) -> Tensor:
         """Branch current, positive BL to SL."""
@@ -24,10 +31,13 @@ class ResistiveDcop(Protocol):
         ...
 
 
-class ResistiveCell[SnapT: SnapBase, DcopT: ResistiveDcop](Protocol):
-    def solve_dc(
-        self,
-        v_bl__V: Tensor,
-        v_sl__V: Tensor,
-        snap: SnapT,
-    ) -> DcopT: ...
+class ResistiveCell[SnapT, DcopT: ResistiveCellDcop](Protocol):
+    """Condensed branch evaluated against a caller-supplied snapshot.
+
+    The snapshot and cell evaluation must support compiled tensor execution.
+    """
+
+    @property
+    def inst_shape(self) -> tuple[int, ...]: ...
+
+    def solve_dc(self, v_bl__V: Tensor, v_sl__V: Tensor, snap: SnapT) -> DcopT: ...

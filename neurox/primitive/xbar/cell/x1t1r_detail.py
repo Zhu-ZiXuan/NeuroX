@@ -1,4 +1,4 @@
-"""Detailed 1T1R cell — nonlinear device models condensed by a per-cell Newton.
+"""Nonlinear 1T1R cell with residual-driven access-node condensation.
 
 See Also:
     docs/reference/primitive/xbar/cell/1t1r_detail.md
@@ -6,37 +6,218 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
+from typing import ClassVar
+
 import torch
 from torch import Tensor
 
-from neurox.common import RecordBase, RecorderBase
-from neurox.primitive.device import (
-    MosfetConfig,
-    MosfetPolicy,
-    MosfetSnap,
-    Nmos,
-    Rram,
-    RramConfig,
-    RramPolicy,
-    RramSnap,
-)
+from neurox.common.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
+from neurox.common.torch_compat import torch_assert_async
+from neurox.primitive.device.mosfet import MosfetConfig, MosfetPolicy, MosfetSnap, Nmos
+from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy, RramSnap
 
-from .x1t1r import (
-    XbarCell1t1r,
-    XbarCell1t1rConfig,
-    XbarCell1t1rDcop,
-    XbarCell1t1rPolicy,
-    XbarCell1t1rSnap,
-)
+from .x1t1r import XbarCell1t1r, XbarCell1t1rConfig, XbarCell1t1rDcop, XbarCell1t1rPolicy, XbarCell1t1rSnap
+
+# ### Access-node solver ###
 
 
-class XbarCell1t1rDetailRecord(RecordBase):
-    cell__uA: Tensor
-    """`|I_NMOS - I_RRAM|` per cell at the condensed V_X."""
+class _State(SolvingState):
+    v_x__V: Tensor
 
 
-class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):
-    """Capture detailed-cell access-node KCL residuals."""
+class _Trace(SolvingTrace):
+    """Residuals and thresholds are compared before each access-node update.
+
+    Every field has shape `[..., *history]`, preserving each cell position.
+    """
+
+    residual__uA: Tensor
+    threshold__uA: Tensor
+    dv_x_abs__V: Tensor
+
+    @classmethod
+    def empty(cls, shape: tuple[int, ...], *, dtype: torch.dtype, device: torch.device) -> _Trace:
+        """Construct one unused access-node observation."""
+        return cls(
+            residual__uA=torch.full(shape, torch.nan, dtype=dtype, device=device),
+            threshold__uA=torch.full(shape, torch.nan, dtype=dtype, device=device),
+            dv_x_abs__V=torch.full(shape, torch.nan, dtype=dtype, device=device),
+        )
+
+
+class _Solver:
+    """Settle the access node and apply a caller-owned terminal projection.
+
+    `final_fn` receives the terminal loop state once, after convergence checks,
+    and returns the requested result. `record_trace=True` permits a capped
+    unconverged state and returns the projection alongside its raw history.
+    The callback runs under no-grad and must support compiled tensor execution.
+    """
+
+    MAX_ITER: ClassVar[int] = 20
+    FP32_RTOL: ClassVar[float] = 1.3e-3
+    FP32_ATOL: ClassVar[float] = 5.0e-6
+    FP64_RTOL: ClassVar[float] = 5.0e-12
+    FP64_ATOL: ClassVar[float] = 5.0e-15
+
+    def __init__(
+        self,
+        *,
+        rram: Rram,
+        nmos: Nmos,
+        dtype: torch.dtype,
+    ) -> None:
+        self.rram = rram
+        self.nmos = nmos
+
+        if dtype == torch.float32:
+            self._rtol, self._atol = self.FP32_RTOL, self.FP32_ATOL
+        elif dtype == torch.float64:
+            self._rtol, self._atol = self.FP64_RTOL, self.FP64_ATOL
+        else:
+            raise TypeError(f"Access-node solve requires float32 or float64 dtype; got {dtype}")
+
+    @torch.no_grad()
+    def solve[ResultT](
+        self,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        *,
+        v_wl__V: Tensor,
+        nmos_snap: MosfetSnap,
+        rram_snap: RramSnap,
+        final_fn: Callable[[_State], ResultT],
+        record_trace: bool,
+        trace_mask: Tensor | None,
+    ) -> tuple[ResultT, _Trace | None]:
+        state, trace = self._solve_vx(
+            v_bl__V,
+            v_sl__V,
+            v_wl__V=v_wl__V,
+            nmos_snap=nmos_snap,
+            rram_snap=rram_snap,
+            record_trace=record_trace,
+            trace_mask=trace_mask,
+        )
+        return final_fn(state), trace
+
+    def _solve_vx(
+        self,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        *,
+        v_wl__V: Tensor,
+        nmos_snap: MosfetSnap,
+        rram_snap: RramSnap,
+        record_trace: bool,
+        trace_mask: Tensor | None,
+    ) -> tuple[_State, _Trace | None]:
+
+        # --- 1: initialize the access-node voltage ---
+
+        v_x_init__V = torch.where((v_wl__V - v_sl__V) > nmos_snap.vth__V, v_sl__V, v_bl__V)
+        init_state = _State(
+            v_x__V=v_x_init__V,
+            is_active=torch.ones_like(v_x_init__V, dtype=torch.bool),
+        )
+
+        # --- 2: settle the access node ---
+
+        def body_fn(current: _State) -> tuple[_State, _Trace]:
+            return self._evaluate_vx(
+                v_bl__V,
+                v_sl__V,
+                current.v_x__V,
+                v_wl__V=v_wl__V,
+                nmos_snap=nmos_snap,
+                rram_snap=rram_snap,
+                is_active=current.is_active,
+            )
+
+        if record_trace:
+            return run_solving_trace_scan(
+                init_state=init_state,
+                body_fn=body_fn,
+                default_trace=_Trace.empty(
+                    tuple(v_x_init__V.shape), dtype=v_x_init__V.dtype, device=v_x_init__V.device
+                ),
+                max_iter=self.MAX_ITER,
+                strict=False,
+                trace_mask=trace_mask,
+            )
+
+        def solve_body(current: _State) -> _State:
+            next_state, _ = body_fn(current)
+            return next_state
+
+        final_state = run_solving_loop(
+            init_state=init_state,
+            body_fn=solve_body,
+            max_iter=self.MAX_ITER,
+            strict=True,
+        )
+        return final_state, None
+
+    def _evaluate_vx(
+        self,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        v_x__V: Tensor,
+        *,
+        v_wl__V: Tensor,
+        nmos_snap: MosfetSnap,
+        rram_snap: RramSnap,
+        is_active: Tensor,
+    ) -> tuple[_State, _Trace]:
+
+        # --- 1: evaluate branch currents and the Newton correction ---
+
+        nmos_dcop = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
+        rram_dcop = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
+
+        i_rram__uA = rram_dcop.i__uA
+        i_nmos__uA = nmos_dcop.ids__uA
+        f_x__uA = i_nmos__uA - i_rram__uA
+        # rram's di/dv = d(i)/d(-vx) = d(-i)/d(vx), so use + here
+        dfx_dvx__uS = nmos_dcop.did_dvd__uS + rram_dcop.di_dv__uS
+        threshold__uA = self._atol + self._rtol * torch.maximum(i_nmos__uA.abs(), i_rram__uA.abs())
+        residual__uA = f_x__uA.abs()
+        next_is_active = is_active & (residual__uA > threshold__uA)
+        dv_x__V = torch.where(next_is_active, -f_x__uA / dfx_dvx__uS, 0)
+        next_v_x__V = v_x__V + dv_x__V
+
+        # --- 2: reject non-finite updates ---
+
+        finite = (
+            v_x__V.isfinite()
+            & f_x__uA.isfinite()
+            & dfx_dvx__uS.isfinite()
+            & threshold__uA.isfinite()
+            & dv_x__V.isfinite()
+            & next_v_x__V.isfinite()
+        )
+        torch_assert_async(
+            finite.all(),
+            "Access-node Newton solve produced a non-finite state",
+        )
+
+        # --- 3: return the updated state and raw observation ---
+
+        state = _State(
+            v_x__V=next_v_x__V,
+            is_active=next_is_active,
+        )
+        trace = _Trace(
+            residual__uA=residual__uA,
+            threshold__uA=threshold__uA,
+            dv_x_abs__V=dv_x__V.abs(),
+        )
+        return state, trace
+
+
+# ### Detail 1t1r cell ###
 
 
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
@@ -44,18 +225,13 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
     nmos_config: MosfetConfig
 
     state_to_g_map__uS: tuple[float, ...]
-    """State-index to target-conductance lookup table, strictly increasing,
-    with both endpoints inside `[rram_config.g_min__uS, rram_g_max__uS]`. Its
-    length is the cell's weight-state count."""
+    """Strictly increasing programmed conductance by state."""
 
     access_nmos_W__um: float
     access_nmos_L__um: float
 
     rram_g_max__uS: float
-    """Upper end of the programmable conductance window."""
-
-    newton_iter_num: int
-    """Unrolled per-cell Newton steps on V_X after the Pade current-divider seed."""
+    """Programmable ceiling above `rram_config.g_min__uS`."""
 
     def validate(self) -> None:
         super().validate()
@@ -73,10 +249,6 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
         self._require_ge(self.state_to_g_map__uS[0], "state_to_g_map__uS[0]", self.rram_config.g_min__uS)
         self._require_le(self.state_to_g_map__uS[-1], "state_to_g_map__uS[-1]", self.rram_g_max__uS)
 
-        # --- Solver ---
-
-        self._require_pos(self.newton_iter_num, "newton_iter_num")
-
 
 class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
     rram_policy: RramPolicy
@@ -84,24 +256,31 @@ class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
 
 
 class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
-    rram: RramSnap
-    nmos: MosfetSnap
+    rram_snap: RramSnap
+    nmos_snap: MosfetSnap
 
 
-@XbarCell1t1r.register_neurox_module(
-    config_type=XbarCell1t1rDetailConfig,
-    policy_type=XbarCell1t1rDetailPolicy,
-)
-class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy, XbarCell1t1rDetailSnap]):
-    """Series access-NMOS and RRAM cell with a condensed BL-to-SL branch."""
+_Dcop = XbarCell1t1rDcop
+_Config = XbarCell1t1rDetailConfig
+_Policy = XbarCell1t1rDetailPolicy
+_Snap = XbarCell1t1rDetailSnap
+XbarCell1t1rDetailTrace = _Trace
 
-    _state_to_g_map__uS: Tensor  # Shape: [w_state]
+
+@XbarCell1t1r.register_neurox_module(config_type=_Config, policy_type=_Policy)
+class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
+    """Nonlinear RRAM-NMOS branch condensed at its access node."""
+
+    # === Functional buffers ===
+
+    # Shape: [w_state]
+    _state_to_g_map__uS: Tensor
 
     def __init__(
         self,
         *,
-        config: XbarCell1t1rDetailConfig,
-        policy: XbarCell1t1rDetailPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -112,15 +291,11 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             "_state_to_g_map__uS",
             torch.tensor(config.state_to_g_map__uS, dtype=dtype),
         )
-        self._init_children(dtype=dtype, T__K=T__K)
 
-    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
-        config = self.config
-        policy = self.policy
         self.rram = Rram(
             config=config.rram_config,
             policy=policy.rram_policy,
-            inst_shape=self.inst_shape,
+            inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
             g_max__uS=config.rram_g_max__uS,
@@ -128,12 +303,13 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         self.nmos = Nmos(
             config=config.nmos_config,
             policy=policy.nmos_policy,
-            inst_shape=self.inst_shape,
+            inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
             W__um=config.access_nmos_W__um,
             L__um=config.access_nmos_L__um,
         )
+        self.solver = _Solver(rram=self.rram, nmos=self.nmos, dtype=dtype)
 
     @property
     def w_state_num(self) -> int:
@@ -144,102 +320,84 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        t_elapsed: float,
-    ) -> XbarCell1t1rDetailSnap:
-        """Bundle RRAM / NMOS device snaps with the WL control drive.
-
-        `t_elapsed` is accepted and unused, reserved for time-dependent device
-        read state.
-        """
-        del t_elapsed
-        rram_snap = self.rram.snapshot(shape=shape)
-        nmos_snap = self.nmos.snapshot(shape=shape)
-        return XbarCell1t1rDetailSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
+    ) -> _Snap:
+        return _Snap(
+            rram_snap=self.rram.snapshot(shape=shape),
+            nmos_snap=self.nmos.snapshot(shape=shape),
+            v_wl__V=control,
+        )
 
     def program(self, w_state_idx: Tensor) -> None:
-        """Program the RRAM cells from one state-index tensor.
-
-        Args:
-            w_state_idx: State-index tensor in `[0, w_state_num - 1]`.
-                Shape: `[*inst_shape]`.
-        """
         target_g__uS = self._state_to_g_map__uS[w_state_idx.long()]
-        self.rram.program(target_g__uS, t_elapsed=0.0)
+        self.rram.program(target_g__uS)
 
-    def _solve_vx(
+    def solve_dc_trace(
         self,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
-        snap: XbarCell1t1rDetailSnap,
-    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-        """Condense the access node V_X.
+        snap: _Snap,
+        *,
+        trace_mask: Tensor | None = None,
+    ) -> tuple[_Dcop, _Trace]:
+        """Return the terminal DCOP and its Newton trajectory.
 
-        Args:
-            v_bl__V: Bit-line node voltage.
-            v_sl__V: Source-line node voltage.
-            snap: Per-call detailed-cell snapshot.
-
-        Returns:
-            `(i_rram__uA, i_nmos__uA, di_dvbl__uS, di_dvsl__uS, v_x__V)`.
+        The iteration cap returns its unconverged terminal state so the failure
+        remains inspectable through the trajectory. `trace_mask` selects the
+        cells included in raw observations; `None` includes every cell and
+        neither form changes numerical updates.
         """
-        v_wl__V = snap.v_wl__V
-        rram_snap = snap.rram
-        nmos_snap = snap.nmos
-
-        # --- 1: initialize V_X with a Pade current divider ---
-
-        # First-order split of the BL-to-SL drop across the NMOS output
-        # conductance and the programmed RRAM conductance, evaluated at the
-        # terminal operating point.
-        v_cell_bl_to_sl__V = v_bl__V - v_sl__V
-        g_rram_seed__uS = rram_snap.g__uS
-        dc_nmos_seed = self.nmos.solve_dc(v_wl__V, v_bl__V, v_sl__V, nmos_snap)
-        v_rram_drop_init__V = (
-            dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl__V / (dc_nmos_seed.did_dvd__uS + g_rram_seed__uS)
-        )
-        v_x__V = v_bl__V - v_rram_drop_init__V
-
-        # --- 2: solve F_X = I_NMOS - I_RRAM with Newton iterations ---
-
-        # A fixed trip count: a residual-driven stop would branch on a tensor
-        # value and break traceability.
-        for _ in range(self.config.newton_iter_num):
-            dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
-            dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
-            f_cell__uA = dc_nmos.ids__uA - dc_rram.i__uA
-            df_dvx__uS = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
-            v_x__V = v_x__V - f_cell__uA / df_dvx__uS
-
-        # --- 3: evaluate the final current and terminal derivatives ---
-
-        dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
-        dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
-        # The RRAM leg is the reported branch current; the NMOS leg differs
-        # from it by the access-node KCL residual the prober measures.
-        i_n__uA = dc_nmos.ids__uA
-        i_r__uA = dc_rram.i__uA
-        # Series condensation of the NMOS (V_X = drain) and RRAM
-        # conductances at the eliminated access node. `did_dvd__uS >= 0` and
-        # `di_dv__uS >= 0` so `di_dvbl__uS >= 0`; `did_dvs__uS <= 0` so
-        # `di_dvsl__uS <= 0`.
-        denom__uS = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
-        di_dvbl__uS = dc_nmos.did_dvd__uS * dc_rram.di_dv__uS / denom__uS
-        di_dvsl__uS = dc_nmos.did_dvs__uS * dc_rram.di_dv__uS / denom__uS
-        return i_r__uA, i_n__uA, di_dvbl__uS, di_dvsl__uS, v_x__V
+        dcop, trace = self._solve_dc_impl(v_bl__V, v_sl__V, snap, record_trace=True, trace_mask=trace_mask)
+        if trace is None:
+            raise RuntimeError("A traced cell solve returned no trace")
+        return dcop, trace
 
     def solve_dc(
         self,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
-        snap: XbarCell1t1rDetailSnap,
-    ) -> XbarCell1t1rDcop:
-        """Return the branch working point including the condensed V_X."""
-        i_r__uA, i_n__uA, di_dvbl__uS, di_dvsl__uS, v_x__V = self._solve_vx(v_bl__V, v_sl__V, snap)
-        if XbarCell1t1rDetailProber.active():
-            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailRecord(cell__uA=(i_n__uA - i_r__uA).abs()))
-        return XbarCell1t1rDcop(
-            i__uA=i_r__uA,
+        snap: _Snap,
+    ) -> _Dcop:
+        """Return a converged DCOP without allocating trajectory storage."""
+        dcop, _ = self._solve_dc_impl(v_bl__V, v_sl__V, snap, record_trace=False, trace_mask=None)
+        return dcop
+
+    def _solve_dc_impl(
+        self,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        snap: _Snap,
+        *,
+        record_trace: bool,
+        trace_mask: Tensor | None,
+    ) -> tuple[_Dcop, _Trace | None]:
+        return self.solver.solve(
+            v_bl__V,
+            v_sl__V,
+            v_wl__V=snap.v_wl__V,
+            nmos_snap=snap.nmos_snap,
+            rram_snap=snap.rram_snap,
+            final_fn=partial(self._dcop_from_state, v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap),
+            record_trace=record_trace,
+            trace_mask=trace_mask,
+        )
+
+    def _dcop_from_state(
+        self,
+        state: _State,
+        *,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
+        snap: _Snap,
+    ) -> _Dcop:
+        nmos_dcop = self.nmos.solve_dc(snap.v_wl__V, state.v_x__V, v_sl__V, snap.nmos_snap)
+        rram_dcop = self.rram.solve_dc(v_bl__V - state.v_x__V, snap.rram_snap)
+        dfx_dvx__uS = nmos_dcop.did_dvd__uS + rram_dcop.di_dv__uS
+        di_dvbl__uS = nmos_dcop.did_dvd__uS * rram_dcop.di_dv__uS / dfx_dvx__uS
+        di_dvsl__uS = nmos_dcop.did_dvs__uS * rram_dcop.di_dv__uS / dfx_dvx__uS
+
+        return _Dcop(
+            i__uA=rram_dcop.i__uA,
             di_dvbl__uS=di_dvbl__uS,
             di_dvsl__uS=di_dvsl__uS,
-            v_x__V=v_x__V,
+            v_x__V=state.v_x__V,
         )

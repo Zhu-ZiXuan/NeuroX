@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common import SerializeMixin
-from neurox.primitive.device import MosfetConfig, RramConfig
+from neurox.common.serialize_mixin import SerializeMixin
+from neurox.primitive.device.mosfet import MosfetConfig
+from neurox.primitive.device.rram import RramConfig
 
 # --- 1. from_preset happy path: bundled preset -> the receiver's own type ---
 

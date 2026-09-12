@@ -16,7 +16,7 @@ from neurox.architecture.unit.matmul_mapping import (
     MatmulPlacementPlan,
     make_block_slot_routing,
 )
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.digital import Accumulator, AccumulatorConfig, DigitalPolicy
 
 

@@ -6,19 +6,19 @@ Knowledge is carried in four media: markdown documents, in-code text (docstrings
 
 One question routes every statement:
 
-> Can one clear code abstraction wholly own this knowledge? If it can, the knowledge belongs to that abstraction — its structure, types, docstring, comments, validation, and tests. If no abstraction can own it and maintaining it requires understanding several components at once, it belongs to System Design. If it stays true after the whole implementation is rewritten, it belongs to Reference.
+> Can one clear code abstraction wholly own this knowledge? If it can, the knowledge belongs to that abstraction — its structure, types, docstring, comments, validation, and tests. Scientific and mathematical model content belongs to Reference. Top-level system mechanisms, responsibilities, and behavior across components belong to System Design, independently of how the code implements them.
 
 | Carrier | Holds |
 | --- | --- |
 | `docs/reference/**.md` | Researcher-voice scientific, mathematical, circuit, architecture, and algorithm principles and design; the golden truth code translates; independent of the concrete implementation |
 | `docs/validation/**.md` | The method by which a model and its implementation are shown faithful, and the route to the evidence the repository's campaign directory holds |
-| `docs/system_design/**.md` | Cross-component software design: a system contract no single code abstraction owns, which several components must be read together to maintain |
+| `docs/system_design/**.md` | Top-level system mechanisms, responsibilities, lifetimes, and behavior across components; independent of code organization and implementation |
 | `docs/contributing/**.md` | How to write documentation and code |
 | `docs/conventions/**.md` | The standards every document and source file follows, plus the symbols, terms, and parameter sources shared across subsystems |
 | docstring | The contract of the symbol it sits on: caller-facing semantics of a public API, and the extension contract a base, mixin, or protocol places on a subclass author, including the field shapes of a public tensor container |
 | inline comment | Local implementation intent — why a line or block is written the way it is |
 | shape annotation | The terminal shape a class-header declaration carries, and semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
-| banner comment | Declaration and field grouping at class scope, and procedural phase boundaries in a method body; its format is in [code_style](code_style.md) |
+| banner comment | Related-definition grouping at module scope, declaration and field grouping at class scope, and procedural phase boundaries in a function or method body; its format is in [code_style](code_style.md) |
 | `pyproject.toml` | Supported Python and dependency ranges, package metadata, dependency groups, and tool configuration |
 | `uv.lock` | The resolved dependency graph used to reproduce a development environment; never the supported-version policy |
 | `Makefile` | The available repository-level development tasks and the commands each task runs |
@@ -28,7 +28,9 @@ The code is itself the carrier of what it already states — a signature, a type
 
 A symbol-level extension contract belongs to the docstring beside the enforcing code — the base, mixin, or protocol that injects the behavior — and covers injected behavior, lifecycle, host requirements, ownership visibility, and failure conditions. No separate page duplicates it.
 
-A runtime variable is program state, not an invariant characteristic: it belongs to the code that owns it, while Reference states the characteristics themselves, as fact. The same split governs tensor shape — Reference owns scientific and mathematical tensor meaning, while implementation layout, broadcast, batching, and reshape invariants belong to the code that performs them, and reach System Design only when the layout contract spans components with no single owner.
+The developer-facing contracts of `neurox.common` are self-contained in the owning Python source. Its extension SPI and shared tools are documented there. Markdown may identify a base to inherit or a function to use, but does not restate its contract or explain its implementation. The user-facing configuration file semantics remain in `docs/api/configuration.md`.
+
+A runtime variable is program state, not an invariant characteristic: it belongs to the code that owns it, while Reference states the characteristics themselves, as fact. Reference owns scientific and mathematical tensor meaning; implementation layout, broadcasting, batching, and reshape contracts belong to the relevant code interfaces. System Design describes the physical multiplicity, event structure, and correlation those representations serve.
 
 ## Specify the model, not the physical realization
 
@@ -45,7 +47,7 @@ Each top-level `docs/` directory owns one kind of content:
 - `reference/` — the scientific spec, by subsystem.
 - `validation/` — evidence that the models are faithful and correctly implemented, including the per-paper calibration campaigns kept in the repository's `validations/` directory.
 - `api/` — the Python API and the config and policy schema.
-- `system_design/` — the cross-component software contracts, by topic.
+- `system_design/` — system mechanisms and behavior across components, by topic.
 - `conventions/` — documentation and coding standards, plus the shared vocabulary.
 - `contributing/` — how to write and place documentation, plus the contribution workflow.
 - `about/` — citation and the simulator's scope and limitations.
@@ -54,7 +56,7 @@ Reference is grouped by subsystem at directory granularity, so a subsystem's sci
 
 ## System design
 
-A System Design page protects a contract that spans components. Content is admitted only when most of the following hold: it spans several components, layers, or lifecycle stages; no class, protocol, function, or file can wholly own it; changing one end requires understanding the other; it concerns ownership, state, layout, sampling correlation, compile boundaries, or global registration; types and unit tests cannot express it; it is stable; and losing it would materially raise the rate of cross-module error. Two module names appearing in one sentence is not admission on its own, and an interaction that one abstraction already defines and enforces stays in that abstraction's docstring and tests.
+A System Design page explains a mechanism spanning components or lifecycle stages: ownership, physical-state lifetimes, event scheduling, sampling correlation, or accounting responsibilities. Its statements remain meaningful if the implementation is reorganized. Code listings, signatures, tensor layouts, registry mechanics, framework options, and iteration implementations stay with the code that owns them. An interaction already defined by one abstraction belongs to that abstraction's docstring and checks.
 
 Pages are organized by the question a maintainer arrives with, not by the code tree: no mirroring of the code layout, no page per class, no coverage target, no template, and no fixed footer. A page's length follows the contract it protects, and an absent topic is simply absent, never a placeholder section. The category README is a small map of the topics, not a member catalog.
 

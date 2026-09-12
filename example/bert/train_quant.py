@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True, help="HF cache dir")
     parser.add_argument("--float-checkpoint", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, required=True)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=5e-5)

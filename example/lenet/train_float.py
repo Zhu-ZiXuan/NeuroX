@@ -37,7 +37,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train LeNet-5 on MNIST (float)")
     parser.add_argument("--dataset-dir", type=Path, required=True, help="MNIST root directory")
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output float state_dict path")
-    parser.add_argument("--device", type=str, default="cuda:1", help="Torch device")
+    parser.add_argument("--device", type=str, required=True, help="Torch device")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-2)

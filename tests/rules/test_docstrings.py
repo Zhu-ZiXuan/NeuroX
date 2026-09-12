@@ -16,8 +16,8 @@ SCAN_ROOTS = (REPO_ROOT / "neurox", REPO_ROOT / "validations")
 _MANAGED_SECTIONS = frozenset({"Args", "Returns", "Yields", "Raises", "See Also", "Examples"})
 _EXAMPLES_ALLOWLIST = frozenset(
     {
-        ("neurox/common/profiler.py", "Profiler"),
-        ("neurox/common/reporter.py", "Reporter"),
+        ("neurox/api/profiler.py", "Profiler"),
+        ("neurox/api/reporter.py", "Reporter"),
     }
 )
 _HEADER_PATTERN = re.compile(r"(?P<name>[A-Za-z]+(?: [A-Za-z]+)*):")

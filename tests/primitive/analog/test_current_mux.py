@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from neurox import Profiler, stamp_names
-from neurox.common import EnergyRecord
+from neurox.api.profiler import EnergyRecord
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.analog import Imux, ImuxConfig, ImuxPolicy
 

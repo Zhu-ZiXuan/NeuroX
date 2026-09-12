@@ -1,9 +1,4 @@
-"""ShiftAdder: radix fold, modular wrap, and per-digit-leg billing.
-
-Dynamic energy counts the shift-and-add evaluations, one per digit leg folded
-in, so the digit extent stays visible in the energy. Energy records are captured
-under `Profiler`.
-"""
+"""Radix folding, modular wrap, and per-digit energy accounting."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ import pytest
 import torch
 
 from neurox import Profiler, stamp_names
-from neurox.common import EnergyRecord
+from neurox.api.profiler import EnergyRecord
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 

@@ -2,28 +2,35 @@
 
 from __future__ import annotations
 
-import argparse
 import logging
+import math
 import statistics
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 
-from neurox import Profiler, Reporter, stamp_names
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.ye2023jssc import (
-    Ye2023JsscCimMacro,
-    Ye2023JsscCimMacroConfig,
-    Ye2023JsscCimMacroPolicy,
+from neurox import Reporter
+from neurox.tools.validation.cim_macro import (
+    ValidationArgs,
+    area_per_macro__um2,
+    build_macro,
+    get_cli_args,
+    mean_by_name,
+    parse_cli_args,
+    profile_vmm,
+    render_run_summary,
+    static_energy_by_name__fJ,
+    validation_run,
 )
+from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro
 
 _LOG = logging.getLogger(__name__)
 
 _VAL_DIR = Path(__file__).resolve().parent
-_PARAMS_PATH = _VAL_DIR / "params.toml"
+_CONFIG_PATH = _VAL_DIR / "config.toml"
 _POLICY_PATH = _VAL_DIR / "policy.toml"
 _ANCHORS_PATH = _VAL_DIR / "anchors.toml"
 
@@ -99,24 +106,22 @@ def measurement_cycle__ns() -> float:
     return float(_ANCHORS["measurement"]["cycle__ns"])
 
 
-def build_macro(*, device: torch.device, n_w: int) -> Ye2023JsscCimMacro:
+def _build_macro(*, device: torch.device, n_w: int) -> Ye2023JsscCimMacro:
     """Build the validation ensemble."""
-    config = cast(Ye2023JsscCimMacroConfig, CimMacroConfig.from_file(_PARAMS_PATH, section="cim_macro"))
-    policy = cast(Ye2023JsscCimMacroPolicy, CimMacroPolicy.from_file(_POLICY_PATH, section="policy"))
-    macro = cast(
-        Ye2023JsscCimMacro,
-        CimMacro.from_config(
-            config=config,
-            policy=policy,
-            inst_shape=(n_w,),
-            dtype=torch.float32,
-            T__K=300.0,
-        ),
+    macro = build_macro(
+        _CONFIG_PATH,
+        _POLICY_PATH,
+        inst_shape=(n_w,),
+        device=device,
+        dtype=torch.float32,
+        T__K=300.0,
     )
-    macro.to(device)
-    macro.eval()
-    macro.fabricate()
-    stamp_names(macro)
+    if not isinstance(macro, Ye2023JsscCimMacro):
+        raise TypeError(f"validation config built {type(macro).__name__}, expected Ye2023JsscCimMacro")
+    access__ns = macro.latency__ns(adc_active_bits=_ADC_ACTIVE_BITS) / macro.scan_num
+    cycle__ns = measurement_cycle__ns()
+    if not math.isclose(access__ns, cycle__ns, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError(f"validation access duration {access__ns} ns does not match measurement cycle {cycle__ns} ns")
     return macro
 
 
@@ -141,100 +146,47 @@ def _draw_weight(
 
 
 def _draw_input_uniform(gen: torch.Generator, *, n_x: int, n_w: int, input_num: int) -> torch.Tensor:
+    """Draw the shared uniform source for paired Fig.19 sparsity points."""
     return torch.rand((n_x, n_w, input_num), generator=gen, device=gen.device)
 
 
-def _static_by_group__fJ(reporter: Reporter, *, n_w: int) -> dict[str, float]:
+def _static_by_group__fJ(static_by_name__fJ: dict[str, float]) -> dict[str, float]:
     result: dict[str, float] = {}
-    for entry in reporter.static_entries:
-        group = _STATIC_GROUPS[entry.qualified_name]
-        result[group] = result.get(group, 0.0) + entry.leakage__uW / n_w * measurement_cycle__ns()
+    for name, energy__fJ in static_by_name__fJ.items():
+        group = _STATIC_GROUPS[name]
+        result[group] = result.get(group, 0.0) + energy__fJ
     if result.get("other", 0.0) != 0.0:
         raise ValueError("validation breakdown leaves nonzero static energy unassigned")
     return result
 
 
-def _measure_round(
-    macro: Ye2023JsscCimMacro,
-    reporter: Reporter,
-    *,
-    n_w: int,
-    n_x: int,
-    seed: int,
-    weight_sparsity: float,
-    input_sparsities: tuple[float, ...],
-) -> dict[float, dict[str, float]]:
-    device = next(macro.buffers()).device
-    gen = torch.Generator(device=device).manual_seed(seed)
-    weight = _draw_weight(
-        gen,
-        n_w=n_w,
-        input_num=macro.input_num,
-        output_num=macro.output_num,
-        sparsity=weight_sparsity,
-    )
-    input_uniform = _draw_input_uniform(gen, n_x=n_x, n_w=n_w, input_num=macro.input_num)
-    accesses = n_w * n_x * macro.output_num
-
-    result: dict[float, dict[str, float]] = {}
-    with torch.no_grad():
-        macro.program(weight)
-        for sparsity in input_sparsities:
-            x = (input_uniform >= sparsity).to(torch.long)
-            with Profiler(leading_rank=2, sync_device=torch.device("cpu")) as profiler:
-                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_ACTIVE_BITS)
-            grouped: dict[str, float] = {}
-            for name, energy__fJ in reporter.by_name(profiler).items():
-                group = _DYNAMIC_GROUPS[name]
-                grouped[group] = grouped.get(group, 0.0) + energy__fJ / accesses
-            result[sparsity] = grouped
-    return result
-
-
 def measure(
-    macro: Ye2023JsscCimMacro,
-    *,
-    n_w: int,
-    n_x: int,
-    repeat: int,
-    seed: int,
+    dynamic_rounds: dict[float, list[dict[str, float]]],
+    static_by_name__fJ: dict[str, float],
 ) -> tuple[PointMeasurement, ...]:
     """Measure and pool the two Fig. 19 workload points."""
-    reporter = Reporter(macro)
-    data = _ANCHORS["data"]
-    input_sparsities = tuple(float(value) for value in data["input_sparsity"])
+    input_sparsities = tuple(float(value) for value in _ANCHORS["data"]["input_sparsity"])
     paper_totals = tuple(float(value) for value in _ANCHORS["paper"]["total_power__uW"])
-    static = _static_by_group__fJ(reporter, n_w=n_w)
-    rounds = [
-        _measure_round(
-            macro,
-            reporter,
-            n_w=n_w,
-            n_x=n_x,
-            seed=seed + round_index,
-            weight_sparsity=float(data["weight_sparsity"]),
-            input_sparsities=input_sparsities,
-        )
-        for round_index in range(repeat)
-    ]
+    static = _static_by_group__fJ(static_by_name__fJ)
+    static__fJ = sum(static_by_name__fJ.values())
 
     points: list[PointMeasurement] = []
-    for sparsity, paper_total in zip(input_sparsities, paper_totals, strict=True):
-        dynamic = {
-            group: statistics.fmean(round_data[sparsity].get(group, 0.0) for round_data in rounds) for group in _GROUPS
-        }
-        round_totals = tuple(
-            sum(round_data[sparsity].get(group, 0.0) + static.get(group, 0.0) for group in _GROUPS)
-            / measurement_cycle__ns()
-            for round_data in rounds
-        )
+    for input_sparsity, paper_total in zip(input_sparsities, paper_totals, strict=True):
+        dynamic_by_name__fJ = mean_by_name(dynamic_rounds[input_sparsity])
+        dynamic: dict[str, float] = {}
+        for name, energy__fJ in dynamic_by_name__fJ.items():
+            group = _DYNAMIC_GROUPS[name]
+            dynamic[group] = dynamic.get(group, 0.0) + energy__fJ
         points.append(
             PointMeasurement(
-                input_sparsity=sparsity,
+                input_sparsity=input_sparsity,
                 paper_total__uW=paper_total,
                 dynamic__fJ=dynamic,
                 static__fJ=static,
-                round_total__uW=round_totals,
+                round_total__uW=tuple(
+                    (sum(round_data.values()) + static__fJ) / measurement_cycle__ns()
+                    for round_data in dynamic_rounds[input_sparsity]
+                ),
             )
         )
     return tuple(points)
@@ -259,22 +211,16 @@ def gate(points: tuple[PointMeasurement, ...]) -> bool:
 
 
 def render_report(
-    macro: Ye2023JsscCimMacro,
     points: tuple[PointMeasurement, ...],
     *,
-    device: torch.device,
-    n_w: int,
-    n_x: int,
-    repeat: int,
+    run_summary: str,
+    macro_area__um2: float,
 ) -> str:
     """Render the validation log."""
     lines = [
         "# ye2023jssc validation",
         "",
-        (
-            f"Device {device}; {n_w} weight draws x {n_x} inputs x {repeat} rounds; "
-            f"weight sparsity {float(_ANCHORS['data']['weight_sparsity']):.1%}."
-        ),
+        (f"{run_summary} Weight sparsity {float(_ANCHORS['data']['weight_sparsity']):.1%}."),
         "",
         "| Input sparsity | Model [uW] | Paper [uW] | Error | Round rel. std |",
         "| ---: | ---: | ---: | ---: | ---: |",
@@ -315,7 +261,7 @@ def render_report(
         (
             "",
             (
-                f"Area: {Reporter(macro).static.area__um2 / n_w:.1f} um2 per macro "
+                f"Area: {macro_area__um2:.1f} um2 per macro "
                 f"(paper {float(_ANCHORS['paper']['macro_area__um2']):.1f} um2)."
             ),
             f"Primary-point error: {primary.relative_error:+.2%}.",
@@ -380,47 +326,81 @@ def plot_breakdown(points: tuple[PointMeasurement, ...], output: Path) -> None:
     plt.close(fig)
 
 
-def resolve_device(name: str) -> torch.device:
-    if name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(name)
+def validate(args: ValidationArgs) -> None:
+    """Run the configured validation campaign."""
+    # --- 1: construct the macro ensemble and static accounting ---
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--n-w", type=int, default=64)
-    parser.add_argument("--n-x", type=int, default=256)
-    parser.add_argument("--repeat", type=int, default=8)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--device", default="auto")
-    parser.add_argument("--output-dir", type=Path, default=Path("log/validation/ye2023jssc"))
-    args = parser.parse_args()
-
-    device = resolve_device(args.device)
-    macro = build_macro(device=device, n_w=args.n_w)
-    points = measure(macro, n_w=args.n_w, n_x=args.n_x, repeat=args.repeat, seed=args.seed)
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    log_path = args.output_dir / "validation.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-        handlers=(logging.StreamHandler(), logging.FileHandler(log_path, mode="w", encoding="utf-8")),
-        force=True,
-    )
-    report = render_report(
+    macro = _build_macro(device=args.device, n_w=args.n_w)
+    reporter = Reporter(macro)
+    data = _ANCHORS["data"]
+    input_sparsities = tuple(float(value) for value in data["input_sparsity"])
+    static_by_name__fJ = static_energy_by_name__fJ(
         macro,
-        points,
-        device=device,
+        reporter,
+        measurement_cycle__ns=measurement_cycle__ns(),
+    )
+    dynamic_rounds: dict[float, list[dict[str, float]]] = {input_sparsity: [] for input_sparsity in input_sparsities}
+
+    # --- 2: sample, program, and profile every round and operating point ---
+
+    with torch.no_grad():
+        for round_index in range(args.repeat):
+            gen = torch.Generator(device=args.device).manual_seed(args.seed + round_index)
+            weight = _draw_weight(
+                gen,
+                n_w=args.n_w,
+                input_num=macro.input_num,
+                output_num=macro.output_num,
+                sparsity=float(data["weight_sparsity"]),
+            )
+            macro.program(weight)
+            input_uniform = _draw_input_uniform(
+                gen,
+                n_x=args.n_x,
+                n_w=args.n_w,
+                input_num=macro.input_num,
+            )
+            for input_sparsity in input_sparsities:
+                x = (input_uniform >= input_sparsity).to(torch.long)
+                profiled = profile_vmm(
+                    macro,
+                    reporter,
+                    x,
+                    quantization_mode=_QUANTIZATION_MODE,
+                    adc_active_bits=_ADC_ACTIVE_BITS,
+                )
+                dynamic_rounds[input_sparsity].append(profiled.dynamic_by_name_per_access__fJ)
+
+    # --- 3: interpret the profiler rows against the paper anchors ---
+
+    points = measure(dynamic_rounds, static_by_name__fJ)
+    run_summary = render_run_summary(
+        device=args.device,
         n_w=args.n_w,
         n_x=args.n_x,
         repeat=args.repeat,
+        scan_num=macro.scan_num,
+        seed=args.seed,
+    )
+
+    # --- 4: emit the campaign-defined report, gate, and figure ---
+
+    report = render_report(
+        points,
+        run_summary=run_summary,
+        macro_area__um2=area_per_macro__um2(macro, reporter),
     )
     _LOG.info("%s", report)
     plot_path = args.output_dir / "power_breakdown.svg"
     plot_breakdown(points, plot_path)
-    _LOG.info("validation log: %s", log_path)
     _LOG.info("breakdown plot: %s", plot_path)
+
+
+def main(argv: list[str] | None = None) -> None:
+    cli_args = get_cli_args(description=__doc__, campaign="ye2023jssc", argv=argv)
+    args = parse_cli_args(cli_args)
+    with validation_run(args, campaign="ye2023jssc") as run_args:
+        validate(run_args)
 
 
 if __name__ == "__main__":

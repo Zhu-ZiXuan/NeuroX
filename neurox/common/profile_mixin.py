@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, final
 
 import torch.nn as nn
 from torch import Tensor
 
-from .profiler import Profiler
+from neurox.api.profiler import Profiler
 
 
 class ProfileMixin:
@@ -47,33 +47,41 @@ class ProfileMixin:
         raise NotImplementedError
 
     @property
+    @final
     def area__um2(self) -> float:
         if not self.is_profile_target:
             raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no area")
         return self._area_per_inst__um2 * self.inst_count
 
     @property
+    @final
     def leakage__uW(self) -> float:
         if not self.is_profile_target:
             raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no leakage")
         return self._leakage_per_inst__uW * self.inst_count
 
+    @final
     def _is_dynamic_energy_profile_active(self) -> bool:
         return Profiler.active()
 
+    @final
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
-        """Record one dynamic-energy tensor to the active profiler (no-op outside one).
+        """Submit this call's dynamic energy to the active profiler.
 
-        The tensor MUST carry the caller's leading dims at their true extents;
-        a size-1 stand-in is a contract violation, not a broadcast request.
+        A profile target emits nothing outside a profiling context. Compute
+        billed energy under `torch.no_grad()` or an equivalent guard.
 
-        The emitter builds the tensor: a flat per-op lump is a 0-dim constant
-        expanded onto the billed layout, an expanded view holding no storage,
-        and the fold over its stride-0 axes allocates only `[*caller_leading]`.
+        Preserve the caller's leading axes at their full extents; reassemble
+        chunked results before submitting them. The profiler retains those
+        axes and sums all trailing axes, so include each billed physical
+        instance and access exactly once. Constant energy may be expanded
+        from a scalar without materializing the billed layout.
 
         Args:
-            dynamic_energy__fJ: Dynamic energy of this call as the emitter
-                billed it. Shape: `[*caller_leading, ...]`.
+            dynamic_energy__fJ: Energy laid out over the caller's full leading
+                extents and billed trailing axes. Expanded views are supported;
+                singleton dimensions do not request implicit broadcasting.
+                Shape: `[*caller_leading, ...]`.
             channel: Optional virtual submodule to bill under.
 
         Raises:

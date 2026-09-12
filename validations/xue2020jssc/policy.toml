@@ -5,7 +5,7 @@ _neurox_class = "Xue2020JsscCimMacroPolicy"
 
 # Bounds solver intermediates during validation and calibration.
 [policy.array_policy]
-solve_chunk_size = 4096
+solve_chunk_size = 1024
 
 [policy.array_policy.cell_policy]
 _neurox_class = "XbarCell1t1rLinearPolicy"

@@ -12,7 +12,8 @@ from typing import Any, ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, RegistryMixin, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.registry_mixin import RegistryMixin
 
 
 class XbarCell1t1rConfig(ConfigBase, ABC):
@@ -74,7 +75,6 @@ class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, Sna
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        t_elapsed: float,
     ) -> SnapT:
         """Sample the cell state and word-line control for one solve."""
         raise NotImplementedError

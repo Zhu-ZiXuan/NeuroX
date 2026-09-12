@@ -1,10 +1,4 @@
-"""Class banners use `===`, function banners use `---`, and modules use neither.
-
-A banner occupies its own line, with a blank line below and normally one above. No blank line follows a
-class header when its undocumented body opens directly with a banner, nor a function docstring when its
-next item is a banner. A padded two-sided candidate uses exactly three matching markers; one-sided or
-incompletely padded comments remain prose. Unnamed runs are refused.
-"""
+"""Banner markers, scope, and blank-line contracts."""
 
 from __future__ import annotations
 
@@ -20,10 +14,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = (REPO_ROOT / "neurox", REPO_ROOT / "validations")
 
-_SCOPE_FOR_SYMBOL = {"=": "class", "-": "function"}
-_BANNER_CANDIDATE = re.compile(r"^# (?P<open>-{2,}|={2,}) (?P<name>.*?) (?P<close>-{2,}|={2,})$")
-_LEGAL_BANNER = re.compile(r"^# (?P<mark>---|===) (?P<name>\S(?:.*\S)?) (?P=mark)$")
-_UNNAMED_RUN = re.compile(r"^#\s*[-=]{2,}\s*$")
+_SCOPE_FOR_SYMBOL = {"#": "module", "=": "class", "-": "function"}
+_BANNER_CANDIDATE = re.compile(r"^# (?P<open>\#{2,}|-{2,}|={2,}) (?P<name>.*?) (?P<close>\#{2,}|-{2,}|={2,})$")
+_LEGAL_BANNER = re.compile(r"^# (?P<mark>\#\#\#|---|===) (?P<name>\S(?:.*\S)?) (?P=mark)$")
+_UNNAMED_RUN = re.compile(r"^#\s*[#=-]{2,}\s*$")
+_NUMBERED_TITLE = re.compile(r"^\d+(?:\.\d+)*(?:[.:]|\s|$)")
 
 
 class BannerSite(NamedTuple):
@@ -32,10 +27,9 @@ class BannerSite(NamedTuple):
     scope: str
     text: str
     own_line: bool
-    blank_before: bool
-    blank_after: bool
-    after_definition: bool
-    after_docstring: bool
+    blank_before: int
+    blank_after: int
+    preceding_boundary: str | None
 
     def where(self) -> str:
         return f"{self.path.relative_to(REPO_ROOT)}:{self.lineno}  ({self.scope} scope)  {self.text}"
@@ -45,6 +39,17 @@ class BannerSite(NamedTuple):
         assert match is not None
         return match.group("mark")[0]
 
+    def required_blank_lines(self) -> tuple[int, int]:
+        after = 2 if self.scope == "module" else 1
+        before = after
+        if self.scope == "module" and self.preceding_boundary == "import":
+            before = 1
+        elif (self.scope == "class" and self.preceding_boundary == "class_header") or (
+            self.scope == "function" and self.preceding_boundary == "function_docstring"
+        ):
+            before = 0
+        return before, after
+
 
 def _iter_python_files() -> list[Path]:
     out: list[Path] = []
@@ -53,8 +58,7 @@ def _iter_python_files() -> list[Path]:
     return sorted(out)
 
 
-def _definition_spans(source: str, tree: ast.Module) -> list[tuple[int, int, str]]:
-    lines = source.splitlines()
+def _definition_spans(lines: list[str], tree: ast.Module) -> list[tuple[int, int, str]]:
     out: list[tuple[int, int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
@@ -62,6 +66,9 @@ def _definition_spans(source: str, tree: ast.Module) -> list[tuple[int, int, str
         end = node.end_lineno or node.lineno
         while end < len(lines):
             text = lines[end]
+            if not text.strip():
+                end += 1
+                continue
             if not text.lstrip().startswith("#") or len(text) - len(text.lstrip()) <= node.col_offset:
                 break
             end += 1
@@ -76,26 +83,8 @@ def _scope_of(lineno: int, spans: list[tuple[int, int, str]]) -> str:
     return min(enclosing, key=lambda span: span[1] - span[0])[2]
 
 
-def _docstring_end_lines(tree: ast.Module) -> set[int]:
-    ends: set[int] = set()
-    owners = ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
-    for node in ast.walk(tree):
-        if not isinstance(node, owners) or not node.body:
-            continue
-        first = node.body[0]
-        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-            assert first.end_lineno is not None
-            ends.add(first.end_lineno)
-    return ends
-
-
-def _definition_header_end_lines(source: str, tree: ast.Module) -> set[int]:
-    starts = {
-        (node.lineno, node.col_offset)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
-    }
-    tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+def _class_header_end_lines(tokens: list[tokenize.TokenInfo], tree: ast.Module) -> set[int]:
+    starts = {(node.lineno, node.col_offset) for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
     ends: set[int] = set()
     for index, token in enumerate(tokens):
         if token.start not in starts:
@@ -114,16 +103,9 @@ def _definition_header_end_lines(source: str, tree: ast.Module) -> set[int]:
     return ends
 
 
-def _previous_nonblank_line(lines: list[str], lineno: int) -> int | None:
-    for index in range(lineno - 2, -1, -1):
-        if lines[index].strip():
-            return index + 1
-    return None
-
-
-def _comment_tokens(source: str) -> list[tuple[int, str, bool]]:
+def _comment_tokens(tokens: list[tokenize.TokenInfo]) -> list[tuple[int, str, bool]]:
     out: list[tuple[int, str, bool]] = []
-    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+    for token in tokens:
         if token.type == tokenize.COMMENT:
             own_line = not token.line[: token.start[1]].strip()
             out.append((token.start[0], token.string, own_line))
@@ -140,44 +122,64 @@ def _classify(text: str) -> str:
     return "prose"
 
 
-def _collect() -> tuple[list[BannerSite], int]:
-    sites: list[BannerSite] = []
+def _scan_source(path: Path, source: str) -> tuple[list[BannerSite], int]:
+    lines = source.splitlines()
+    tree = ast.parse(source, filename=str(path))
+    tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    spans = _definition_spans(lines, tree)
+    boundaries = dict.fromkeys(_class_header_end_lines(tokens, tree), "class_header")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and ast.get_docstring(node) is not None:
+            boundaries[node.body[0].end_lineno] = "function_docstring"
+    for node in tree.body:
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            boundaries[node.end_lineno] = "import"
+
+    sites = []
+    comments = _comment_tokens(tokens)
+    for lineno, text, own_line in comments:
+        if _classify(text) == "prose":
+            continue
+        index = lineno - 1
+        before = after = 0
+        while index - before > 0 and not lines[index - before - 1].strip():
+            before += 1
+        while index + after + 1 < len(lines) and not lines[index + after + 1].strip():
+            after += 1
+        sites.append(
+            BannerSite(
+                path=path,
+                lineno=lineno,
+                scope=_scope_of(lineno, spans),
+                text=text,
+                own_line=own_line,
+                blank_before=before,
+                blank_after=after,
+                preceding_boundary=boundaries.get(index - before),
+            )
+        )
+    return sites, len(comments)
+
+
+@pytest.fixture(scope="module")
+def scan() -> tuple[list[BannerSite], int]:
+    sites = []
     visited = 0
     for path in _iter_python_files():
-        source = path.read_text(encoding="utf-8")
-        lines = source.splitlines()
-        tree = ast.parse(source, filename=str(path))
-        spans = _definition_spans(source, tree)
-        definition_header_ends = _definition_header_end_lines(source, tree)
-        docstring_ends = _docstring_end_lines(tree)
-        comments = _comment_tokens(source)
-        visited += len(comments)
-        for lineno, text, own_line in comments:
-            if _classify(text) == "prose":
-                continue
-            sites.append(
-                BannerSite(
-                    path=path,
-                    lineno=lineno,
-                    scope=_scope_of(lineno, spans),
-                    text=text,
-                    own_line=own_line,
-                    blank_before=lineno > 1 and not lines[lineno - 2].strip(),
-                    blank_after=lineno < len(lines) and not lines[lineno].strip(),
-                    after_definition=_previous_nonblank_line(lines, lineno) in definition_header_ends,
-                    after_docstring=_previous_nonblank_line(lines, lineno) in docstring_ends,
-                )
-            )
+        file_sites, comment_count = _scan_source(path, path.read_text(encoding="utf-8"))
+        sites.extend(file_sites)
+        visited += comment_count
     return sites, visited
 
 
 @pytest.fixture(scope="module")
-def sites() -> list[BannerSite]:
-    return _collect()[0]
+def sites(scan: tuple[list[BannerSite], int]) -> list[BannerSite]:
+    return scan[0]
 
 
 def test_the_grammar_reads_the_ruled_forms() -> None:
     witnesses = {
+        "# ### Access-node solver ###": "banner",
         "# === Nominal buffers ===": "banner",
         "# --- Reference bank ---": "banner",
         "# --- 2: condense the cell network onto wire nodes ---": "banner",
@@ -187,16 +189,24 @@ def test_the_grammar_reads_the_ruled_forms() -> None:
         "# --- State --": "malformed",
         "# == State --": "malformed",
         "# ---  ---": "malformed",
+        "# ## Solver ##": "malformed",
+        "# #### Solver ####": "malformed",
+        "# ### Solver ##": "malformed",
+        "# ### Solver ===": "malformed",
+        "# ###  ###": "malformed",
         "# ---------------------------": "divider",
         "# ====": "divider",
+        "# ###": "divider",
         "# --- State": "prose",
         "# State ---": "prose",
         "# ---State---": "prose",
         "#--- State ---": "prose",
-        "# --device auto picks CUDA when available": "prose",
+        "# --device selection belongs to the caller": "prose",
         "# a --> b": "prose",
         "# x == y": "prose",
         "# Result containers": "prose",
+        "# ### Solver": "prose",
+        "# ###Solver###": "prose",
         "#!/usr/bin/env python3": "prose",
         "# -*- coding: utf-8 -*-": "prose",
     }
@@ -210,42 +220,97 @@ def test_the_scan_reads_comments_not_string_contents() -> None:
         "value = 1  # === inline banner ===\n"
         "# === own-line banner ===\n"
     )
-    assert _comment_tokens(source) == [
+    scanned, visited = _scan_source(REPO_ROOT / "example.py", source)
+    assert visited == 2
+    assert [(site.lineno, site.text, site.own_line) for site in scanned] == [
         (7, "# === inline banner ===", False),
         (8, "# === own-line banner ===", True),
     ]
 
 
-def test_definition_header_reader_handles_multiline_headers() -> None:
+def test_scope_reader_distinguishes_module_class_and_function_groups() -> None:
     source = (
-        "class Example(\n"
-        "    object,\n"
-        "):\n"
+        "# ### First component ###\n"
+        "\n"
+        "class Example:\n"
         "    # === Fields ===\n"
         "\n"
         "    value: int\n"
         "\n"
-        "async def run(\n"
-        "    value: int,\n"
-        ") -> None:\n"
-        "    # --- Work ---\n"
+        "    def run(self):\n"
+        "        # --- Work ---\n"
         "\n"
+        "        pass\n"
+        "\n"
+        "        # ### Wrong scope ###\n"
+        "\n"
+        "# ### Second component ###\n"
+        "\n"
+        "def run():\n"
         "    pass\n"
     )
-    assert _definition_header_end_lines(source, ast.parse(source)) == {3, 10}
+    scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
+    assert [site.scope for site in scanned] == [
+        "module",
+        "class",
+        "function",
+        "function",
+        "module",
+    ]
 
 
-def test_the_scan_reaches_the_tree(sites: list[BannerSite]) -> None:
-    assert _iter_python_files(), f"No `.py` file found under {SCAN_ROOTS}; the scan roots are stale."
+@pytest.mark.parametrize("title", ["1: Solver", "1.2: Solver", "0. Solver", "2 Solver", "1"])
+def test_structural_numbering_check_rejects_step_titles(title: str) -> None:
+    for symbol, scope in (("#", "module"), ("=", "class")):
+        indent = "" if scope == "module" else "    "
+        prefix = "" if scope == "module" else "class Example:\n"
+        source = f"{prefix}{indent}# {symbol * 3} {title} {symbol * 3}\n{indent}pass\n"
+        scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
+        with pytest.raises(AssertionError, match="without numbering"):
+            test_structural_banners_are_unnumbered(scanned)
 
-    _, visited = _collect()
+
+@pytest.mark.parametrize(
+    ("prefix", "banner", "suffix", "expected_before", "expected_after"),
+    [
+        ("VALUE = 1\n", "# ### Component ###\n", "class Example:\n    pass\n", 2, 2),
+        ("import ast\n", "# ### Component ###\n", "class Example:\n    pass\n", 1, 2),
+        ("from ast import (\n    AST,\n)\n", "# ### Component ###\n", "class Example:\n    pass\n", 1, 2),
+        ("class Example:\n", "    # === Fields ===\n", "    value: int\n", 0, 1),
+        ("class Example(\n    object,\n):\n", "    # === Fields ===\n", "    value: int\n", 0, 1),
+        ('class Example:\n    """Doc."""\n', "    # === Fields ===\n", "    value: int\n", 1, 1),
+        ("class Example:\n    value: int\n", "    # === Fields ===\n", "    other: int\n", 1, 1),
+        ('def run():\n    """Doc."""\n', "    # --- Work ---\n", "    pass\n", 0, 1),
+        ('async def run():\n    """Doc.\n\n    Detail.\n    """\n', "    # --- Work ---\n", "    pass\n", 0, 1),
+        ("def run():\n    value = 1\n", "    # --- Work ---\n", "    pass\n", 1, 1),
+    ],
+)
+def test_banner_spacing_accepts_only_the_required_counts(
+    prefix: str, banner: str, suffix: str, expected_before: int, expected_after: int
+) -> None:
+    for before in range(4):
+        for after in range(4):
+            source = prefix + "\n" * before + banner + "\n" * after + suffix
+            scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
+            (site,) = scanned
+            assert (site.blank_before, site.blank_after) == (before, after), source
+            assert site.required_blank_lines() == (expected_before, expected_after), source
+            if (before, after) == (expected_before, expected_after):
+                test_each_banner_has_the_required_blank_lines(scanned)
+            else:
+                with pytest.raises(AssertionError, match="blank lines"):
+                    test_each_banner_has_the_required_blank_lines(scanned)
+
+
+def test_the_scan_reaches_the_tree(scan: tuple[list[BannerSite], int]) -> None:
+    sites, visited = scan
     assert visited, "No comment tokenized; the comment reader is broken."
     banners = [site for site in sites if _classify(site.text) == "banner"]
     assert banners, "No banner found in the tree; the exact banner reader is broken."
 
     symbols = {banner.symbol() for banner in banners}
     assert symbols == set(_SCOPE_FOR_SYMBOL), (
-        f"Only {sorted(symbols)} banners were read, so the scope check below covers one symbol at most."
+        f"Only {sorted(symbols)} banners were read; the scope check must cover all three symbols."
     )
     scopes = {banner.scope for banner in banners}
     assert set(_SCOPE_FOR_SYMBOL.values()) <= scopes, (
@@ -263,7 +328,7 @@ def test_every_banner_candidate_uses_the_exact_grammar(sites: list[BannerSite]) 
         if dividers:
             sections.append("Unnamed separator runs:\n  " + "\n  ".join(dividers))
         pytest.fail(
-            "Rule: a two-sided banner candidate is exactly `# === text ===` or `# --- text ---`; "
+            "Rule: a two-sided banner candidate is exactly `# ### text ###`, `# === text ===`, or `# --- text ---`; "
             "each side has three matching markers and text is non-empty. A symbol-only divider is "
             "never written. One-sided or incompletely padded comments remain prose.\n\n"
             + "\n\n".join(sections)
@@ -272,35 +337,31 @@ def test_every_banner_candidate_uses_the_exact_grammar(sites: list[BannerSite]) 
         )
 
 
-def test_each_banner_occupies_an_isolated_line(sites: list[BannerSite]) -> None:
-    offenders: list[str] = []
+def test_each_banner_occupies_its_own_line(sites: list[BannerSite]) -> None:
+    offenders = [site.where() for site in sites if _classify(site.text) == "banner" and not site.own_line]
+    assert not offenders, (
+        "Rule: every banner occupies its own line.\n"
+        "Fix: move an inline banner onto its own line.\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_each_banner_has_the_required_blank_lines(sites: list[BannerSite]) -> None:
+    offenders = []
     for site in sites:
-        if _classify(site.text) != "banner":
+        if _classify(site.text) != "banner" or not site.own_line:
             continue
-        faults: list[str] = []
-        if not site.own_line:
-            faults.append("shares a line with code")
-        else:
-            after_class_header = site.scope == "class" and site.after_definition
-            after_function_docstring = site.scope == "function" and site.after_docstring
-            touches_upper_boundary = after_class_header or after_function_docstring
-            if touches_upper_boundary and site.blank_before:
-                boundary = "class header" if after_class_header else "function docstring"
-                faults.append(f"has a blank line after the preceding {boundary}")
-            elif not touches_upper_boundary and not site.blank_before:
-                faults.append("has no blank line immediately above")
-            if not site.blank_after:
-                faults.append("has no blank line immediately below")
-        if faults:
-            offenders.append(f"{site.where()}  -- {', '.join(faults)}")
-    if offenders:
-        pytest.fail(
-            "Rule: a banner occupies its own line with a blank line immediately below. It also has a "
-            "blank line above unless it directly opens an undocumented class body or follows a "
-            "function docstring, in which cases no blank line intervenes.\n"
-            "Fix: move an inline banner onto its own line, keep the lower blank line, and use the "
-            "correct upper boundary for its position.\n  " + "\n  ".join(offenders)
-        )
+        before, after = site.required_blank_lines()
+        if (site.blank_before, site.blank_after) != (before, after):
+            offenders.append(
+                f"{site.where()} -- {site.blank_before} blank lines before, {site.blank_after} after; "
+                f"expected {before} before, {after} after"
+            )
+    assert not offenders, (
+        "Rule (docs/conventions/code_style.md): module banners have two blank lines on each side; "
+        "class and function banners have one. Before a banner, imports require one blank line, "
+        "while a class header or function docstring requires none.\n"
+        "Fix: use the required count for the banner's scope and preceding boundary.\n  " + "\n  ".join(offenders)
+    )
 
 
 def test_each_banner_stands_in_the_scope_its_symbol_opens(sites: list[BannerSite]) -> None:
@@ -312,8 +373,19 @@ def test_each_banner_stands_in_the_scope_its_symbol_opens(sites: list[BannerSite
     ]
     if offenders:
         pytest.fail(
-            "Rule: `===` marks class structure, `---` marks a function or method procedure, and module "
-            "scope admits neither.\n"
-            "Fix: use `===` in a class body, `---` in a function or method body, or a plain comment at "
-            "module scope.\n  " + "\n  ".join(offenders)
+            "Rule: `###` marks module structure, `===` marks class structure, and `---` marks a "
+            "function or method procedure.\n"
+            "Fix: use the symbol matching the scope, or a plain comment for prose.\n  " + "\n  ".join(offenders)
         )
+
+
+def test_structural_banners_are_unnumbered(sites: list[BannerSite]) -> None:
+    offenders = []
+    for site in sites:
+        match = _LEGAL_BANNER.fullmatch(site.text)
+        if match is not None and site.symbol() in {"#", "="} and _NUMBERED_TITLE.match(match.group("name")):
+            offenders.append(site.where())
+    assert not offenders, (
+        "Rule: module and class banners name structural groups without numbering; "
+        "numbered steps belong in function or method bodies.\n  " + "\n  ".join(offenders)
+    )

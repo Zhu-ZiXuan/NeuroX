@@ -8,4 +8,4 @@ How to carry one task through end to end. Pick the goal you arrived with.
 
 ## Seat a chip config against hardware
 
-- [Calibration](calibration/README.md) — derive the numerical seats a chip config carries: solver iteration counts, the linearized cell, macro modes, ADC input characterization, and per-mode rescaling.
+- [Calibration](calibration/README.md) — derive the numerical seats a chip config carries: the linearized cell, macro modes, ADC input characterization, and per-mode rescaling. Solver convergence is enforced by the runtime solve contract.

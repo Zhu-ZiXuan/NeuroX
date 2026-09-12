@@ -1,53 +1,25 @@
 # CIM execution
 
-One operator call becomes a fixed number of macro accesses. The mapping is shared between the unit holding the operator, the engine holding the schedule, its stages each holding one mapping and its inverse, and the macro holding one access; the axes are the seam between them, since whoever inserts an axis owes both the block that removes it and the cost multiplication over it.
+A CIM execution maps a logical operator onto finite hardware, schedules accesses, and assembles their results. The operator defines the computation, the engine determines its mapping and schedule, and the macro implements one access.
 
-## From one call to a count of accesses
+## Mapping a workload
 
-Every extent below the unit is fixed when the tree is built, from the logical weight shape, the macro's port counts, and the weight layout's block width. One extent is not: the number of output planes a call carries, one for a linear operator and `H_out * W_out` for a convolution, which follows from the input resolution alone. The unit is therefore the single boundary at which a runtime shape enters the mapping — it converts the shape into a plane count and hands that number down, so nothing below it ever sees an operand layout and no configuration below it declares an input resolution.
+The workload supplies logical input and weight dimensions. The macro supplies fixed logical capacities, value ranges, and selection limits. Mapping partitions work against those capacities without requiring the engine to interpret the macro's internal rows, columns, or readout circuits.
 
-What the engine reads off the macro is the logical face alone: the fixed port counts, the two value ranges, the selection limit, and the conversion metadata. The selection limit applies to logical input positions, independent of which physical array axis carries them. Only the concrete macro maps logical inputs and outputs onto rows, columns, digits, and readout lanes, so that internal encoding never reaches the placement arithmetic.
+Digit encoding and slicing represent values in the ranges supported by the hardware. Placement assigns the resulting work to hardware instances and reuse slots. Input activation divides an access when the hardware cannot activate every required input together.
 
-The macro configuration owns `input_num`, `lane_num`, and `scan_num`; `output_num = lane_num * scan_num`. The unit and engine neither configure nor duplicate those dimensions: they read the macro's fixed capacities while mapping an arbitrary logical operator onto it. Converter-facing tensors use `[..., lane_num, scan_num]`, while the family boundary flattens those axes back into logical output order. Whether that output direction is implemented by array rows or columns remains a concrete-macro decision.
+The mapping distinguishes parallel replication from temporal reuse. Replication determines the hardware population; reuse determines the access count and duration. A workload's number of output positions can change the required work without changing the constructed hardware.
 
-Scalar encoding is shared below that face. A macro configuration declares the digit count, positional radix, and encoding of weights and inputs; the macro base constructs the corresponding transcoders, which own scalar-to-digit conversion, positional weights, and the continuous value range. An encoding may be redundant but never leaves holes in that range. Concrete macros consume the resulting digit axes, verify that their physical cell or converter levels can carry every digit, and alone decide how those digits occupy physical rows, columns, polarity groups, redundant planes, and time phases.
+## Mapping and aggregation
 
-## The canonical axis layout
+Each mapping has a corresponding aggregation: digit slices require positional weighting, contraction partitions require summation, and output partitions require restoration to logical order. Their pairing determines both numerical meaning and the digital hardware used to assemble results.
 
-Between the engine's input face and the macro's, one tensor layout carries the whole schedule.
+Engine-side transformations use exact integer arithmetic. Padding represents zero, and trimming removes padded positions. The physical macro access introduces the modeled analog and conversion effects. An ideal access therefore provides a control for the same mapping and aggregation.
 
-| Axis | Inserted by | Removed by |
-| --- | --- | --- |
-| `M` output planes | the unit's operator lowering | the same operator's aggregation-undo |
-| `Sx` input slices | the input-slice stage | that stage's shift adder |
-| `Sw` weight slices | the weight-slice stage | that stage's shift adder |
-| `Tc` contraction partitions | the placement stage | that stage's accumulator |
-| `G` macro groups | the placement stage | flattened back into logical output order |
-| `D` block slots | the placement stage | restored into output order, never reduced |
-| `P` input phases | the input-activation stage | that stage's accumulator |
+## One physical access
 
-The layout is canonical rather than configuration-dependent: an axis a configuration does not use stays present at extent one, so every combination of stage choices traces one execution graph instead of one graph per combination. Each stage passes through every axis it does not own.
+A macro establishes the electrical boundaries and schedules the phases that use them. It owns peripheral sampling and the distinction between a boundary held across phases and a fresh boundary event. The array determines the electrical response of its cells and interconnect to those supplied conditions.
 
-The macro's fabricated instance prefix reserves a slot for `M`, `Sx`, `Sw`, `Tc` and `G` in that order, the first two pinned to extent one; `D` and `P` sit ahead of the prefix as pure schedule axes. Cost is read off that alignment by one rule: a prefix slot carrying a real extent is parallel silicon, one physical copy per position, whereas a runtime axis broadcasting over an extent-one slot, or sitting ahead of the prefix entirely, is one copy used again in time. `Sw`, `Tc` and `G` are therefore silicon and `M`, `Sx`, `D` and `P` are time. One macro access serves each `(M, Sx, D, P)` point: the engine multiplies the macro's duration over exactly those four, and each point emits its own dynamic-energy event, while a parallel axis is billed once as the instances it is.
+The array's operating point provides the terminal currents and voltages needed by the surrounding circuitry. The numerical iterations that find this point are internal to the electrical evaluation. They do not add phases to the physical schedule.
 
-## Mapping and aggregation are paired
-
-A stage owns a mapping together with the digital block that reverses it, rather than the two being configured independently. Two things follow. A mapping strategy cannot be combined with an aggregation that does not invert it, because neither half is separately selectable. And the digital silicon attaches to the operation it performs: a block's instance multiplicity is the shape of the tensor it actually reduces, which is why the contraction accumulator — folding its axis while the physical weight planes are still present — is instanced across those planes as well as across the macro groups.
-
-## Who fixes the geometry
-
-The weight-slice layout is interrogated before anything else is built. It answers with two numbers: the logical output width one weight block carries, and the number of macro planes one instance holds. The first is the block width the substrate-neutral planner partitions the logical outputs by; the second multiplies the macro's instance prefix. Changing the weight layout therefore moves the placement plan and the macro count together, which is why that stage's geometry is resolved ahead of the plan.
-
-The planner itself carries no scheduling vocabulary. It partitions the contraction dimension, divides the logical outputs into blocks, balances those blocks across groups, and assigns each block a slot — and it never decides whether a group or a slot is realized in space or in time. The CIM side reads that decision into its own terms: contraction partitions become `Tc`, groups become `G`, block slots become `D`, and one block's contraction width becomes the local input length the activation stage then partitions into `P` groups under the macro's selection limit. Two of those axes become silicon and one becomes time, and nothing in the plan says which; that silence is what keeps the planner reusable under a different substrate.
-
-## Integer exactness end to end
-
-Every engine-side step is exact integer arithmetic: slicing and its radix-weighted shift-add are inverse operations, padding introduced by blocking encodes a true zero, and the final trim removes only padded positions. The single lossy step in the chain is the conversion inside one macro access, which is what makes an ideal-macro run a clean control: swapping the configured macro for its ideal twin leaves the placement, the slicing and the aggregation constructed identically, so the difference between the two runs is the analog access alone.
-
-Two boundaries keep that exactness legible. The engine widens macro codes to the accumulation dtype once, at the analog-to-digital boundary, and no digital block converts dtype afterwards, so the accumulation domain is decided in one place. And the engine-backed unit is where a non-integer operand is refused — a generic operator base and an exact-integer reference unit impose no such gate, having no substrate that a float could be driven into.
-
-## One access on a physical array
-
-Below the macro face, a physical scheme establishes the BL/SL boundaries and emits one or more WL phases. The macro owns what those phases mean: one design may use input-bit planes, another may scan output rows, and a design may combine several such axes under one hold. It tells the array which leading axes jointly form that phase grid. The array batches every phase through the same DC solve, returns the per-phase steady states, and uses those axes only to bill one boundary establishment plus all phase excursions.
-
-This contract separates schedule from topology without hiding either. Each column owns its own ladders and boundary clamps with no equation coupling it to a neighbour, while every row in one column shares those ladders; different WL phases may therefore require different operating points even though they can be solved in one tensor batch. What one phase solve costs, and how the chunk loop bounds the batch, is [xbar_solve](xbar_solve.md).
+Shared boundaries follow the event lifetimes in [physical state](physical_state.md). Their establishment and phase-dependent activity contribute under [PPA accounting](ppa_accounting.md), regardless of how the numerical work is batched.

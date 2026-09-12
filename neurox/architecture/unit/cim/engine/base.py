@@ -13,7 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.matmul_mapping import MatmulPlacementPlan, make_matmul_placement_plan
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 from .input_activation import (

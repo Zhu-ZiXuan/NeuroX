@@ -6,18 +6,18 @@ import argparse
 import logging
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 import torch
 from torch import Tensor
 
-from neurox.tools.calibrate_adc import AdcProbeData, load_adc_probe_data
+from neurox.tools.calibration.adc import AdcProbeData, load_adc_probe_data
+from neurox.tools.cli import add_plot_args, add_runtime_args
+from neurox.tools.run import tool_run
 from validations.xue2020jssc.tools._adc_plot import plot_cluster_statistics, plot_magnitude_ridgeline
 
 logger = logging.getLogger(__name__)
 
-_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _IDEAL_BOUNDARIES = (10, 20, 30, 40, 50, 60, 70)
 _TAIL_QUANTILES = (0.95, 0.99)
 _PRIMARY_TAIL_QUANTILE = 0.99
@@ -154,50 +154,29 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Paired-sample .pt file from calibrate_adc; repeat to merge files",
     )
-    parser.add_argument(
-        "--log-dir",
-        type=Path,
-        default=Path("log/calibration"),
-        help="Directory for the timestamped analysis log",
-    )
-    parser.add_argument(
-        "--plot-dir",
-        type=Path,
-        default=None,
-        help="Directory for the merged magnitude SVG plots; defaults to <log-dir>/figures",
-    )
-    parser.add_argument("--log-level", type=str.upper, default="INFO", choices=_LOG_LEVELS)
+    add_runtime_args(parser, output_dir=Path("log/calibration"), device=False)
+    add_plot_args(parser)
     return parser
-
-
-def _setup_logging(level_name: str, log_dir: Path) -> Path:
-    logging.basicConfig(level=getattr(logging, level_name), format="%(message)s", force=True)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    log_path = log_dir / f"adc_margin_{stamp}.log"
-    handler = logging.FileHandler(log_path)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logging.getLogger().addHandler(handler)
-    return log_path
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    log_path = _setup_logging(args.log_level, args.log_dir)
-    logger.info("log file: %s", log_path)
-    for path in args.input:
-        logger.info("paired samples: %s", path)
-    result = _merge_probe_data(tuple(load_adc_probe_data(path) for path in args.input))
-    logger.info("merged paired samples: %d", result.input_value.numel())
-    estimates = estimate_boundaries(result.ideal_value, result.input_value)
-    _log_estimates(estimates, input_name=result.input_name)
-    plot_dir = args.plot_dir if args.plot_dir is not None else args.log_dir / "figures"
-    plot_magnitude_ridgeline(result, plot_dir / "adc_magnitude_ridgeline.svg")
-    plot_cluster_statistics(
-        result,
-        plot_dir / "adc_cluster_statistics.svg",
-        ideal_boundaries=_IDEAL_BOUNDARIES,
-    )
+    with tool_run(
+        name="adc_margin", output_dir=args.output_dir, log_level=args.log_level, parameters=vars(args)
+    ) as output:
+        for path in args.input:
+            logger.info("paired samples: %s", path)
+        result = _merge_probe_data(tuple(load_adc_probe_data(path) for path in args.input))
+        logger.info("merged paired samples: %d", result.input_value.numel())
+        estimates = estimate_boundaries(result.ideal_value, result.input_value)
+        _log_estimates(estimates, input_name=result.input_name)
+        plot_dir = output.plot_dir(args.plot_dir)
+        plot_magnitude_ridgeline(result, plot_dir / "adc_magnitude_ridgeline.svg")
+        plot_cluster_statistics(
+            result,
+            plot_dir / "adc_cluster_statistics.svg",
+            ideal_boundaries=_IDEAL_BOUNDARIES,
+        )
     return 0
 
 

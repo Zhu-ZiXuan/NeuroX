@@ -1,315 +1,236 @@
-"""Numerical linear-algebra helpers for crossbar IR-drop simulation.
-
-Three properties hold across every routine here. A sweep accumulates its
-intermediates into Python lists and stacks once instead of writing in place,
-so the unrolled loop traces cleanly and its per-step elementwise work fuses.
-Every 2×2 block product and block solve runs in closed form, a batched GEMM or
-LU kernel costing far more per launch on tens of millions of tiny blocks than
-the arithmetic it performs. And no sweep pivots: each assumes its modified
-diagonal block stays non-singular, well-posedness belonging to the Newton
-formulation that builds the system.
-"""
+"""Batched linear solves and boundary inverse blocks for wire networks."""
 
 from __future__ import annotations
 
 import torch
 from torch import Tensor
 
+from neurox.common.loop import run_scan, run_scan_without_output
 
-def block_matmul(p: Tensor, q: Tensor) -> Tensor:
-    """Compute batched `p @ q` with a closed-form 2×2 path.
-
-    For `B == 2` the product uses elementwise multiply-adds; other block sizes
-    fall back to the matmul. `B` is the block dimension, `K` the number of
-    right-hand-side columns.
-
-    Args:
-        p: Left block operand.
-            Shape: `[..., B, B]`.
-        q: Right block operand.
-            Shape: `[..., B, K]`.
-
-    Returns:
-        Block product.
-        Shape: `[..., B, K]`.
-    """
-    if p.shape[-1] == 2 and p.shape[-2] == 2:
-        # Shape: [..., B, K] -> [..., K]
-        q0 = q[..., 0, :]
-        # Shape: [..., B, K] -> [..., K]
-        q1 = q[..., 1, :]
-        out0 = p[..., 0, 0].unsqueeze(-1) * q0 + p[..., 0, 1].unsqueeze(-1) * q1
-        out1 = p[..., 1, 0].unsqueeze(-1) * q0 + p[..., 1, 1].unsqueeze(-1) * q1
-        # Shape: [..., K] -> [..., B, K]
-        return torch.stack((out0, out1), dim=-2)
-    return p @ q
+type _TensorTuple2 = tuple[Tensor, Tensor]
+type _TensorTuple4 = tuple[Tensor, Tensor, Tensor, Tensor]
+type _TensorTuple6 = tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
 
 
-def block_solve(m: Tensor, rhs: Tensor) -> Tensor:
-    """Solve batched `m x = rhs` with a closed-form 2×2 path.
-
-    For `B == 2` the solve uses the adjugate/determinant formula; other block
-    sizes fall back to `torch.linalg.solve`. `B` is the block dimension, `K`
-    the number of right-hand-side columns.
+def solve_2x2(matrix: _TensorTuple4, rhs: _TensorTuple2) -> _TensorTuple2:
+    """Solve a batch of 2×2 systems from their scalar components.
 
     Args:
-        m: Block system matrix.
-            Shape: `[..., B, B]`.
-        rhs: Right-hand-side columns.
-            Shape: `[..., B, K]`.
+        matrix: Entries `(A[0, 0], A[0, 1], A[1, 0], A[1, 1])`.
+            Shape: `[...]` per tuple component.
+        rhs: Entries `(b[0], b[1])`.
+            Shape: `[...]` per tuple component.
 
     Returns:
-        Solution columns.
-        Shape: `[..., B, K]`.
+        The solution components `(x[0], x[1])`.
+        Shape: `[...]` per tuple component.
     """
-    if m.shape[-1] == 2 and m.shape[-2] == 2:
-        # Shape: [..., B, B] -> [..., 1]
-        a = m[..., 0, 0].unsqueeze(-1)
-        # Shape: [..., B, B] -> [..., 1]
-        b = m[..., 0, 1].unsqueeze(-1)
-        # Shape: [..., B, B] -> [..., 1]
-        c = m[..., 1, 0].unsqueeze(-1)
-        # Shape: [..., B, B] -> [..., 1]
-        d = m[..., 1, 1].unsqueeze(-1)
-        det = a * d - b * c
-        # Shape: [..., B, K] -> [..., K]
-        r0 = rhs[..., 0, :]
-        # Shape: [..., B, K] -> [..., K]
-        r1 = rhs[..., 1, :]
-        x0 = (d * r0 - b * r1) / det
-        x1 = (a * r1 - c * r0) / det
-        # Shape: [..., K] -> [..., B, K]
-        return torch.stack((x0, x1), dim=-2)
-    return torch.linalg.solve(m, rhs)
+    m_00, m_01, m_10, m_11 = matrix
+    r_0, r_1 = rhs
+    det = m_00 * m_11 - m_01 * m_10
+    return (
+        (m_11 * r_0 - m_01 * r_1) / det,
+        (m_00 * r_1 - m_10 * r_0) / det,
+    )
 
 
-def solve_block_tridiagonal(
-    sub: Tensor,
-    diag: Tensor,
-    sup: Tensor,
-    rhs: Tensor,
-) -> Tensor:
-    """Solve batched block-tridiagonal systems via the block Thomas algorithm.
-
-    Solves `A x = rhs` where `A` is block-tridiagonal with `N` block rows of
-    `B`×`B` blocks, any `B` running through the same path. The shape convention
-    is fixed: the `N` axis is third-to-last for the block tensors and
-    second-to-last for `rhs`; a different layout transposes before entry —
-    another axis order mis-indexes the sweep silently rather than raising. At
-    `B = 1` the result agrees with `solve_tridiagonal` to round-off alone, the
-    1×1 solve differing arithmetically from a scalar division.
-
-    Args:
-        sub: Sub-diagonal blocks coupling row `k` to row `k-1`; the entry at
-            `k = 0` is unused.
-            Shape: `[..., N, B, B]`.
-        diag: Main diagonal blocks.
-            Shape: `[..., N, B, B]`.
-        sup: Super-diagonal blocks coupling row `k` to row `k+1`; the entry at
-            `k = N-1` is unused.
-            Shape: `[..., N, B, B]`.
-        rhs: Right-hand-side vectors.
-            Shape: `[..., N, B]`.
-
-    Returns:
-        Solution tensor.
-        Shape: `[..., N, B]`.
-    """
-    block_num = rhs.shape[-2]
-    if block_num == 1:
-        # One block is one plain solve; the block-row axis of extent one stays.
-        return block_solve(diag.select(-3, 0), rhs[..., 0, :].unsqueeze(-1)).movedim(-1, -2)
-
-    # Forward sweep: C_k = M_k⁻¹ · sup_k, d_k = M_k⁻¹ · (rhs - sub · d_{k-1}).
-    m_0 = diag.select(-3, 0)
-    rhs_0 = rhs[..., 0, :].unsqueeze(-1)
-    # Stack [sup, rhs] as RHS columns so each step runs one solve instead of two.
-    sol_0 = block_solve(m_0, torch.cat((sup.select(-3, 0), rhs_0), dim=-1))
-    c_list: list[Tensor] = [sol_0[..., :-1]]
-    d_list: list[Tensor] = [sol_0[..., -1:]]
-    for k in range(1, block_num):
-        sub_k = sub.select(-3, k)
-        diag_k = diag.select(-3, k)
-        sup_k = sup.select(-3, k)
-        rhs_k = rhs[..., k, :].unsqueeze(-1)
-        m_k = diag_k - block_matmul(sub_k, c_list[k - 1])
-        sol_k = block_solve(m_k, torch.cat((sup_k, rhs_k - block_matmul(sub_k, d_list[k - 1])), dim=-1))
-        c_list.append(sol_k[..., :-1])
-        d_list.append(sol_k[..., -1:])
-
-    # Back substitution — build the solution list right-to-left.
-    x_list: list[Tensor] = [d_list[block_num - 1].squeeze(-1)]
-    for k in range(block_num - 2, -1, -1):
-        x_list.append((d_list[k] - block_matmul(c_list[k], x_list[-1].unsqueeze(-1))).squeeze(-1))
-    x_list.reverse()
-
-    return torch.stack(x_list, dim=-2)
-
-
-def solve_block_tridiagonal_2x2_uniform(
-    diag: Tensor,
-    rhs: Tensor,
+def boundary_inverse_block_tridiagonal_2x2(
+    diag: _TensorTuple4,
     *,
-    off_block: tuple[float, float],
-) -> Tensor:
+    off_diag: tuple[float, float],
+) -> _TensorTuple4:
+    """Return the leading diagonal block of a block-tridiagonal inverse.
+
+    Every sub- and super-diagonal block is the same constant diagonal matrix
+    `U = diag(off_diag)`. Eliminating blocks from the trailing boundary forms
+    `S[k] = D[k] - U @ inv(S[k + 1]) @ U`; the requested inverse block is
+    `inv(S[0])`.
+
+    CUDA sweeps benefit from contiguous batch slices `component[..., k]`,
+    since each step processes all batch positions at one block index. The
+    final input axis is the recurrence axis; unit stride on that axis alone
+    does not provide this layout. Strided inputs remain supported, and this
+    function does not repack them.
+
+    Args:
+        diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
+            Shape: `[..., N]`.
+        off_diag: The two diagonal entries of the shared off-block.
+
+    Returns:
+        Entries `(A_inv[0, 0], A_inv[0, 1], A_inv[1, 0], A_inv[1, 1])`
+        of the leading diagonal inverse block.
+        Shape: `[...]` per tuple component.
+    """
+    diag_00, diag_01, diag_10, diag_11 = diag
+    u_0, u_1 = off_diag
+
+    w_00 = u_0 * u_0
+    w_01 = u_0 * u_1
+    w_10 = u_1 * u_0
+    w_11 = u_1 * u_1
+
+    block_num = diag_00.shape[-1]
+
+    def body_fn(state: _TensorTuple4, index: Tensor) -> _TensorTuple4:
+        a_00, a_01, a_10, a_11 = state
+        k = index.view(1)
+        # Shape: [..., N] -> [...]
+        m_00 = diag_00[..., k].squeeze(-1) - w_00 * a_00
+        m_01 = diag_01[..., k].squeeze(-1) - w_01 * a_01
+        m_10 = diag_10[..., k].squeeze(-1) - w_10 * a_10
+        m_11 = diag_11[..., k].squeeze(-1) - w_11 * a_11
+        inv_det = 1.0 / (m_00 * m_11 - m_01 * m_10)
+        a_00 = m_11 * inv_det
+        a_01 = -m_01 * inv_det
+        a_10 = -m_10 * inv_det
+        a_11 = m_00 * inv_det
+        # Shape: [...]
+        return a_00, a_01, a_10, a_11
+
+    # A zero inverse represents the virtual block beyond the trailing boundary,
+    # so the first loop update reduces directly to inv(D[N - 1]).
+    # Shape: [...]
+    init_state = (
+        torch.zeros_like(diag_00[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_01[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_10[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_11[..., 0], memory_format=torch.contiguous_format),
+    )
+
+    # Reverse the small index sequence rather than materializing flipped coefficients.
+    indices = torch.arange(block_num - 1, -1, -1, device=diag_00.device)
+
+    # Shape: [...]
+    return run_scan_without_output(init_state=init_state, xs=indices, body_fn=body_fn, device=diag_00.device)
+
+
+def solve_block_tridiagonal_2x2(
+    diag: _TensorTuple4,
+    rhs: _TensorTuple2,
+    *,
+    off_diag: tuple[float, float],
+) -> _TensorTuple2:
     """Solve batched 2×2 block-tridiagonal systems with ONE constant off-block.
 
-    Specialization of `solve_block_tridiagonal` to every sub- and
-    super-diagonal block being the same constant diagonal matrix
-    `U = diag(off_block)`, which collapses the block Thomas recurrence to one
+    Every sub- and super-diagonal block is the same constant diagonal matrix
+    `U = diag(off_diag)`, which reduces the block Thomas recurrence to one
     explicit 2×2 inverse plus multiply-adds per step. The off-diagonal blocks
     are never materialized and the boundary slots need no special casing. `N`
     is the number of block rows, each block being 2×2.
 
+    Forward and reverse scans retain only one block in their carry. Reduced
+    coefficients and solutions are collected as outputs; their storage grows
+    with `N`. The two solution components are returned in ascending row order.
+
+    CUDA sweeps benefit when each input slice `component[..., k]` is contiguous
+    across the batch dimensions, for both `diag` and `rhs`. The final input
+    axis is the recurrence axis; making that axis contiguous alone does not
+    provide this layout. Strided inputs remain supported, and this function
+    does not repack them. Collected histories use contiguous batch slices.
+
     Args:
-        diag: Main diagonal blocks.
-            Shape: `[..., N, 2, 2]`.
-        rhs: Right-hand-side vectors.
-            Shape: `[..., N, 2]`.
-        off_block: The two diagonal entries of the shared off-block, i.e.
-            `U = diag(off_block[0], off_block[1])`.
+        diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
+            Shape: `[..., N]`.
+        rhs: Right-hand-side entries `(b[k, 0], b[k, 1])`.
+            Shape: `[..., N]`.
+        off_diag: The two diagonal entries of the shared off-block, i.e.
+            `U = diag(off_diag[0], off_diag[1])`.
 
     Returns:
-        Solution tensor.
-        Shape: `[..., N, 2]`.
+        The solution components `(x[..., 0], x[..., 1])`.
+        Shape: `[..., N]`.
     """
-    u_0, u_1 = off_block
+    diag_00, diag_01, diag_10, diag_11 = diag
+    rhs_0, rhs_1 = rhs
+    u_0, u_1 = off_diag
+
     # Cross weights of U · M · U — entry (i, j) picks up u_i · u_j.
     w_00 = u_0 * u_0
     w_01 = u_0 * u_1
     w_10 = u_1 * u_0
     w_11 = u_1 * u_1
 
-    # Shape: [..., N, 2, 2] -> [..., N]
-    d_00 = diag[..., 0, 0]
-    d_01 = diag[..., 0, 1]
-    d_10 = diag[..., 1, 0]
-    d_11 = diag[..., 1, 1]
-    # Shape: [..., N, 2] -> [..., N]
-    r_0 = rhs[..., 0]
-    r_1 = rhs[..., 1]
-    block_num = rhs.shape[-2]
+    block_num = rhs_0.shape[-1]
 
-    # Forward sweep: keep the inverted reduced block A_k = M_k⁻¹ and the
-    # reduced right-hand side e_k = A_k · (rhs_k - U · e_{k-1}).
-    a_00_list: list[Tensor] = []
-    a_01_list: list[Tensor] = []
-    a_10_list: list[Tensor] = []
-    a_11_list: list[Tensor] = []
-    e_0_list: list[Tensor] = []
-    e_1_list: list[Tensor] = []
-    for k in range(block_num):
-        # Shape: [..., N] -> [...]
-        m_00 = d_00[..., k]
-        m_01 = d_01[..., k]
-        m_10 = d_10[..., k]
-        m_11 = d_11[..., k]
-        b_0 = r_0[..., k]
-        b_1 = r_1[..., k]
-        if k > 0:
-            m_00 = m_00 - w_00 * a_00_list[k - 1]
-            m_01 = m_01 - w_01 * a_01_list[k - 1]
-            m_10 = m_10 - w_10 * a_10_list[k - 1]
-            m_11 = m_11 - w_11 * a_11_list[k - 1]
-            b_0 = b_0 - u_0 * e_0_list[k - 1]
-            b_1 = b_1 - u_1 * e_1_list[k - 1]
+    # --- Forward elimination ---
+
+    def forward_elimination_step(state: _TensorTuple6, row: _TensorTuple6) -> tuple[_TensorTuple6, _TensorTuple6]:
+        a_00_prev, a_01_prev, a_10_prev, a_11_prev, e_0_prev, e_1_prev = state
+        m_00, m_01, m_10, m_11, b_0, b_1 = row
+
+        m_00 = m_00 - w_00 * a_00_prev
+        m_01 = m_01 - w_01 * a_01_prev
+        m_10 = m_10 - w_10 * a_10_prev
+        m_11 = m_11 - w_11 * a_11_prev
+        b_0 = b_0 - u_0 * e_0_prev
+        b_1 = b_1 - u_1 * e_1_prev
+
         inv_det = 1.0 / (m_00 * m_11 - m_01 * m_10)
         a_00 = m_11 * inv_det
         a_01 = -m_01 * inv_det
         a_10 = -m_10 * inv_det
         a_11 = m_00 * inv_det
-        a_00_list.append(a_00)
-        a_01_list.append(a_01)
-        a_10_list.append(a_10)
-        a_11_list.append(a_11)
-        e_0_list.append(a_00 * b_0 + a_01 * b_1)
-        e_1_list.append(a_10 * b_0 + a_11 * b_1)
+        e_0 = a_00 * b_0 + a_01 * b_1
+        e_1 = a_10 * b_0 + a_11 * b_1
 
-    # Back substitution: x_k = e_k - A_k · (U · x_{k+1}).
-    x_0 = e_0_list[block_num - 1]
-    x_1 = e_1_list[block_num - 1]
-    x_0_list: list[Tensor] = [x_0]
-    x_1_list: list[Tensor] = [x_1]
-    for k in range(block_num - 2, -1, -1):
-        s_0 = u_0 * x_0
-        s_1 = u_1 * x_1
-        x_0 = e_0_list[k] - (a_00_list[k] * s_0 + a_01_list[k] * s_1)
-        x_1 = e_1_list[k] - (a_10_list[k] * s_0 + a_11_list[k] * s_1)
-        x_0_list.append(x_0)
-        x_1_list.append(x_1)
-    x_0_list.reverse()
-    x_1_list.reverse()
+        next_state = (a_00, a_01, a_10, a_11, e_0, e_1)
+        # Native scan forbids carry/output aliasing; clone only the current row.
+        output = (a_00.clone(), a_01.clone(), a_10.clone(), a_11.clone(), e_0.clone(), e_1.clone())
+        return next_state, output
 
-    # Shape: [...] -> [..., N, 2]
-    return torch.stack((torch.stack(x_0_list, dim=-1), torch.stack(x_1_list, dim=-1)), dim=-1)
+    # A_{-1} = 0 and e_{-1} = 0 represent the boundary before the first row.
+    # Only these six current-block components enter the scan carry.
+    # Canonical strides also match subsequent carries for singleton batch axes.
+    # Shape: [...]
+    init_state = (
+        torch.zeros_like(diag_00[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_01[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_10[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_11[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_0[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_1[..., 0], memory_format=torch.contiguous_format),
+    )
 
+    # Shape: [..., N] per output component.
+    _, reduced = run_scan(
+        init_state=init_state,
+        xs=(diag_00, diag_01, diag_10, diag_11, rhs_0, rhs_1),
+        body_fn=forward_elimination_step,
+        output_template=init_state,
+        dim=-1,
+    )
+    a_00_seq, a_01_seq, a_10_seq, a_11_seq, e_0_seq, e_1_seq = reduced
 
-def solve_block_tridiagonal_dense(
-    sub: Tensor,
-    diag: Tensor,
-    sup: Tensor,
-    rhs: Tensor,
-) -> Tensor:
-    """Solve batched block-tridiagonal systems through one dense square solve.
+    # --- Back substitution ---
 
-    Same input/output contract as `solve_block_tridiagonal`: `N` block rows of
-    `B`×`B` blocks.
+    def back_substitution_step(state: _TensorTuple2, index: Tensor) -> tuple[_TensorTuple2, _TensorTuple2]:
+        x_0_next, x_1_next = state
+        k = index.view(1)
+        s_0 = u_0 * x_0_next
+        s_1 = u_1 * x_1_next
+        x_0 = e_0_seq[..., k].squeeze(-1) - (a_00_seq[..., k].squeeze(-1) * s_0 + a_01_seq[..., k].squeeze(-1) * s_1)
+        x_1 = e_1_seq[..., k].squeeze(-1) - (a_10_seq[..., k].squeeze(-1) * s_0 + a_11_seq[..., k].squeeze(-1) * s_1)
+        return (x_0, x_1), (x_0.clone(), x_1.clone())
 
-    Args:
-        sub: Sub-diagonal blocks; `sub[0]` is zeroed during assembly.
-            Shape: `[..., N, B, B]`.
-        diag: Main diagonal blocks.
-            Shape: `[..., N, B, B]`.
-        sup: Super-diagonal blocks; `sup[-1]` is zeroed during assembly.
-            Shape: `[..., N, B, B]`.
-        rhs: Right-hand-side vectors.
-            Shape: `[..., N, B]`.
+    # x_N = 0 makes the last-row update x_{N-1} = e_{N-1}, including N = 1.
+    # Shape: [...]
+    init_solution = (
+        torch.zeros_like(rhs_0[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_1[..., 0], memory_format=torch.contiguous_format),
+    )
 
-    Returns:
-        Solution tensor.
-        Shape: `[..., N, B]`.
-    """
-    block_num = diag.shape[-3]
-    block_size = diag.shape[-1]
-
-    if block_num == 1:
-        # One block is one plain solve; the block-row axis of extent one stays.
-        return torch.linalg.solve(diag.select(-3, 0), rhs[..., 0, :].unsqueeze(-1)).movedim(-1, -2)
-
-    flat_size = block_num * block_size
-    device = diag.device
-    dtype = diag.dtype
-
-    # Zero the unused boundary blocks so they do not pollute the assembled
-    # dense matrix.
-    sub_clean = torch.cat([torch.zeros_like(sub[..., :1, :, :]), sub[..., 1:, :, :]], dim=-3)
-    sup_clean = torch.cat([sup[..., :-1, :, :], torch.zeros_like(sup[..., -1:, :, :])], dim=-3)
-
-    # Placement matrices over the block-row index.
-    #   diag_shift places block k at (k*block_size, k*block_size).
-    #   sub_shift places it one block below the main diagonal.
-    #   sup_shift places it one block above the main diagonal.
-    diag_shift = torch.eye(block_num, device=device, dtype=dtype)
-    off_ones = torch.ones(block_num - 1, device=device, dtype=dtype)
-    sub_shift = torch.diag_embed(off_ones, offset=-1)
-    sup_shift = torch.diag_embed(off_ones, offset=+1)
-
-    # `(k, i)` and `(m, j)` become the dense row and column indices.
-    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
-    diag_part = torch.einsum("...kij,km->...kimj", diag, diag_shift).flatten(-4, -3).flatten(-2, -1)
-    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
-    sub_part = torch.einsum("...kij,km->...kimj", sub_clean, sub_shift).flatten(-4, -3).flatten(-2, -1)
-    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
-    sup_part = torch.einsum("...kij,km->...kimj", sup_clean, sup_shift).flatten(-4, -3).flatten(-2, -1)
-
-    dense_matrix = diag_part + sub_part + sup_part
-
-    # Shape: [..., N, B] -> [..., N*B, K=1]
-    rhs_flat = rhs.reshape(*rhs.shape[:-2], flat_size).unsqueeze(-1)
-    # Shape: [..., N*B, K=1] -> [..., N*B]
-    x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
-    # Shape: [..., N*B] -> [..., N, B]
-    return x_flat.view(*rhs.shape)
+    # Reverse only the small index sequence, leaving all six histories in place.
+    # The adapter restores outputs to ascending row order.
+    _, solution = run_scan(
+        init_state=init_solution,
+        xs=torch.arange(block_num, device=rhs_0.device),
+        body_fn=back_substitution_step,
+        output_template=init_solution,
+        reverse=True,
+    )
+    x_0_seq, x_1_seq = solution
+    return x_0_seq.movedim(0, -1), x_1_seq.movedim(0, -1)
 
 
 def solve_tridiagonal(

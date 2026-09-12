@@ -30,7 +30,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
-from neurox.common import TensorDataClassBase
+from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
 
 # --- LeNet quantization grid ---
 X_QMIN = 0
@@ -384,7 +384,7 @@ def _mac_per_code(
     return macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 
 
-class _FoldedScales(TensorDataClassBase):
+class _FoldedScales(TensorDataClassMixin):
     """Integer rescale terms the runtime forward applies to macro codes."""
 
     mult: Tensor

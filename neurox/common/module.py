@@ -5,15 +5,15 @@ from __future__ import annotations
 import math
 from abc import ABC
 from dataclasses import dataclass
-from typing import dataclass_transform, final
+from typing import Self, dataclass_transform, final
 
 import torch.nn as nn
 from torch import Tensor
 
 from .profile_mixin import ProfileMixin
+from .pytree_dataclass_mixin import PyTreeDataClassMixin
 from .serialize_mixin import SerializeMixin
-from .tensor_dataclass import TensorDataClassBase
-from .tensor_group_mixin import TensorGroupMixin
+from .tensor_dataclass_mixin import TensorDataClassMixin, walk_single_tensor_fields
 from .validate_mixin import ValidateMixin
 
 
@@ -32,8 +32,6 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
         super().__init_subclass__()
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
-        if "__post_init__" in cls.__dict__:
-            raise TypeError(f"{cls.__qualname__} must implement validate(), not __post_init__()")
         for name in cls.__annotations__:
             if name in cls.__dict__:
                 raise TypeError(f"{cls.__qualname__}.{name} carries an initial value; declare the annotation alone")
@@ -44,7 +42,11 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
         self.validate()
 
     def validate(self) -> None:
-        """Check the local constraints on this configuration, raising `ValueError` on violation."""
+        """Check the local constraints on this configuration.
+
+        Overrides call `super().validate()` before checking their own fields
+        and raise `ValueError` when a constraint is violated.
+        """
 
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)
@@ -62,8 +64,6 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
         super().__init_subclass__()
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
-        if "__post_init__" in cls.__dict__:
-            raise TypeError(f"{cls.__qualname__} must implement validate(), not __post_init__()")
         for name in cls.__annotations__:
             if name in cls.__dict__:
                 raise TypeError(f"{cls.__qualname__}.{name} carries an initial value; declare the annotation alone")
@@ -74,36 +74,73 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
         self.validate()
 
     def validate(self) -> None:
-        """Check the local constraints on this runtime policy, raising `ValueError` on violation."""
+        """Check the local constraints on this runtime policy.
+
+        Overrides call `super().validate()` before checking their own fields
+        and raise `ValueError` when a constraint is violated.
+        """
 
 
-class SnapBase(TensorDataClassBase, TensorGroupMixin):
-    """Transform all tensor fields together under one per-call layout."""
+class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
+    """Registered snapshot PyTree with tensor transforms under one per-call layout."""
+
+    @final
+    def expand(self, shape: tuple[int, ...]) -> Self:
+        """Expand every tensor field with `Tensor.expand` semantics."""
+
+        def fn(tensor: Tensor) -> Tensor:
+            return tensor.expand(shape)
+
+        return walk_single_tensor_fields(fn, self)
+
+    @final
+    def flatten_axes(self, start_dim: int, end_dim: int) -> Self:
+        """Flatten every tensor field's `[start_dim, end_dim]` axes into one."""
+
+        def fn(tensor: Tensor) -> Tensor:
+            return tensor.flatten(start_dim, end_dim)
+
+        return walk_single_tensor_fields(fn, self)
+
+    @final
+    def index_select(self, dim: int, index: Tensor) -> Self:
+        """Index-select one dim of every tensor field."""
+
+        def fn(tensor: Tensor) -> Tensor:
+            return tensor.index_select(dim, index)
+
+        return walk_single_tensor_fields(fn, self)
 
 
-class DcopBase(TensorDataClassBase):
+class DcopBase(TensorDataClassMixin):
     pass
 
 
-# ConfigT and PolicyT are covariant across every module family: a config or policy is
-# produced (read-only properties, injected once at construction), never consumed by an
-# instance method. So no instance method here or in a family-level counterpart takes one as
-# a parameter; it takes the abstract base instead, `__init__` excepted. A PEP 695 type
-# parameter has its variance inferred rather than declared, so only this note enforces it.
 class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMixin, ABC):
     """Base for config- and policy-managed physical modules.
 
-    A module whose PPA is owned elsewhere sets `is_profile_target = False`.
-    A subclass owning local fabricated state overrides
-    `_sample_fabrication_variation()` to rebuild that state from its nominal
-    buffers. The hook handles only that node; `fabricate()` traverses the
-    complete registered module tree. With no local fabricated state, retain
-    the inherited no-op implementation.
+    Construct the owned module tree, place it on its device, then fabricate and
+    program before execution. Construction registers fixed tensor sources with
+    `_register_nonpersistent_buffer`. These buffers migrate with the module and
+    are excluded from `state_dict`.
+
+    Fabricated and programmed tensors are ordinary attributes produced by their
+    lifecycle operations. They are neither migrated nor serialized with the
+    module. Moving a module after materializing them requires fabrication and
+    programming to run again. Per-call snapshots are local results.
+
+    `fabricate()` invokes `_sample_fabrication_variation()` on this node before
+    its registered NeuroX descendants, including those inside plain containers.
+    Each hook rebuilds only its own state from nominal sources; it does not
+    traverse children. Programming is dispatched explicitly by the owner.
+
+    Stamp names after assembling the tree and before profiling. Re-stamping
+    updates the subtree names; rebuilding from configuration requires a new
+    fabrication and programming lifecycle.
 
     Args:
-        inst_shape: Hardware-instance shape. Physical axes encode circuit
-            multiplicity; axes explicitly fixed at one may instead reserve a
-            broadcast position for a runtime axis.
+        inst_shape: Hardware-instance shape. Physical axes encode multiplicity;
+            singleton axes may reserve positions for runtime broadcasting.
     """
 
     __qualified_name: str
@@ -166,7 +203,7 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     def stamp_names(self, *, qualified_name: str = "") -> None:
         """Stamp this module and its NeuroX subtree with hierarchical names."""
         self.__qualified_name = qualified_name
-        for relative_name, child in _neurox_children(self):
+        for relative_name, child in neurox_children(self):
             child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
             child.stamp_names(qualified_name=child_name)
 
@@ -174,7 +211,7 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     def fabricate(self) -> None:
         """Resample static manufacturing variation across this module subtree."""
         self._sample_fabrication_variation()
-        for _, child in _neurox_children(self):
+        for _, child in neurox_children(self):
             child.fabricate()
 
     def _sample_fabrication_variation(self) -> None:
@@ -184,7 +221,7 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
 type NeuroxModule = ModuleBase[ConfigBase, PolicyBase]
 
 
-def _neurox_roots(model: nn.Module) -> list[NeuroxModule]:
+def neurox_roots(model: nn.Module) -> list[NeuroxModule]:
     """Collect the outermost NeuroX modules `model` holds.
 
     The walk stops descending at the first `ModuleBase` it meets, so a root
@@ -197,12 +234,21 @@ def _neurox_roots(model: nn.Module) -> list[NeuroxModule]:
     """
     if isinstance(model, ModuleBase):
         return [model]
-    return [module for _, module in _neurox_children(model)]
+    return [module for _, module in neurox_children(model)]
 
 
-def _neurox_children(
+def neurox_children(
     module: nn.Module,
 ) -> list[tuple[str, NeuroxModule]]:
+    """Collect the nearest NeuroX descendants.
+
+    Plain module containers are traversed; descent stops at each NeuroX module.
+    Repeated references are deduplicated by identity, retaining the first path
+    in registered-child order.
+
+    Returns:
+        Pairs of relative registered paths and NeuroX modules.
+    """
     children: list[tuple[str, NeuroxModule]] = []
     seen: set[NeuroxModule] = set()
     for name, child in module.named_children():
@@ -210,7 +256,7 @@ def _neurox_children(
             candidates = [(name, child)]
         else:
             candidates = [
-                (f"{name}.{relative_name}", descendant) for relative_name, descendant in _neurox_children(child)
+                (f"{name}.{relative_name}", descendant) for relative_name, descendant in neurox_children(child)
             ]
         for relative_name, descendant in candidates:
             if descendant in seen:
@@ -218,46 +264,3 @@ def _neurox_children(
             seen.add(descendant)
             children.append((relative_name, descendant))
     return children
-
-
-def check_unique_neurox_bindings(model: nn.Module) -> None:
-    """Check that each NeuroX module occupies one path in `model`.
-
-    Raises:
-        ValueError: One module instance is bound at two paths.
-    """
-    locations: dict[NeuroxModule, str] = {}
-    for relative_name, module in model.named_modules(remove_duplicate=False):
-        if not isinstance(module, ModuleBase):
-            continue
-        if module in locations:
-            raise ValueError(
-                f"{type(module).__name__} is bound at both {locations[module]!r} and {relative_name!r}; "
-                "one physical instance holds one location, so bind a separate instance per site"
-            )
-        locations[module] = relative_name
-
-
-def fabricate(root: nn.Module) -> None:
-    """Resample fabrication variation across every outermost NeuroX subtree."""
-    for module in _neurox_roots(root):
-        module.fabricate()
-
-
-def stamp_names(model: nn.Module) -> None:
-    """Stamp every NeuroX module of `model` with its hierarchical name.
-
-    A module never knows its own name: the name is a property of the tree that
-    holds it, and only a walk from a root can hand it out. Stamping again
-    overwrites existing names, allowing a rewired model to be renamed.
-
-    Raises:
-        ValueError: One module instance sits at two locations of `model`.
-    """
-    check_unique_neurox_bindings(model)
-    if isinstance(model, ModuleBase):
-        model.stamp_names()
-        return
-
-    for qualified_name, root in _neurox_children(model):
-        root.stamp_names(qualified_name=qualified_name)

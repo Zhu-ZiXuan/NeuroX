@@ -1,23 +1,4 @@
-"""Unit tests for the block-tridiagonal solvers in
-`neurox.primitive.xbar.solver._linalg`.
-
-Covers, for the general `solve_block_tridiagonal`:
-  * `block_size = 1` reduces to the existing scalar Thomas solver
-    (`solve_tridiagonal`) bit-exact.
-  * `block_size` of 2 or 3 matches a dense reference solve via
-    `torch.linalg.solve` on the equivalent dense matrix.
-  * Batch dims pass through correctly.
-  * Numerically stable on diagonally-dominant (M-matrix-flavour) systems
-    that mirror the wire-Newton + boundary block structure used by the
-    nested solver.
-
-And, for the specialized `solve_block_tridiagonal_2x2_uniform`:
-  * EQUIVALENCE LAW: it solves the very system the general kernel solves
-    when handed that system's constant off-block materialized.
-  * NO-BOUNDARY LAW: a constant off-block needs no boundary slots, so the
-    answer cannot depend on what the general kernel would have found in
-    the two unused ones.
-"""
+"""Tests for the component-wise 2×2 linear-algebra specializations."""
 
 from __future__ import annotations
 
@@ -25,223 +6,191 @@ import pytest
 import torch
 
 from neurox.primitive.xbar.solver._linalg import (
-    solve_block_tridiagonal,
-    solve_block_tridiagonal_2x2_uniform,
-    solve_tridiagonal,
+    boundary_inverse_block_tridiagonal_2x2,
+    solve_2x2,
+    solve_block_tridiagonal_2x2,
 )
 
 
-def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:
-    """Materialize the dense `N*B × N*B` matrix from block tridiagonal data.
+def test_solve_2x2_matches_dense_reference(device: torch.device) -> None:
+    """The tuple specialization agrees with a pivoted dense reference."""
+    matrix = torch.randn(3, 5, 2, 2, dtype=torch.float64, device=device)
+    matrix = matrix + 3.0 * torch.eye(2, dtype=torch.float64, device=device)
+    rhs = torch.randn(3, 5, 2, dtype=torch.float64, device=device)
 
-    `sub[0]` and `sup[-1]` are unused placeholders by convention.
-    """
-    block_num, block_size, _ = diag.shape
-    out = torch.zeros(block_num * block_size, block_num * block_size, dtype=diag.dtype, device=diag.device)
-    for k in range(block_num):
-        out[k * block_size : (k + 1) * block_size, k * block_size : (k + 1) * block_size] = diag[k]
-        if k + 1 < block_num:
-            out[k * block_size : (k + 1) * block_size, (k + 1) * block_size : (k + 2) * block_size] = sup[k]
-        if k > 0:
-            out[k * block_size : (k + 1) * block_size, (k - 1) * block_size : k * block_size] = sub[k]
-    return out
-
-
-def _make_diag_dominant_blocks(
-    block_num: int, block_size: int, *, dtype: torch.dtype = torch.float64, seed: int = 0, device: torch.device
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Random block-tridiagonal where each diag block is diagonally dominant."""
-    g = torch.Generator(device=device).manual_seed(seed)
-    sub = torch.randn(block_num, block_size, block_size, dtype=dtype, generator=g, device=device) * 0.3
-    sup = torch.randn(block_num, block_size, block_size, dtype=dtype, generator=g, device=device) * 0.3
-    diag = torch.randn(block_num, block_size, block_size, dtype=dtype, generator=g, device=device) * 0.1
-    diag = diag + torch.eye(block_size, dtype=dtype, device=device) * 3.0
-    return sub, diag, sup
-
-
-def test_block_size_1_matches_scalar_thomas(device: torch.device) -> None:
-    """B = 1 should agree with scalar Thomas to fp64 round-off.
-
-    Not bit-exact — block path goes through `torch.linalg.solve` (LU)
-    while scalar Thomas does explicit division. Same answer modulo
-    accumulation order. ~1e-14 relative tolerance is appropriate.
-    """
-    block_num = 12
-    g = torch.Generator(device=device).manual_seed(42)
-    diag_s = torch.rand(block_num, dtype=torch.float64, generator=g, device=device) + 1.0
-    sub_s = torch.rand(block_num, dtype=torch.float64, generator=g, device=device) * 0.1
-    sup_s = torch.rand(block_num, dtype=torch.float64, generator=g, device=device) * 0.1
-    rhs_s = torch.rand(block_num, dtype=torch.float64, generator=g, device=device)
-
-    x_scalar = solve_tridiagonal(sub_s, diag_s, sup_s, rhs_s, dim=0)
-    x_block = solve_block_tridiagonal(
-        sub_s.view(block_num, 1, 1),
-        diag_s.view(block_num, 1, 1),
-        sup_s.view(block_num, 1, 1),
-        rhs_s.unsqueeze(-1),
-    ).squeeze(-1)
-
-    rel_err = (x_scalar - x_block).abs().max() / x_scalar.abs().max()
-    assert rel_err < 1e-13, f"rel err {rel_err.item():.2e}"
-
-
-@pytest.mark.parametrize("block_size", [2, 3, 4])
-@pytest.mark.parametrize("block_num", [1, 3, 8, 17])
-def test_block_solve_matches_dense(block_size: int, block_num: int, device: torch.device) -> None:
-    """Block Thomas matches dense `torch.linalg.solve` on the assembled matrix."""
-    sub, diag, sup = _make_diag_dominant_blocks(block_num, block_size, seed=block_num * 31 + block_size, device=device)
-    g = torch.Generator(device=device).manual_seed(block_num * 13 + block_size * 7)
-    rhs = torch.randn(block_num, block_size, dtype=torch.float64, generator=g, device=device)
-
-    if block_num == 1:
-        x_dense = torch.linalg.solve(diag[0], rhs[0])
-    else:
-        a_dense = _dense_from_blocks(sub, diag, sup)
-        x_dense = torch.linalg.solve(a_dense, rhs.reshape(-1)).reshape(block_num, block_size)
-    x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
-
-    # The block-row axis survives however short it is, `block_num = 1` included.
-    assert x_block.shape == (block_num, block_size)
-    rel_err = (x_dense - x_block).abs().max() / (x_dense.abs().max() + 1e-12)
-    assert rel_err < 1e-10, f"B={block_size} N={block_num}: rel error {rel_err.item():.2e}"
-
-
-def test_batched_block_solve(device: torch.device) -> None:
-    """Leading batch dims pass through; per-batch result matches dense."""
-    block_num = 8
-    block_size = 3
-    batch_shape = (4, 7)
-    g = torch.Generator(device=device).manual_seed(1234)
-    diag = (
-        torch.eye(block_size, dtype=torch.float64, device=device) * 3
-        + torch.randn(*batch_shape, block_num, block_size, block_size, dtype=torch.float64, generator=g, device=device)
-        * 0.1
-    )
-    sub = (
-        torch.randn(*batch_shape, block_num, block_size, block_size, dtype=torch.float64, generator=g, device=device)
-        * 0.3
-    )
-    sup = (
-        torch.randn(*batch_shape, block_num, block_size, block_size, dtype=torch.float64, generator=g, device=device)
-        * 0.3
-    )
-    rhs = torch.randn(*batch_shape, block_num, block_size, dtype=torch.float64, generator=g, device=device)
-
-    x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
-    assert x_block.shape == (*batch_shape, block_num, block_size)
-
-    # Spot-check a few batch elements against dense.
-    for idx in [(0, 0), (3, 6), (2, 4)]:
-        a_dense = _dense_from_blocks(sub[idx], diag[idx], sup[idx])
-        x_dense = torch.linalg.solve(a_dense, rhs[idx].reshape(-1)).reshape(block_num, block_size)
-        rel_err = (x_dense - x_block[idx]).abs().max() / (x_dense.abs().max() + 1e-12)
-        assert rel_err < 1e-10, f"batch {idx}: rel error {rel_err.item():.2e}"
-
-
-def test_zero_off_diagonals_reduce_to_block_diag(device: torch.device) -> None:
-    """Sub/sup all zero → solution is per-block independent solve."""
-    block_num = 5
-    block_size = 2
-    g = torch.Generator(device=device).manual_seed(7)
-    diag = (
-        torch.eye(block_size, dtype=torch.float64, device=device) * 2
-        + torch.randn(block_num, block_size, block_size, dtype=torch.float64, generator=g, device=device) * 0.05
-    )
-    sub = torch.zeros(block_num, block_size, block_size, dtype=torch.float64, device=device)
-    sup = torch.zeros(block_num, block_size, block_size, dtype=torch.float64, device=device)
-    rhs = torch.randn(block_num, block_size, dtype=torch.float64, generator=g, device=device)
-
-    x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
-    for k in range(block_num):
-        x_expected = torch.linalg.solve(diag[k], rhs[k])
-        assert torch.allclose(x_block[k], x_expected, atol=1e-12)
-
-
-def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -> None:
-    """Reproduce the BL/SL block-2×2 wire-Newton structure used by the
-    nested solver: positive diagonal blocks, scalar negative off-diagonals
-    (wire coupling), small off-diagonal cell cross-terms. Must solve
-    cleanly even when off-diagonals are present.
-    """
-    block_num = 16
-    block_size = 2
-    wire_g = 5.0e3  # ~ a chip's per-link rail conductance scale (uS)
-    a = 100.0  # ∂I_cell/∂V_BL, about g_R · g_ND / D
-    b_cross = -50.0  # ∂I_cell/∂V_SL (negative)
-
-    # Diagonal block: [[wire_diag + a, b_cross], [-a, wire_diag - b_cross]].
-    diag = torch.zeros(block_num, block_size, block_size, dtype=torch.float64, device=device)
-    diag[..., 0, 0] = 2 * wire_g + a
-    diag[..., 0, 1] = b_cross
-    diag[..., 1, 0] = -a
-    diag[..., 1, 1] = 2 * wire_g - b_cross
-    # Off-diagonal blocks: diagonal 2×2 with -wire_g on BL-BL and SL-SL only.
-    off = torch.zeros(block_num, block_size, block_size, dtype=torch.float64, device=device)
-    off[..., 0, 0] = -wire_g
-    off[..., 1, 1] = -wire_g
-    sub = off.clone()
-    sup = off.clone()
-
-    rhs = torch.randn(
-        block_num,
-        block_size,
-        dtype=torch.float64,
-        generator=torch.Generator(device=device).manual_seed(99),
-        device=device,
+    expected = torch.linalg.solve(matrix, rhs.unsqueeze(-1)).squeeze(-1)
+    actual_0, actual_1 = solve_2x2(
+        (matrix[..., 0, 0], matrix[..., 0, 1], matrix[..., 1, 0], matrix[..., 1, 1]),
+        (rhs[..., 0], rhs[..., 1]),
     )
 
-    x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
-    a_dense = _dense_from_blocks(sub, diag, sup)
-    x_dense = torch.linalg.solve(a_dense, rhs.reshape(-1)).reshape(block_num, block_size)
-
-    rel_err = (x_dense - x_block).abs().max() / (x_dense.abs().max() + 1e-12)
-    assert rel_err < 1e-10, f"M-matrix-like 2×2 block: rel err {rel_err.item():.2e}"
+    torch.testing.assert_close(actual_0, expected[..., 0])
+    torch.testing.assert_close(actual_1, expected[..., 1])
 
 
 def _uniform_case(
-    block_num: int, *, device: torch.device, seed: int
+    block_num: int,
+    *,
+    device: torch.device,
+    seed: int,
 ) -> tuple[torch.Tensor, torch.Tensor, tuple[float, float]]:
-    """A batched wire-Newton-flavoured system with one constant off-block."""
-    off = (-4.0e3, -7.0e3)
-    g = torch.Generator(device=device).manual_seed(seed)
-    diag = torch.randn(2, 5, block_num, 2, 2, dtype=torch.float64, generator=g, device=device) * 50.0
+    """Build a batched wire-Newton system with one constant off-block."""
+    off_diag = (-4.0e3, -7.0e3)
+    generator = torch.Generator(device=device).manual_seed(seed)
+    diag = torch.randn(2, 5, block_num, 2, 2, dtype=torch.float64, generator=generator, device=device) * 50.0
     diag = diag + torch.eye(2, dtype=torch.float64, device=device) * 2.0 * 8.0e3
-    rhs = torch.randn(2, 5, block_num, 2, dtype=torch.float64, generator=g, device=device)
-    return diag, rhs, off
+    rhs = torch.randn(
+        2,
+        5,
+        block_num,
+        2,
+        dtype=torch.float64,
+        generator=generator,
+        device=device,
+    )
+    return diag, rhs, off_diag
+
+
+def _dense_matrix(
+    diag: torch.Tensor,
+    off_diag: tuple[float, float],
+) -> torch.Tensor:
+    """Materialize one test-only dense block-tridiagonal matrix."""
+    block_num = diag.shape[-3]
+    dense = torch.zeros(
+        *diag.shape[:-3],
+        2 * block_num,
+        2 * block_num,
+        dtype=diag.dtype,
+        device=diag.device,
+    )
+    off_block = torch.diag(diag.new_tensor(off_diag))
+    for k in range(block_num):
+        current = slice(2 * k, 2 * (k + 1))
+        dense[..., current, current] = diag[..., k, :, :]
+        if k > 0:
+            previous = slice(2 * (k - 1), 2 * k)
+            dense[..., current, previous] = off_block
+        if k + 1 < block_num:
+            following = slice(2 * (k + 1), 2 * (k + 2))
+            dense[..., current, following] = off_block
+    return dense
+
+
+def _dense_reference(
+    diag: torch.Tensor,
+    rhs: torch.Tensor,
+    off_diag: tuple[float, float],
+) -> torch.Tensor:
+    """Solve one test-only dense reference system."""
+    dense = _dense_matrix(diag, off_diag)
+    flat_rhs = rhs.flatten(-2).unsqueeze(-1)
+    return torch.linalg.solve(dense, flat_rhs).squeeze(-1).view_as(rhs)
 
 
 @pytest.mark.parametrize("block_num", [1, 2, 3, 9])
-def test_uniform_off_block_matches_the_general_kernel(block_num: int, device: torch.device) -> None:
-    """Same system, same answer: the specialization only skips work."""
-    diag, rhs, off = _uniform_case(block_num, device=device, seed=block_num * 17 + 3)
-    off_blocks = torch.diag(torch.tensor(off, dtype=torch.float64, device=device)).expand_as(diag)
+def test_uniform_boundary_inverse_matches_dense_reference(
+    block_num: int,
+    device: torch.device,
+) -> None:
+    """The reverse Schur sweep returns the leading inverse block."""
+    diag, _rhs, off_diag = _uniform_case(block_num, device=device, seed=block_num * 29 + 5)
+    dense_inverse_boundary = torch.linalg.inv(_dense_matrix(diag, off_diag))[..., :2, :2]
 
-    expected = solve_block_tridiagonal(off_blocks, diag, off_blocks, rhs)
-    got = solve_block_tridiagonal_2x2_uniform(diag, rhs, off_block=off)
+    actual_00, actual_01, actual_10, actual_11 = boundary_inverse_block_tridiagonal_2x2(
+        diag=(diag[..., 0, 0].clone(), diag[..., 0, 1].clone(), diag[..., 1, 0].clone(), diag[..., 1, 1].clone()),
+        off_diag=off_diag,
+    )
 
-    # The block-row axis survives however short it is, `block_num = 1` included.
-    assert got.shape == (2, 5, block_num, 2)
-    rel_err = (got - expected).abs().max() / expected.abs().max()
-    assert rel_err < 1e-10, f"N={block_num}: rel error {rel_err.item():.2e}"
+    torch.testing.assert_close(actual_00, dense_inverse_boundary[..., 0, 0])
+    torch.testing.assert_close(actual_01, dense_inverse_boundary[..., 0, 1])
+    torch.testing.assert_close(actual_10, dense_inverse_boundary[..., 1, 0])
+    torch.testing.assert_close(actual_11, dense_inverse_boundary[..., 1, 1])
 
 
-def test_uniform_off_block_has_no_boundary_slots(device: torch.device) -> None:
-    """One constant off-block means no boundary entry exists to get wrong.
+@pytest.mark.parametrize("block_num", [1, 2, 3, 9])
+def test_uniform_block_tridiagonal_matches_dense_reference(
+    block_num: int,
+    device: torch.device,
+) -> None:
+    """The tuple recurrence solves the declared constant-off-block system."""
+    diag, rhs, off_diag = _uniform_case(block_num, device=device, seed=block_num * 17 + 3)
+    expected = _dense_reference(diag, rhs, off_diag)
 
-    The general kernel keeps a sub-block at row 0 and a super-block at the
-    last row that the recurrence never reads. Feeding it nonsense there and
-    still landing on the specialization's answer is what says the scalar
-    form carries no hidden boundary convention.
-    """
-    diag, rhs, off = _uniform_case(7, device=device, seed=404)
-    off_blocks = torch.diag(torch.tensor(off, dtype=torch.float64, device=device)).expand_as(diag)
-    sub = off_blocks.clone()
-    sub[..., 0, :, :] = 1.0e6
-    sup = off_blocks.clone()
-    sup[..., -1, :, :] = -2.0e6
+    x_0, x_1 = solve_block_tridiagonal_2x2(
+        diag=(diag[..., 0, 0].clone(), diag[..., 0, 1].clone(), diag[..., 1, 0].clone(), diag[..., 1, 1].clone()),
+        rhs=(rhs[..., 0].clone(), rhs[..., 1].clone()),
+        off_diag=off_diag,
+    )
+    actual = torch.stack((x_0, x_1), dim=-1)
 
-    expected = solve_block_tridiagonal(sub, diag, sup, rhs)
-    got = solve_block_tridiagonal_2x2_uniform(diag, rhs, off_block=off)
+    assert actual.shape == (2, 5, block_num, 2)
+    relative_error = (actual - expected).abs().max() / expected.abs().max()
+    assert relative_error < 1e-10, f"N={block_num}: relative error {relative_error.item():.2e}"
 
-    rel_err = (got - expected).abs().max() / expected.abs().max()
-    assert rel_err < 1e-10, f"rel error {rel_err.item():.2e}"
+
+@pytest.mark.parametrize("block_num", [1, 9])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("singleton_batch", [False, True])
+def test_block_scans_compile_with_strided_inputs(
+    block_num: int, dtype: torch.dtype, singleton_batch: bool, device: torch.device
+) -> None:
+    """Both sweeps preserve row order and handle a single block under compilation."""
+    diag, rhs, off_diag = _uniform_case(block_num, device=device, seed=13)
+    diag = diag[0, 0].to(dtype)
+    rhs = rhs[0, 0].to(dtype)
+    if singleton_batch:
+        diag = diag[None, None]
+        rhs = rhs[None, None]
+    expected = _dense_reference(diag.double(), rhs.double(), off_diag).to(dtype)
+
+    def solve(diag: torch.Tensor, rhs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return solve_block_tridiagonal_2x2(
+            diag=(diag[..., 0, 0], diag[..., 0, 1], diag[..., 1, 0], diag[..., 1, 1]),
+            rhs=(rhs[..., 0], rhs[..., 1]),
+            off_diag=off_diag,
+        )
+
+    with torch.no_grad():
+        x_0, x_1 = torch.compile(solve, fullgraph=True, dynamic=False)(diag, rhs)
+    actual = torch.stack((x_0, x_1), dim=-1)
+    torch.testing.assert_close(actual, expected, rtol=3e-5 if dtype == torch.float32 else 1e-10, atol=0)
+
+
+@pytest.mark.parametrize("block_num", [1, 9])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("singleton_batch", [False, True])
+def test_boundary_scan_compiles_with_strided_inputs(
+    block_num: int, dtype: torch.dtype, singleton_batch: bool, device: torch.device
+) -> None:
+    diag, _rhs, off_diag = _uniform_case(block_num, device=device, seed=31)
+    diag = diag[0, 0].to(dtype)
+    if singleton_batch:
+        diag = diag.unsqueeze(0).unsqueeze(0)
+    expected = torch.linalg.inv(_dense_matrix(diag.double(), off_diag))[..., :2, :2].to(dtype)
+
+    # Separate backing tensors preserve strided rows without aliased closure inputs.
+    components = (diag.clone()[..., 0, 0], diag.clone()[..., 0, 1], diag.clone()[..., 1, 0], diag.clone()[..., 1, 1])
+
+    def solve(
+        components: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return boundary_inverse_block_tridiagonal_2x2(diag=components, off_diag=off_diag)
+
+    with torch.no_grad():
+        actual = torch.compile(solve, fullgraph=True, dynamic=False)(components)
+    for component, (row, column) in zip(actual, ((0, 0), (0, 1), (1, 0), (1, 1)), strict=True):
+        torch.testing.assert_close(
+            component, expected[..., row, column], rtol=3e-5 if dtype == torch.float32 else 1e-10, atol=0
+        )
+
+
+def test_block_scans_accept_shared_coefficient_and_rhs_tensors(device: torch.device) -> None:
+    """Read-only coefficients and right-hand sides may alias across components."""
+    diagonal = torch.full((2, 9), 3.0, dtype=torch.float64, device=device)
+    zero = torch.zeros_like(diagonal)
+    rhs = torch.arange(18, dtype=torch.float64, device=device).reshape(2, 9)
+    diag = torch.diag_embed(torch.stack((diagonal, diagonal), dim=-1))
+    expected = _dense_reference(diag, torch.stack((rhs, rhs), dim=-1), (-0.5, -0.5))
+    x_0, x_1 = solve_block_tridiagonal_2x2(diag=(diagonal, zero, zero, diagonal), rhs=(rhs, rhs), off_diag=(-0.5, -0.5))
+    torch.testing.assert_close(torch.stack((x_0, x_1), dim=-1), expected, rtol=1e-10, atol=0)

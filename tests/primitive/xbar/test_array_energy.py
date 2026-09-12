@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from typing import Any
 
 import pytest
 import torch
-import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler
-from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy
+from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy, VoltageDriverSnap
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
-from neurox.primitive.xbar.solver import ColBlColSlProber, ColBlColSlSolverConfig
 
 _DTYPE = torch.float64
 _COL_NUM = 3
 _ROW_NUM = 2
-_N_OUTER = 3
-
 _VDD__V = 0.7
 _BL_V_REF__V = 0.30
 _SL_V_REF__V = 0.05
@@ -34,13 +30,7 @@ _VX_RATIO_OFF_TABLE = (0.10, 0.40)
 _VX_RATIO_OFF_AT_REST = (0.0, 0.0)
 _V_WL_ON_THRESHOLD__V = 0.5
 
-type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy]
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    with torch._dynamo.config.patch(disable=True):
-        yield
+type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy, VoltageDriverSnap, VoltageDriverSnap]
 
 
 def _states() -> Tensor:
@@ -73,6 +63,8 @@ def _build_array(
     vx_ratio_off_table: tuple[float, ...] = _VX_RATIO_OFF_TABLE,
 ) -> _Array:
     array = XbarArray1t1r(
+        bl_driver=_ideal_driver(),
+        sl_driver=_ideal_driver(),
         config=XbarArray1t1rConfig(
             row_cell_space__um=1.0,
             col_cell_space__um=1.0,
@@ -86,7 +78,6 @@ def _build_array(
                 g_cell_on__uS=g_cell_on__uS,
                 vx_ratio_off_table=vx_ratio_off_table,
             ),
-            solver_config=ColBlColSlSolverConfig(n_outer=_N_OUTER, n_inner=3),
         ),
         policy=XbarArray1t1rPolicy(
             cell_policy=XbarCell1t1rLinearPolicy(),
@@ -135,23 +126,21 @@ def _solve(
     sl_ref__V: float = _SL_V_REF__V,
 ) -> tuple[Tensor, Tensor]:
     leading_shape = tuple(v_wl__V.shape[:-1])
-    bl_driver = _ideal_driver()
-    sl_driver = _ideal_driver()
+    bl_driver = array.solver.bl_driver
+    sl_driver = array.solver.sl_driver
     bl_ref__V = torch.full((*leading_shape, _COL_NUM), bl_ref__V, dtype=_DTYPE)
     sl_ref__V = torch.full((*leading_shape, _COL_NUM), sl_ref__V, dtype=_DTYPE)
     billed: list[Tensor] = []
     monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
     with Profiler(), torch.no_grad():
-        steady = array.solve_array(
+        dcop = array.solve_dc(
             v_wl__V=v_wl__V,
             wl_phase_dims=wl_phase_dims,
-            bl_driver=bl_driver,
             bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref__V, shape=bl_ref__V.shape),
-            sl_driver=sl_driver,
             sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref__V, shape=sl_ref__V.shape),
         )
     [energy__fJ] = billed
-    return energy__fJ, steady.i_bl_port__uA
+    return energy__fJ, dcop.i_bl_port__uA
 
 
 def _v_x(col: int, row: int, v_wl__V: Tensor) -> float:
@@ -259,17 +248,33 @@ def test_bl_node_cap_uses_each_solved_node_displacement(monkeypatch: pytest.Monk
     delta__fF = 0.5
     phases = _phases()
     base, _current = _solve(_build_array(g_cell_on__uS=80.0), phases, monkeypatch, wl_phase_dims=(0,))
-    with ColBlColSlProber(min_outer=_N_OUTER) as probe:
-        raised, _current = _solve(
-            _build_array(g_cell_on__uS=80.0, bl_node_c__fF=_BL_NODE_C__fF + delta__fF),
-            phases,
-            monkeypatch,
-            wl_phase_dims=(0,),
-        )
-    dcop = probe.records[-1].dcop
+    raised_array = _build_array(g_cell_on__uS=80.0, bl_node_c__fF=_BL_NODE_C__fF + delta__fF)
+    states: list[Any] = []
+    original = raised_array._energy_from_state
 
-    v_rest__V = torch.full_like(dcop.v_bl_node__V, _BL_V_REF__V)
-    phase_delta = (dcop.v_bl_node__V - v_rest__V).abs().sum()
+    def capture_state(
+        state: Any,
+        *,
+        cell_snap: Any,
+        bl_driver_snap: Any,
+        sl_driver_snap: Any,
+        cell_dcop: Any,
+    ) -> Tensor:
+        states.append(state)
+        return original(
+            state,
+            cell_snap=cell_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
+            cell_dcop=cell_dcop,
+        )
+
+    monkeypatch.setattr(raised_array, "_energy_from_state", capture_state)
+    raised, _current = _solve(raised_array, phases, monkeypatch, wl_phase_dims=(0,))
+    [state] = states
+
+    v_rest__V = torch.full_like(state.v_bl_node__V, _BL_V_REF__V)
+    phase_delta = (state.v_bl_node__V - v_rest__V).abs().sum()
     rest_delta = _ROW_NUM * _COL_NUM * abs(_BL_V_REF__V)
     expected_slope__fJ = _VDD__V * delta__fF * float(phase_delta + rest_delta)
 
@@ -280,17 +285,33 @@ def test_sl_node_cap_uses_each_solved_node_displacement(monkeypatch: pytest.Monk
     delta__fF = 0.5
     phases = _phases()
     base, _current = _solve(_build_array(g_cell_on__uS=80.0), phases, monkeypatch, wl_phase_dims=(0,))
-    with ColBlColSlProber(min_outer=_N_OUTER) as probe:
-        raised, _current = _solve(
-            _build_array(g_cell_on__uS=80.0, sl_node_c__fF=_SL_NODE_C__fF + delta__fF),
-            phases,
-            monkeypatch,
-            wl_phase_dims=(0,),
-        )
-    dcop = probe.records[-1].dcop
+    raised_array = _build_array(g_cell_on__uS=80.0, sl_node_c__fF=_SL_NODE_C__fF + delta__fF)
+    states: list[Any] = []
+    original = raised_array._energy_from_state
 
-    v_rest__V = torch.full_like(dcop.v_sl_node__V, _SL_V_REF__V)
-    phase_delta = (dcop.v_sl_node__V - v_rest__V).abs().sum()
+    def capture_state(
+        state: Any,
+        *,
+        cell_snap: Any,
+        bl_driver_snap: Any,
+        sl_driver_snap: Any,
+        cell_dcop: Any,
+    ) -> Tensor:
+        states.append(state)
+        return original(
+            state,
+            cell_snap=cell_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
+            cell_dcop=cell_dcop,
+        )
+
+    monkeypatch.setattr(raised_array, "_energy_from_state", capture_state)
+    raised, _current = _solve(raised_array, phases, monkeypatch, wl_phase_dims=(0,))
+    [state] = states
+
+    v_rest__V = torch.full_like(state.v_sl_node__V, _SL_V_REF__V)
+    phase_delta = (state.v_sl_node__V - v_rest__V).abs().sum()
     rest_delta = _ROW_NUM * _COL_NUM * abs(_SL_V_REF__V)
     expected_slope__fJ = _VDD__V * delta__fF * float(phase_delta + rest_delta)
 

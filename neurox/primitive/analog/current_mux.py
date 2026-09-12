@@ -4,12 +4,14 @@ See Also:
     docs/reference/primitive/analog/current_mux.md
 """
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 
 
 class ImuxConfig(ConfigBase):

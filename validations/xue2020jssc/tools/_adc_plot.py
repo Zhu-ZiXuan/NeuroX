@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.tools.calibrate_adc import AdcProbeData
+from neurox.tools.calibration.adc import AdcProbeData
 
 logger = logging.getLogger(__name__)
 

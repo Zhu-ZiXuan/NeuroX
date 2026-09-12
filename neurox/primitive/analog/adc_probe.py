@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 from torch import Tensor
 
-from neurox.common import RecordBase, RecorderBase
+from neurox.common.recorder import RecordBase, RecorderBase
 
 
 class AdcRecord(RecordBase, ABC):

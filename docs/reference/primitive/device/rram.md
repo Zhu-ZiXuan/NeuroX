@@ -1,12 +1,12 @@
 # RRAM cell
 
-A two-terminal resistive-memory cell whose single state variable is the programmed conductance $G$. A read draws current from the stored $G$ at the applied terminal voltage $V$ under a symmetric hyperbolic-sine I-V law, yielding both the current and the local differential conductance; a write drives $G$ toward a target $G_{\mathrm t}$ after an elapsed retention time $t$, subject to program-time and read-time non-idealities.
+A two-terminal resistive-memory cell whose single state variable is the programmed conductance $G$. A read draws current from the stored $G$ at the applied terminal voltage $V$ under a symmetric hyperbolic-sine I-V law, yielding both the current and the local differential conductance; a write drives $G$ toward a target $G_{\mathrm t}$ subject to program-time and read-time non-idealities. The current programming interface fixes elapsed retention time to zero.
 
 ## Physical model
 
-The device is abstracted as a programmable conductor with a single state variable, the per-cell conductance $G$, confined to a working range $[G_{\min}, G_{\max}]$. $G_{\min}$ is an intrinsic floor of the device; $G_{\max}$ is a design ceiling set by external current limiting during programming, not an intrinsic device property. Two distinct operations act on the stored $G$:
+The device is abstracted as a programmable conductor with a single state variable, the per-cell conductance $G$, confined to a strictly positive working range $[G_{\min}, G_{\max}]$. $G_{\min}$ is an intrinsic floor of the device; $G_{\max}$ is a design ceiling set by external current limiting during programming, not an intrinsic device property. Two distinct operations act on the stored $G$:
 
-- a **write** that drives the stored conductance toward a target value, subject to programming variation, conductance drift over the elapsed retention time, and stuck-at faults;
+- a **write** that drives the stored conductance toward a target value, subject to programming variation and stuck-at faults; the retained drift law is inactive while elapsed time is fixed to zero;
 - a **read** that draws current from the present stored conductance under telegraph and thermal read noise.
 
 The conduction itself is taken as instantaneous and quasi-static: a read returns the DC current at the applied terminal voltage with no transient switching dynamics within the read.
@@ -21,13 +21,15 @@ with the ohmic limit
 
 $$I_{\mathrm R}(V) = G\,V, \qquad \frac{\partial I_{\mathrm R}}{\partial V} = G \quad (\alpha = 0).$$
 
-**Programming write.** A write to a target conductance $G_{\mathrm t}$ after elapsed time $t$ is the composition, in order, of a working-range clamp, state-dependent programming variation, a power-law drift gain, a stuck-at replacement, and a final clamp:
+**Programming write.** The retained general write law composes a working-range clamp, state-dependent programming variation, a power-law drift gain, a stuck-at replacement, and a final clamp:
 
 $$G \leftarrow \operatorname{clamp}\!\Big(\operatorname{stuck}\big(d(t)\cdot\Gamma(\operatorname{clamp}(G_{\mathrm t},\,G_{\min},\,G_{\max}))\big),\ G_{\min},\ G_{\max}\Big),$$
 
 where $\Gamma(\cdot)$ is the state-dependent programming-variation map (§Noise), $\operatorname{stuck}(\cdot)$ the stuck-at map, and the drift gain is a power law applied only once the elapsed time exceeds the reference time $t_0$:
 
 $$d(t) = \left(\frac{t}{t_0}\right)^{-\nu} \quad (t > t_0,\ \nu > 0), \qquad d(t) = 1 \quad \text{otherwise}.$$
+
+`Rram.program` currently evaluates this law at the internal value $t=0$, so the drift branch remains present but inactive.
 
 ## Numerical method
 
@@ -39,7 +41,7 @@ The statistical forms below are the device's own non-ideality sources; the share
 
 - **Programming variation** (program time) — a multiplicative Gamma perturbation, normalized to unit mean, whose shape parameter $k$ depends on the normalized conductance state $\hat G = (G - G_{\mathrm{lo}})/(G_{\mathrm{hi}} - G_{\mathrm{lo}})$: $k(\hat G) = \max(k_{\mathrm{slope}}\,\hat G + k_{\mathrm{int}},\,0.1)$ at fixed scale $\theta$. The normalization bounds $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ belong to the programming-variation model and are independent of the device working-range bounds $G_{\min}, G_{\max}$. The applied gain is $\gamma/\mathbb{E}[\gamma]$ with $\gamma \sim \operatorname{Gamma}(k,\theta)$, so the perturbation preserves the mean conductance and only injects state-dependent spread.
 - **Stuck-at fault** (program time) — each cell is independently forced to $G_{\min}$ with probability $p_{\min}$ or to $G_{\max}$ with probability $p_{\max}$ (requiring $p_{\min}+p_{\max}<1$), else left unchanged.
-- **Conductance drift** (program time) — the power-law gain $d(t)$ above, applied when its policy is enabled, $\nu>0$, and $t>t_0$.
+- **Conductance drift** (program time) — the retained power-law gain $d(t)$ above; the current fixed $t=0$ programming interface does not activate it.
 - **Telegraph read noise** (read time) — random telegraph noise sampled on each read: a cell is in the active state with probability $p_{\mathrm{high}}$, and when active receives an additive perturbation of random sign and Gaussian-distributed amplitude (mean $\mu_a$, std $\sigma_a$).
 - **Thermal read noise** (read time) — additive zero-mean Gaussian noise of std $\sigma_{\mathrm{th}}$ on the read conductance.
 
@@ -49,7 +51,7 @@ After the read-time sources, the read conductance is re-clamped to $[G_{\min}, G
 
 | Parameter | Meaning | Unit | Constraint | Source |
 | --- | --- | --- | --- | --- |
-| `g_min__uS` | minimum programmable conductance $G_{\min}$ | uS | $\ge 0$ | Measured |
+| `g_min__uS` | minimum programmable conductance $G_{\min}$ | uS | $> 0$ | Measured |
 | `g_max__uS` | maximum programmable conductance $G_{\max}$ (init kwarg, design ceiling) | uS | $> G_{\min}$ | Design |
 | `nonlinearity_alpha` | hyperbolic-sine I-V factor $\alpha$ | 1/V | $\ge 0$ | Measured |
 | `drift_decay_rate` | power-law drift exponent $\nu$ | — | $\ge 0$ | Measured |
@@ -77,7 +79,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $d(t)$ | power-law drift gain | — | — |
 | $\nu$ | drift exponent | — | `drift_decay_rate` |
 | $t_0$ | reference drift time | s | `drift_t0` |
-| $t$ | elapsed retention time (runtime input) | s | `t_elapsed` |
+| $t$ | elapsed retention time, currently fixed to zero | s | internal to `Rram.program` |
 | $k, \theta$ | Gamma shape, scale | — | `prog_gamma` |
 | $p_{\min}, p_{\max}$ | stuck-at-min / -max probabilities | — | `stuck_at` |
 | $\mu_a, \sigma_a, p_{\mathrm{high}}$ | telegraph amplitude mean, std, active probability | uS, uS, — | `read_telegraph` |
@@ -88,9 +90,9 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 - Conduction is quasi-static: a read returns the DC operating point at the applied voltage, with no within-read switching transient.
 - The I-V law is symmetric in $V$ (the $\sinh$ form has odd symmetry); no rectifying / asymmetric conduction is modeled.
 - $G_{\max}$ is a design ceiling enforced by clamping, representing external current limiting, not an intrinsic saturation of the device physics.
-- Programming variation, drift, and stuck-at act at program time and are baked into the stored state; telegraph and thermal noise are resampled per read.
+- Programming variation and stuck-at act at program time and are baked into the stored state; the retained drift branch is inactive at $t=0$, while telegraph and thermal noise are resampled per read.
 - The conductance-drift power law is a coarse placeholder: the drift exponent $\nu$ is a single state- and device-independent constant.
-- The retention/drift time $t$ and its reference $t_0$ are kept in seconds, a separate quantity from the nanosecond compute-path time symbol of the shared [notation_conventions](../../../conventions/notation_conventions.md#electrical-and-physical-quantities).
+- The retained drift law measures $t$ and $t_0$ in seconds, but the current programming interface fixes $t=0$.
 
 TODO (domain author): give the quantitative validity boundaries — conductance and voltage ranges over which the $\sinh$ I-V holds, the temperature treatment of $G$ and $\alpha$ (currently temperature-independent in the read law), the retention-time range of the drift power law, and regimes where the model should not be trusted.
 

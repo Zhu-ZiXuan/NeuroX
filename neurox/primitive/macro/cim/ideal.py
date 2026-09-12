@@ -9,8 +9,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common import stochastic_round
 from neurox.common.encoding import Encoding
+from neurox.common.quantization import stochastic_round
 
 from .base import (
     CimMacro,

@@ -4,12 +4,14 @@ See Also:
     docs/reference/primitive/device/rram.md
 """
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -20,10 +22,18 @@ from neurox.primitive.nonideality import (
     apply_telegraph_noise,
 )
 
+__all__ = [
+    "Rram",
+    "RramConfig",
+    "RramDcop",
+    "RramPolicy",
+    "RramSnap",
+]
+
 
 class RramConfig(ConfigBase):
     g_min__uS: float
-    """Minimum programmable conductance; the maximum is supplied per instance."""
+    """Strictly positive programmable floor; the ceiling is supplied per instance."""
 
     nonlinearity_alpha: float
     """Hyperbolic-sine I-V nonlinearity factor [1/V]; `0` makes the cell ohmic."""
@@ -31,7 +41,7 @@ class RramConfig(ConfigBase):
     drift_decay_rate: float
     """Power-law drift exponent."""
     drift_t0: float
-    """Reference drift time [s]; drift applies only beyond it."""
+    """Reference time [s] for the retained drift law."""
 
     read_thermal__uS: float
     """Gaussian read-noise σ."""
@@ -46,7 +56,7 @@ class RramConfig(ConfigBase):
 
         # --- Conductance and I-V ---
 
-        self._require_non_neg(self.g_min__uS, "g_min__uS")
+        self._require_pos(self.g_min__uS, "g_min__uS")
         self._require_non_neg(self.nonlinearity_alpha, "nonlinearity_alpha")
 
         # --- Drift and noise ---
@@ -60,7 +70,7 @@ class RramPolicy(PolicyBase):
     prog_gamma: bool
     """Apply state-dependent programming Gamma at program time."""
     drift: bool
-    """Apply power-law conductance drift at program time."""
+    """Drift selection; programming at time zero applies no drift."""
     stuck_at: bool
     """Apply stuck-at faults at program time."""
     read_telegraph: bool
@@ -88,7 +98,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     `snapshot()`; fabrication therefore owns no RRAM state.
 
     Args:
-        g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
+        g_max__uS: Maximum programmable conductance; both bounds must be
+            normal values representable by `dtype`.
     """
 
     is_profile_target: ClassVar[bool] = False
@@ -109,25 +120,31 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-        if not (g_max__uS > config.g_min__uS):
-            raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
+        if not dtype.is_floating_point:
+            raise TypeError(f"Rram requires a floating-point dtype; got {dtype}")
+        dtype_info = torch.finfo(dtype)
+        if not (dtype_info.tiny <= config.g_min__uS <= dtype_info.max):
+            raise ValueError(f"config.g_min__uS ({config.g_min__uS}) is not a normal value representable by {dtype}")
+        if not (config.g_min__uS < g_max__uS <= dtype_info.max):
+            raise ValueError(
+                f"require: config.g_min__uS ({config.g_min__uS}) < g_max__uS ({g_max__uS}) <= {dtype_info.max}"
+            )
 
         self._g_max__uS = g_max__uS
 
-    def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
-        """Program the stored conductance.
+    def program(self, target_g__uS: Tensor) -> None:
+        """Program the stored conductance with elapsed time fixed to zero.
 
         Args:
             target_g__uS: Target conductance tensor. Its device and dtype are
                 preserved in the programmed state.
-            t_elapsed: Time elapsed since programming [s].
         """
         g_min__uS = self.config.g_min__uS
         g__uS = target_g__uS.clamp(g_min__uS, self._g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
-        if self.policy.drift and self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
-            drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
-            g__uS = g__uS * drift_factor
+        # if self.policy.drift and self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
+        #     drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
+        #     g__uS = g__uS * drift_factor
 
         g__uS = apply_stuck_at_fault(
             x=g__uS,

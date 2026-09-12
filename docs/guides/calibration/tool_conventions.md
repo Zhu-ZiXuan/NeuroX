@@ -2,38 +2,40 @@
 
 The rules every calibration command shares, so a run you can drive for one tool you can drive for all.
 
-## The run config holds everything that changes the answer
+## Independent task commands
 
-Anything a re-run must reproduce lives in the run config: the hardware config and policy the tool builds from, the workload distribution, the sweep ranges and thresholds, the random seed, and the computation dtype. Two runs of one config give one answer, whatever the invocation looks like.
+Each concrete calibration package owns its CLI entry point. Shared configuration loading, logging, and artifact handling are provided by the [offline tool API](../../api/tools.md); the parent calibration package supplies reusable capabilities.
 
-The CLI carries only runtime and output controls:
+## Configuration and invocation
 
-- `--config <run.toml>` — the run config. Required by every tool.
-- `--device` — the compute device, on a tool that touches one. It defaults to CPU: no tool picks up a GPU implicitly, so a GPU run says so on the command line.
-- `--plot-dir`, `--output`, `--output-dir` — where the optional artifacts go. A tool declares whichever of these it emits.
-- `--log-dir` — where the timestamped plain-text run log is written.
+The run config holds the hardware bindings and workload parameters. Task-specific CLI selectors, such as a mode subset or minimum coverage, are recorded alongside it for each invocation. The shared arguments are:
+
+- `--config <run.toml>` — required run configuration.
+- `--device` — required compute device; every task chooses its device explicitly.
+- `--output-dir` — parent directory for independent timestamped runs; `--log-dir` is an alias.
 - `--log-level` — one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
 
-A path read from a run config resolves against that config file's own directory; an absolute path stays absolute. So a run config references its neighbours by relative path and moves as a directory.
+A task that emits a configuration fragment accepts `--output` for an additional copy. A task that emits figures accepts `--plot-dir` to override its run-local figures directory.
 
-## Results live in the run log
+A path read from a run config resolves against that config file's own directory; an absolute path stays absolute. Keep the referenced hardware, policy, and distribution files with the run config when moving an experiment. Workload seeds control stimulus sampling; physical nonideality draws follow the model's separate runtime randomness.
 
-A tool reports through the logger in a message-only format on stderr, with no level prefix or timestamp decorating a line. A characterization command records measurements and diagnostics; a command that derives a config value prints a directly pasteable TOML fragment under the table named in the fragment's own header comment.
+## Results and artifacts
 
-A tool writes files only where its CLI declares them. Calibration commands keep a per-run log under `--log-dir`, so long or staged runs retain their inputs, diagnostics, and emitted fragments without a hand-copied Markdown report.
+A command reports through message-only logging on stderr and in its run's `run.log`. The run also contains `run.json` with invocation parameters, execution status, and elapsed time, and `config.json` with parsed calibration values. The latter is a record of the original configuration: relative paths are interpreted against the source config path recorded in `run.json`.
+
+Configuration fragments and figures are retained inside the run directory by default. A fragment is also printed to the log for inspection and manual seating. Failed runs retain completed artifacts and record the exception; a completed execution status describes process completion, while scientific acceptance is part of the task's result.
 
 ## Where the run configs live
 
-A calibration run config sits beside the campaign params it seats, under `validations/<paper>/tools/`, and references those params by relative path. The per-paper directory contract, and the provenance tags a seated value carries once it is written back, are in [validation campaigns](../../validation/campaigns.md).
+A calibration run config sits under `validations/<paper>/tools/` and references its campaign's `config.toml` by relative path. That binding selects the bundled `neurox/presets/works/<paper>.toml` design point through `_neurox_use_preset`. The campaign file contract, and the provenance tags a seated value carries once it is written back, are in [validation campaigns](../../validation/campaigns.md).
 
 ## Calibration order
 
 Each stage consumes what the stage before it seated, so run them in dependency order:
 
-1. **Cell** — the per-cell condensation count and, for an array running a linearized cell, the chord extraction ([solver iteration counts](solver_iteration_counts.md)).
-2. **Array solver** — the iteration counts of the DC solve the cell feeds ([solver iteration counts](solver_iteration_counts.md)).
-3. **Quantization mode set** — the macro's numerical operating windows ([macro calibration](calibrate_macro.md)).
-4. **ADC input characterization** — the nominal input clusters used to choose the mode's reference values manually ([ADC input characterization](calibrate_adc.md)).
-5. **Macro full-resolution rescale factor** — the per-mode recovery coefficient at `adc_bits`, derived from an exact declared code mapping or fitted from complete macro outputs when that relationship is empirical ([macro calibration](calibrate_macro.md)).
+1. **Cell linearization** — for an array running a linearized cell, extract the chord from converged detailed-cell DCOPs ([cell linearization and solver contract](solver_tolerances.md)).
+2. **Quantization mode set** — the macro's numerical operating windows ([macro calibration](calibrate_macro.md)).
+3. **ADC input characterization** — the nominal input clusters used to choose the mode's reference values manually ([ADC input characterization](calibrate_adc.md)).
+4. **Macro full-resolution rescale factor** — the per-mode recovery coefficient at `adc_bits`, derived from an exact declared code mapping or fitted from complete macro outputs when that relationship is empirical ([macro calibration](calibrate_macro.md)).
 
-The direction is fixed: a component-level numerical solve is calibrated before the composite solve that depends on it, and the ADC references are chosen from the characterized physical input before the macro's output-code rescale is fitted.
+The ADC references are chosen from the characterized physical input before the macro's output-code rescale is fitted.

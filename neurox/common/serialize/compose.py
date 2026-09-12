@@ -31,12 +31,18 @@ def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: 
 
 
 def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
-    """Deep-merge dicts from left (highest priority) to right.
+    """Deep-merge dictionaries in descending priority order.
 
-    `strict_type` rejects a dict / non-dict conflict instead of resolving it.
+    Args:
+        dicts: Earlier dictionaries take precedence over later ones.
+        strict_type: Reject a dictionary/non-dictionary conflict instead of
+            resolving it by priority.
 
     Returns:
-        New merged dict; inputs are not modified.
+        New merged dictionary; inputs are unchanged.
+
+    Raises:
+        ValueError: A dictionary/non-dictionary conflict occurs in strict mode.
     """
     if not dicts:
         return {}

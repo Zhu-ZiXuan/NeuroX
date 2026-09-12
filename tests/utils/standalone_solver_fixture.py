@@ -1,23 +1,4 @@
-"""Standalone linear solver harness for solver-only tests.
-
-Builds a fully hand-written, fully linear tiny array: an
-`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
-empty policy), two IDEAL `VoltageDriver` rail clamps
-(`r_out = 0`, so `solve_dc` returns the reference voltage
-exactly), and one dedicated scalar `Reference` per clamp. Every
-config value is an explicit in-code witness; no config file is read and
-no nonideality toggle is enabled, so the assembled system is an exactly
-linear resistor network with Dirichlet rail boundaries — a dense KCL
-oracle can reproduce the solver's DCOP to round-off.
-
-Public surface: `build_solver_harness` returns a frozen
-`SolverHarness` carrying the constructed solver, the programmed cell,
-the two ideal clamp drivers with their snaps, the two rail link
-resistances, the WL drive, and the oracle inputs (the cell config, the
-programmed state indices, and the resolved rail reference taps). Tests
-call `solve_col_bl_col_sl_dc(**harness.solve_kwargs())`; the
-per-call cell snap is rebuilt by `SolverHarness.cell_snapshot`.
-"""
+"""Linear-cell solver fixtures with ideal clamps and dense-oracle inputs."""
 
 from __future__ import annotations
 
@@ -27,6 +8,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from neurox.common.module import DcopBase
 from neurox.primitive.analog import (
     Reference,
     ReferenceConfig,
@@ -42,7 +24,21 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
 )
-from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlArraySolver, ColBlColSlArrayState, ColBlColSlArrayTrace
+from neurox.primitive.xbar.solver.resistive_cell import ResistiveCellDcop
+
+
+class SolverDcop(DcopBase):
+    """Caller-owned full electrical result for standalone solver assertions."""
+
+    cell_dcop: ResistiveCellDcop
+    i_bl_port__uA: Tensor
+    i_sl_port__uA: Tensor
+    v_bl_node__V: Tensor
+    v_sl_node__V: Tensor
+    v_bl_port__V: Tensor
+    v_sl_port__V: Tensor
+
 
 # --- Hand-written harness constants (arbitrary small witnesses) ---
 
@@ -108,14 +104,13 @@ def _scalar_reference(v_ref__V: float, *, dtype: torch.dtype) -> Reference:
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call `solve_col_bl_col_sl_dc` directly.
+    """All inputs required to construct and call `ColBlColSlArraySolver` directly.
 
     Also carries the dense-oracle inputs: the hand-written linear cell
     config, the programmed state-index grid, and the resolved rail
     reference taps (exact clamp targets, since both drivers are ideal).
     """
 
-    solver_config: ColBlColSlSolverConfig
     cell: XbarCell1t1rLinear
     cell_config: XbarCell1t1rLinearConfig
     w_state_idx: Tensor
@@ -139,17 +134,11 @@ class SolverHarness:
         return self.cell.snapshot(
             control=self.v_wl_drive__V.unsqueeze(-2).expand(shape),
             shape=shape,
-            t_elapsed=0.0,
         )
 
     def solve_kwargs(self) -> dict[str, Any]:
-        """Pack the per-call arguments for `solve_col_bl_col_sl_dc`.
-
-        Includes the cell and the two clamp drivers — the stateless solver
-        takes them per call.
-        """
+        """Return construction arguments and per-call snapshots for the solver."""
         return {
-            "config": self.solver_config,
             "bl_segment_r__MOhm": self.bl_segment_r__MOhm,
             "sl_segment_r__MOhm": self.sl_segment_r__MOhm,
             "cell": self.cell,
@@ -163,7 +152,6 @@ class SolverHarness:
 
 def build_solver_harness(
     *,
-    solver_config: ColBlColSlSolverConfig,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     v_wl_drive__V: float = 0.9,
@@ -180,7 +168,6 @@ def build_solver_harness(
     are exact Dirichlet values and the whole system is linear.
 
     Args:
-        solver_config: Parallel BL/SL solver parameters.
         device: Device the harness buffers are allocated on.
         dtype: Float dtype for device buffers.
         v_wl_drive__V: Uniform WL drive voltage for the harness call
@@ -237,11 +224,6 @@ def build_solver_harness(
 
     # --- Clamp references (one dedicated source per clamp) + boundary-driver snaps ---
 
-    # Each source is fabricate-only: its scalar is broadcast by view onto
-    # the full clamp-bank grid, then handed
-    # to the driver's own `snapshot`, which expands it onto `shape` again
-    # and draws whatever per-position dynamic noise its (here all-off)
-    # policy would enable.
     bl_ref_full = bl_ref.values().expand(X_BATCH, col_num)
     sl_ref_full = sl_ref.values().expand(X_BATCH, col_num)
     bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_ref_full, shape=bl_ref_full.shape)
@@ -256,7 +238,6 @@ def build_solver_harness(
     sl_v_ref = sl_ref_full[0, 0]
 
     return SolverHarness(
-        solver_config=solver_config,
         cell=cell,
         cell_config=cell_config,
         w_state_idx=w_state_idx,
@@ -269,4 +250,36 @@ def build_solver_harness(
         v_wl_drive__V=v_wl_drive,
         bl_v_ref__V=bl_v_ref,
         sl_v_ref__V=sl_v_ref,
+    )
+
+
+def solve_dcop(
+    array_solver: ColBlColSlArraySolver[Any, Any, Any, Any],
+    *,
+    cell_snap: Any,
+    bl_driver_snap: Any,
+    sl_driver_snap: Any,
+    record_trace: bool,
+    trace_mask: Tensor | None = None,
+) -> tuple[SolverDcop, ColBlColSlArrayTrace | None]:
+    """Request a full terminal DCOP for electrical solver assertions."""
+
+    def final_fn(state: ColBlColSlArrayState) -> SolverDcop:
+        return SolverDcop(
+            cell_dcop=array_solver.cell.solve_dc(state.v_bl_node__V, state.v_sl_node__V, cell_snap),
+            i_bl_port__uA=(state.v_bl_port__V - state.v_bl_node__V[..., 0]) * array_solver.bl_g__uS,
+            i_sl_port__uA=(state.v_sl_port__V - state.v_sl_node__V[..., 0]) * array_solver.sl_g__uS,
+            v_bl_node__V=state.v_bl_node__V,
+            v_sl_node__V=state.v_sl_node__V,
+            v_bl_port__V=state.v_bl_port__V,
+            v_sl_port__V=state.v_sl_port__V,
+        )
+
+    return array_solver.solve(
+        cell_snap=cell_snap,
+        bl_driver_snap=bl_driver_snap,
+        sl_driver_snap=sl_driver_snap,
+        final_fn=final_fn,
+        record_trace=record_trace,
+        trace_mask=trace_mask,
     )

@@ -3,7 +3,7 @@
 Goal: characterize the nominal ADC input clusters of one CIM-macro operating mode so the converter's reference values or decision boundaries can be chosen from circuit knowledge. The tool reports observations; it does not assume a current or voltage domain, map ideal values into ADC codes, or emit a reference configuration.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m neurox.tools.calibrate_adc \
+CUDA_VISIBLE_DEVICES=0 python -m neurox.tools.calibration.adc \
     --config validations/<paper>/tools/calibrate_adc.toml \
     --device cuda \
     --output-dir log/calibration \
@@ -30,9 +30,9 @@ The physical ADC output code is neither recorded nor used. The run is establishi
 
 ## Report
 
-`--output-dir` names only the parent directory. The tool creates one `adc_probe_<UTC timestamp>/` child for the run and places every artifact directly inside it:
+`--output-dir` names only the parent directory. The tool creates one `adc_probe_<UTC timestamp>/` child for the run and places its observations alongside the shared run metadata:
 
-- `adc_probe.log` — run conditions, coverage planning, final minimum coverage, and random-phase statistics.
+- `run.log` — run conditions, coverage planning, final minimum coverage, and random-phase statistics.
 - `random.pt` — paired observations from the unconstrained phase.
 - `targeted.pt` — only the conditional samples added to fill coverage deficits; it is valid but empty when random sampling already meets the threshold everywhere.
 

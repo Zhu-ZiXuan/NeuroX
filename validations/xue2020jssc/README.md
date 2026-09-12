@@ -4,17 +4,19 @@ This campaign validates one 256×512 1T1R sub-array against the paper's simulate
 
 ## Run
 
-    make validate_xue2020jssc
+    make validate_xue2020jssc DEVICE=cuda:0
 
-Results are written to `log/validation/xue2020jssc/validation.log` and `energy_breakdown.svg` by default.
+The command creates one `xue2020jssc_<UTC timestamp>/` directory under `log/validation/xue2020jssc/`, containing `run.log`, `run.json`, and `energy_breakdown.svg`. `--output-dir` selects another parent directory; `--log-level` controls the shared message-only logger.
+
+`config.toml` selects the bundled `neurox/presets/works/xue2020jssc.toml` design point through `_neurox_use_preset`.
 
 ## Files
 
-- `params.toml`: model parameters and their provenance.
+- `config.toml`: campaign binding to the bundled work preset.
+- `neurox/presets/works/xue2020jssc.toml`: bundled model parameters and their provenance.
 - `policy.toml`: disabled nonideality policy.
 - `anchors.toml`: paper targets, accounting conventions, and workload distribution.
 - `validate.py`: energy campaign and breakdown plot.
-- `tools/calibrate_solver.toml`: solver iteration sweep.
 - `tools/calibrate_adc.toml`: ADC-input sampling campaign.
 - `tools/analyze_adc_margin.py`: fixed-boundary reference analysis and plots.
 
@@ -27,7 +29,7 @@ For ADC resolution `b`:
     detect(b) = t_settle__ns + b * latency_per_bit__ns
     access_latency(b) = (x_bit_num - 1) * t_sample__ns + detect(b)
 
-The preset uses a 14.60 ns maximum-resolution access latency and the paper's 50 ns operating period as the leakage integration window.
+The preset gives a 14.60 ns maximum-resolution access latency. The campaign reads the paper's 50 ns operating period directly from `anchors.toml` as its leakage integration window.
 
 | Fig.18 slice | Model contribution |
 | --- | --- |

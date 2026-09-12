@@ -1,10 +1,4 @@
-"""Per-code dynamic-energy law of `GeneralVdac`.
-
-The energy table is parallel to the voltage table: converting one element
-costs what that element's own code costs, so a batch of mixed codes bills the
-per-code count times the per-code entry, and a level whose entry is zero
-bills nothing at all.
-"""
+"""Voltage-DAC energy scales with per-code operation counts."""
 
 from __future__ import annotations
 
@@ -12,7 +6,7 @@ import pytest
 import torch
 
 from neurox import Profiler, stamp_names
-from neurox.common import EnergyRecord
+from neurox.api.profiler import EnergyRecord
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.analog.voltage_dac import GeneralVdac, GeneralVdacConfig, GeneralVdacPolicy
 

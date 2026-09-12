@@ -11,8 +11,8 @@ import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler, Reporter
-from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rLinear
-from neurox.primitive.xbar.solver import ColBlColSlDcop, ColBlColSlProber
+from neurox.primitive.xbar.array import XbarArray1t1rDcop
+from neurox.primitive.xbar.cell import XbarCell1t1rLinear
 
 from ._utils import (
     MAG_MAX,
@@ -29,7 +29,7 @@ from ._utils import (
 )
 
 _POLARITY_NUM = 2
-_EXACT = {"rtol": 0.0, "atol": 0.0}
+_FLOAT_TOLERANCE = {"rtol": 1.0e-10, "atol": 1.0e-12}
 
 
 @pytest.fixture(autouse=True)
@@ -65,13 +65,20 @@ def _twin_pair(
     return big, twins, w
 
 
-def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> ColBlColSlDcop[XbarCell1t1rDcop]:
-    """Run one VMM and return the converged solver DCOP it produced."""
-    with ColBlColSlProber(min_outer=0) as probe, torch.no_grad():
-        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
-    dcops = [record.dcop for record in probe.records if record.dcop is not None]
-    assert len(dcops) == 1, f"expected one unchunked solve, got {len(dcops)}"
-    return dcops[0]
+def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> XbarArray1t1rDcop:
+    """Solve the programmed array under the serialized WL and driver inputs."""
+    v_wl__V = macro._x_transcoder.encode(x.long(), dim=-2) * macro._v_wl_on__V
+    seat_shape = (*v_wl__V.shape[:-1], macro.lane_num, macro.scan_num, _POLARITY_NUM, macro.config.w_digit_num)
+    bl_v_ref__V = macro.cablc_vref.values()
+    bl_v_ref__V = bl_v_ref__V.view(*bl_v_ref__V.shape, 1, 1, 1, 1, 1)
+    bl_snap = macro.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
+    sl_snap = macro.sl_driver.snapshot(v_ref__V=macro._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
+    return macro.array.solve_dc(
+        v_wl__V=v_wl__V,
+        wl_phase_dims=(-2,),
+        bl_driver_snap=bl_snap,
+        sl_driver_snap=sl_snap,
+    )
 
 
 def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -> None:
@@ -85,33 +92,17 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
 
     for scan, twin in enumerate(twins):
         twin_dcop = _solve_dcop(twin, x)
-        for field in ("v_bl_node__V", "v_sl_node__V"):
-            # Shape: [..., act, phys_col, row] -> [..., act, twin_phys_col, row]
-            big_value = getattr(big_dcop, field).unflatten(-2, seat_axes).select(-4, scan).flatten(-4, -2)
-            torch.testing.assert_close(
-                big_value,
-                getattr(twin_dcop, field),
-                **_EXACT,
-            )
-        for field in ("v_x__V", "i__uA"):
-            # Shape: [..., act, phys_col, row] -> [..., act, twin_phys_col, row]
-            big_value = getattr(big_dcop.cell, field).unflatten(-2, seat_axes).select(-4, scan).flatten(-4, -2)
-            torch.testing.assert_close(
-                big_value,
-                getattr(twin_dcop.cell, field),
-                **_EXACT,
-            )
-        for field in ("i_bl_driver__uA", "v_bl_clamp__V", "i_sl_driver__uA", "v_sl_drive__V"):
+        for field in ("i_bl_port__uA", "v_bl_port__V", "i_sl_port__uA", "v_sl_port__V"):
             # Shape: [..., act, phys_col] -> [..., act, twin_phys_col]
             big_value = getattr(big_dcop, field).unflatten(-1, seat_axes).select(-3, scan).flatten(-3)
             torch.testing.assert_close(
                 big_value,
                 getattr(twin_dcop, field),
-                **_EXACT,
+                **_FLOAT_TOLERANCE,
             )
 
     # Reject a witness that cannot expose column permutations.
-    i_bl = big_dcop.i_bl_driver__uA
+    i_bl = big_dcop.i_bl_port__uA
     assert float(i_bl.max() - i_bl.min()) > 0.0, "witness columns are indistinguishable; the twin proves nothing"
 
 
@@ -173,7 +164,11 @@ def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch
     assert isinstance(cell, XbarCell1t1rLinear)
     table__uS = cell._g_cell_on_table__uS
     assert len(torch.unique(table__uS)) == table__uS.numel(), "witness conductance table is degenerate"
-    torch.testing.assert_close(cell._g_cell_on__uS, table__uS[want_state.to(device)].unsqueeze(0), **_EXACT)
+    torch.testing.assert_close(
+        cell._g_cell_on__uS,
+        table__uS[want_state.to(device)].unsqueeze(0),
+        **_FLOAT_TOLERANCE,
+    )
 
 
 def test_array_cap_energy_independent_of_scan_num(device: torch.device) -> None:

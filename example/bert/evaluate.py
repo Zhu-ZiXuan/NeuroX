@@ -18,8 +18,7 @@ from example.bert.model_float import create_bert_small
 from example.bert.model_quant import to_quant
 from example.bert.quant import QuantLinear
 from example.bert.train_quant import QAT_SCHEMA
-from neurox import Reporter, fabricate, stamp_names
-from neurox.common import Profiler
+from neurox import Profiler, Reporter, fabricate, stamp_names
 
 CONFIG_DIR = Path(__file__).parent
 
@@ -72,7 +71,7 @@ def main() -> None:
         help=f"Nonideality policy TOML under {CONFIG_DIR.name}/ (default: macro.policy.toml). "
         "Use macro_ideal.policy.toml for the ideal path.",
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, required=True)
     parser.add_argument(
         "--cim_macro",
         choices=("physical", "ideal"),

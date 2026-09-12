@@ -2,25 +2,33 @@
 
 from __future__ import annotations
 
-import argparse
 import logging
 import statistics
 import tomllib
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import torch
 
-from neurox import Profiler, Reporter, stamp_names
-from neurox.common import StaticEntry
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox import Reporter
+from neurox.tools.validation.cim_macro import (
+    ValidationArgs,
+    build_macro,
+    get_cli_args,
+    mean_by_name,
+    parse_cli_args,
+    profile_vmm,
+    render_run_summary,
+    static_energy_by_name__fJ,
+    validation_run,
+)
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
 _LOG = logging.getLogger(__name__)
 
 _VAL_DIR = Path(__file__).resolve().parent
-_PARAMS_PATH = _VAL_DIR / "params.toml"
+_CONFIG_PATH = _VAL_DIR / "config.toml"
 _POLICY_PATH = _VAL_DIR / "policy.toml"
 _ANCHORS_PATH = _VAL_DIR / "anchors.toml"
 
@@ -58,49 +66,30 @@ _ADC_BITS = 3
 # [assumed] The paper does not report simulation temperature.
 TEMPERATURE__K = 300.0
 
-
-def build_macro(
-    params_path: Path,
-    policy_path: Path,
-    *,
-    device: torch.device,
-) -> Xue2020JsscCimMacro:
-    """Build and fabricate the configured macro."""
-    config = CimMacroConfig.from_file(params_path, section="cim_macro")
-    policy = CimMacroPolicy.from_file(policy_path, section="policy")
-    macro = CimMacro.from_config(
-        config=config,
-        policy=policy,
-        inst_shape=(),
-        dtype=torch.float32,
-        T__K=TEMPERATURE__K,
-    )
-    macro.to(device)
-    macro.eval()
-    macro.fabricate()
-    stamp_names(macro)
-    return macro
+type Anchors = dict[str, Any]
 
 
-def measurement_cycle__ns(anchors: dict) -> float:
+def measurement_cycle__ns(anchors: Anchors) -> float:
     """Paper measurement period used for leakage integration [ns]."""
-    return 1000.0 / float(anchors["target"]["op_frequency__MHz"])
+    return float(anchors["measurement"]["cycle__ns"])
 
 
 def _draw_weight(
     gen: torch.Generator,
     *,
+    n_w: int,
     input_num: int,
     output_num: int,
     max_magnitude: int,
     nonzero_probability: float,
 ) -> torch.Tensor:
     """Zero-inflated sign-magnitude weights, uniform conditional on nonzero."""
-    nonzero = torch.rand((input_num, output_num), generator=gen, device=gen.device) < nonzero_probability
+    shape = (n_w, input_num, output_num)
+    nonzero = torch.rand(shape, generator=gen, device=gen.device) < nonzero_probability
     magnitude = torch.randint(
         1,
         max_magnitude + 1,
-        (input_num, output_num),
+        shape,
         generator=gen,
         dtype=torch.long,
         device=gen.device,
@@ -108,7 +97,7 @@ def _draw_weight(
     negative = torch.randint(
         0,
         2,
-        (input_num, output_num),
+        shape,
         generator=gen,
         dtype=torch.bool,
         device=gen.device,
@@ -120,7 +109,8 @@ def _draw_weight(
 def _draw_input(
     gen: torch.Generator,
     *,
-    batch: int,
+    n_x: int,
+    n_w: int,
     input_num: int,
     max_active_num: int,
     lo: int,
@@ -128,18 +118,27 @@ def _draw_input(
     nonzero_probability: float,
 ) -> torch.Tensor:
     """At most `max_active_num` candidate inputs, zero-inflated independently."""
-    active_inputs = torch.rand((batch, input_num), generator=gen, device=gen.device).topk(max_active_num, dim=1).indices
-    nonzero = torch.rand((batch, max_active_num), generator=gen, device=gen.device) < nonzero_probability
+    # Shape: [sample, weight, input] -> [sample, weight, active]
+    active_inputs = (
+        torch.rand((n_x, n_w, input_num), generator=gen, device=gen.device).topk(max_active_num, dim=2).indices
+    )
+    active_shape = (n_x, n_w, max_active_num)
+    nonzero = torch.rand(active_shape, generator=gen, device=gen.device) < nonzero_probability
     values = torch.randint(
         max(1, lo),
         hi + 1,
-        (batch, max_active_num),
+        active_shape,
         generator=gen,
         dtype=torch.long,
         device=gen.device,
     )
     values = torch.where(nonzero, values, 0)
-    return torch.zeros((batch, input_num), dtype=torch.long, device=gen.device).scatter(1, active_inputs, values)
+    # Shape: [sample, weight, active] -> [sample, weight, input]
+    return torch.zeros((n_x, n_w, input_num), dtype=torch.long, device=gen.device).scatter(
+        2,
+        active_inputs,
+        values,
+    )
 
 
 @dataclass(frozen=True)
@@ -160,7 +159,11 @@ class SliceEnergy:
         return self.total__fJ / self.target__fJ if self.target__fJ else float("inf")
 
 
-def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: float) -> tuple[SliceEnergy, ...]:
+def paired_slices(
+    slices: tuple[SliceEnergy, ...],
+    shares: dict[str, float],
+    target_total: float,
+) -> tuple[SliceEnergy, ...]:
     """Aggregate series-branch members into comparable pairs."""
     by_name = {s.name: s for s in slices}
     return tuple(
@@ -174,7 +177,7 @@ def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: f
     )
 
 
-def comparison_slices(m: Measurement, anchors: dict) -> tuple[SliceEnergy, ...]:
+def comparison_slices(m: Measurement, anchors: Anchors) -> tuple[SliceEnergy, ...]:
     """Return the five rows comparable with Fig.18 under the paired accounting basis."""
     pairs = {s.name: s for s in paired_slices(m.slices, anchors["fig18_shares"], anchors["target"]["per_access__fJ"])}
     return (
@@ -195,181 +198,47 @@ class Measurement:
     static__fJ: float
     slices: tuple[SliceEnergy, ...]
     unmapped_static__fJ: float
-    n_w: int
-    n_x: int
-    accesses: int
-    seed: int
-    repeat: int = 1
-    rel_std: float = 0.0
-    dyn_by_name: dict[str, float] = field(default_factory=dict)
-
-    @property
-    def draws(self) -> int:
-        return self.repeat * self.n_w * self.n_x
+    rel_std: float
 
     def slice(self, name: str) -> SliceEnergy:
         return next(s for s in self.slices if s.name == name)
 
 
-def _per_access(
-    static_entries: tuple[StaticEntry, ...],
-    dynamic_by_name__fJ: dict[str, float],
-    *,
-    accesses: int,
-    measurement_cycle__ns: float,
-) -> tuple[dict[str, float], dict[str, float]]:
-    """Reduce profiler rows to energy per access."""
-    dyn = {k: v / accesses for k, v in dynamic_by_name__fJ.items()}
-    stat = {e.qualified_name: e.leakage__uW * measurement_cycle__ns for e in static_entries}
-    return dyn, stat
-
-
 def measure(
-    macro: Xue2020JsscCimMacro,
-    reporter: Reporter,
-    anchors: dict,
-    *,
-    n: int,
-    seed: int,
-    batch: int = 8,
+    dynamic_by_name__fJ: dict[str, float],
+    static_by_name__fJ: dict[str, float],
+    round_total__fJ: tuple[float, ...],
+    anchors: Anchors,
 ) -> Measurement:
-    """Profile one round and reduce it to energy per access."""
-    cfg = macro.config
-    device = next(macro.buffers()).device
-    gen = torch.Generator(device=device).manual_seed(seed)
-
-    data = anchors["data"]
-    w_lo, w_hi = data["weight_range"]
-    x_lo, x_hi = data["input_range"]
+    """Map profiled PPA rows onto the Fig.18 accounting slices."""
     target_total = anchors["target"]["per_access__fJ"]
     shares = anchors["fig18_shares"]
-
-    scan_num = macro.scan_num
-    cycle__ns = measurement_cycle__ns(anchors)
-
-    n_w = max(1, -(-n // batch))  # ceil
-    n_samples = 0
-    dyn_by_name__fJ: dict[str, float] = {}
-    total_dynamic__fJ = 0.0
-    with torch.no_grad():
-        for _ in range(n_w):
-            w = _draw_weight(
-                gen,
-                input_num=macro.input_num,
-                output_num=macro.output_num,
-                max_magnitude=max(abs(w_lo), abs(w_hi)),
-                nonzero_probability=float(data["weight_nonzero_probability"]),
-            )
-            x = _draw_input(
-                gen,
-                batch=batch,
-                input_num=macro.input_num,
-                max_active_num=cfg.max_active_num,
-                lo=x_lo,
-                hi=x_hi,
-                nonzero_probability=float(data["input_nonzero_probability"]),
-            )
-            with Profiler(leading_rank=1) as prof:
-                macro.program(w)
-                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
-            for name, e__fJ in reporter.by_name(prof).items():
-                dyn_by_name__fJ[name] = dyn_by_name__fJ.get(name, 0.0) + e__fJ
-            total_dynamic__fJ += reporter.total_dynamic_energy__fJ(prof)
-            n_samples += batch
-    accesses = n_samples * scan_num
-
-    dyn, stat = _per_access(
-        reporter.static_entries,
-        dyn_by_name__fJ,
-        accesses=accesses,
-        measurement_cycle__ns=cycle__ns,
-    )
-    static__fJ = sum(stat.values())
-    dynamic__fJ = total_dynamic__fJ / accesses
-    total__fJ = dynamic__fJ + static__fJ
     slices = tuple(
         SliceEnergy(
             name=s,
-            dynamic__fJ=sum(dyn.get(k, 0.0) for k in _DYN_NAMES.get(s, ())),
-            static__fJ=sum(stat.get(k, 0.0) for k in _STATIC_NAMES.get(s, ())),
+            dynamic__fJ=sum(dynamic_by_name__fJ.get(k, 0.0) for k in _DYN_NAMES.get(s, ())),
+            static__fJ=sum(static_by_name__fJ.get(k, 0.0) for k in _STATIC_NAMES.get(s, ())),
             target__fJ=0.0 if s in _PAIR_MEMBERS else shares[s] / 100.0 * target_total,
         )
         for s in _ALL_SLICES
     )
-    mapped_static = sum(stat.get(k, 0.0) for s in _ALL_SLICES for k in _STATIC_NAMES.get(s, ()))
-    unmapped_static = static__fJ - mapped_static
+    dynamic__fJ = sum(dynamic_by_name__fJ.values())
+    static__fJ = sum(static_by_name__fJ.values())
+    total__fJ = dynamic__fJ + static__fJ
+    mapped_static = sum(static_by_name__fJ.get(k, 0.0) for s in _ALL_SLICES for k in _STATIC_NAMES.get(s, ()))
+    rel_std = statistics.stdev(round_total__fJ) / total__fJ if len(round_total__fJ) > 1 and total__fJ else 0.0
 
     return Measurement(
         total__fJ=total__fJ,
         dynamic__fJ=dynamic__fJ,
         static__fJ=static__fJ,
         slices=slices,
-        unmapped_static__fJ=unmapped_static,
-        n_w=n_w,
-        n_x=batch,
-        accesses=accesses,
-        seed=seed,
-        dyn_by_name=dyn,
-    )
-
-
-def _pool_rounds(rounds: list[Measurement], *, seed: int) -> Measurement:
-    """Pool rounds by access count and compute their relative standard deviation."""
-    first = rounds[0]
-    total_accesses = sum(r.accesses for r in rounds)
-    w = [r.accesses / total_accesses for r in rounds]
-
-    def wmean(getter: Callable[..., float]) -> float:
-        return sum(wi * getter(r) for wi, r in zip(w, rounds, strict=True))
-
-    names = tuple(s.name for s in first.slices)
-    slices = tuple(
-        SliceEnergy(
-            name=name,
-            dynamic__fJ=wmean(lambda r, n=name: r.slice(n).dynamic__fJ),
-            static__fJ=wmean(lambda r, n=name: r.slice(n).static__fJ),
-            target__fJ=first.slice(name).target__fJ,
-        )
-        for name in names
-    )
-    round_totals = [r.total__fJ for r in rounds]
-    mean_total = wmean(lambda r: r.total__fJ)
-    rel_std = statistics.stdev(round_totals) / mean_total if len(round_totals) > 1 and mean_total else 0.0
-    row_names = {name for r in rounds for name in r.dyn_by_name}
-    dyn_by_name = {name: wmean(lambda r, n=name: r.dyn_by_name.get(n, 0.0)) for name in sorted(row_names)}
-
-    return Measurement(
-        total__fJ=mean_total,
-        dynamic__fJ=wmean(lambda r: r.dynamic__fJ),
-        static__fJ=wmean(lambda r: r.static__fJ),
-        slices=slices,
-        unmapped_static__fJ=wmean(lambda r: r.unmapped_static__fJ),
-        n_w=first.n_w,
-        n_x=first.n_x,
-        accesses=total_accesses,
-        seed=seed,
-        repeat=len(rounds),
+        unmapped_static__fJ=static__fJ - mapped_static,
         rel_std=rel_std,
-        dyn_by_name=dyn_by_name,
     )
 
 
-def measure_rounds(
-    macro: Xue2020JsscCimMacro,
-    anchors: dict,
-    *,
-    n_w: int,
-    n_x: int,
-    repeat: int,
-    seed: int,
-) -> Measurement:
-    """Profile and pool independent workload rounds."""
-    reporter = Reporter(macro)
-    rounds = [measure(macro, reporter, anchors, n=n_w * n_x, seed=seed + idx, batch=n_x) for idx in range(repeat)]
-    return _pool_rounds(rounds, seed=seed)
-
-
-def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
+def gate(m: Measurement, anchors: Anchors) -> tuple[bool, float]:
     """Hard gate: total energy per access within +-tol of the target. Return ``(pass, rel_error)``."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
@@ -377,7 +246,7 @@ def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
     return abs(rel) <= tol, rel
 
 
-def energy_table(m: Measurement, anchors: dict) -> str:
+def energy_table(m: Measurement, anchors: Anchors) -> str:
     """Render the energy breakdown and gated total."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
@@ -412,7 +281,7 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     return "\n".join(lines)
 
 
-def plot_energy_breakdown(m: Measurement, anchors: dict, output_path: Path) -> None:
+def plot_energy_breakdown(m: Measurement, anchors: Anchors, output_path: Path) -> None:
     """Plot NeuroX and Fig.18 energy breakdowns on the paired accounting basis."""
     import matplotlib as mpl
 
@@ -421,8 +290,8 @@ def plot_energy_breakdown(m: Measurement, anchors: dict, output_path: Path) -> N
     import matplotlib.pyplot as plt
 
     slices = comparison_slices(m, anchors)
-    labels = ("Control", "Reference", "CABLC + DSWCT", "SINWP-SC + PN-ISUB", "TMCSA")
-    colors = ("#4477AA", "#EE6677", "#228833", "#CCBB44", "#AA3377")
+    labels: tuple[str, ...] = ("Control", "Reference", "CABLC + DSWCT", "SINWP-SC + PN-ISUB", "TMCSA")
+    colors: tuple[str, ...] = ("#4477AA", "#EE6677", "#228833", "#CCBB44", "#AA3377")
     model__fJ = [s.total__fJ for s in slices]
     paper__fJ = [s.target__fJ for s in slices]
 
@@ -496,10 +365,17 @@ def plot_energy_breakdown(m: Measurement, anchors: dict, output_path: Path) -> N
     _LOG.info("breakdown plot: %s", output_path)
 
 
-def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str:
+def render_report(
+    m: Measurement,
+    anchors: Anchors,
+    *,
+    run_summary: str,
+    repeat: int,
+) -> str:
     """Render the energy-basis gate report written to the run log."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
+    cycle__ns = measurement_cycle__ns(anchors)
     within, rel = gate(m, anchors)
     data = anchors["data"]
     input_nonzero_probability = float(data["input_nonzero_probability"])
@@ -509,23 +385,22 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     lines.append("# xue2020jssc validation -- total energy per access")
     lines.append("")
     round_note = (
-        f" Pooled over {m.repeat} rounds (relative std of the round totals = {m.rel_std * 100:.2f} %)."
-        if m.repeat > 1
+        f" Pooled over {repeat} rounds (relative std of the round totals = {m.rel_std * 100:.2f} %)."
+        if repeat > 1
         else ""
     )
     lines.append(
-        f"Energy-basis profiler run for `{_PARAMS_PATH.name}` + `{_POLICY_PATH.name}` on {device}. "
-        f"n_w = {m.n_w} weight draws x n_x = {m.n_x} inputs x {m.repeat} rounds = {m.draws} draws "
-        f"({m.accesses} accesses), seed {m.seed}; calibrated nonzero probabilities "
-        f"P(x!=0) = {input_nonzero_probability:.4f}, P(w!=0) = {weight_nonzero_probability:.4f}."
-        f"{round_note}"
+        f"Energy-basis profiler run for `{_CONFIG_PATH.name}` + `{_POLICY_PATH.name}`. "
+        f"{run_summary} Calibrated nonzero probabilities "
+        f"P(x!=0) = {input_nonzero_probability:.4f}, P(w!=0) = {weight_nonzero_probability:.4f}.{round_note}"
     )
     lines.append("")
     lines.append("## Hard gate -- total energy per access")
     lines.append("")
-    std_note = f" +- {m.rel_std * 100:.2f} % (round-total relative std over {m.repeat} rounds)" if m.repeat > 1 else ""
+    std_note = f" +- {m.rel_std * 100:.2f} % (round-total relative std over {repeat} rounds)" if repeat > 1 else ""
     lines.append(
-        f"Target {target:.1f} fJ/access (= {target / 1000.0:.4f} pJ = simulated 5.13 mW / 8 / 20 MHz); "
+        f"Target {target:.1f} fJ/access (= {target / 1000.0:.4f} pJ = "
+        f"simulated 5.13 mW * {cycle__ns:g} ns / 8); "
         f"+-{tol * 100:.0f}%. Under the declared calibrated-activity workload: result "
         f"**{m.total__fJ:.3f} fJ/access = "
         f"{m.total__fJ / target:.3f}x**{std_note} (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
@@ -539,61 +414,99 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     return "\n".join(lines)
 
 
-def resolve_device(name: str) -> torch.device:
-    """Resolve `auto` to CUDA when available, otherwise CPU."""
-    if name == "auto":
-        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        _LOG.info("[auto device -> %s]", device)
-        return device
-    return torch.device(name)
-
-
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--n-w", type=int, default=64, help="Weight draws per round.")
-    ap.add_argument("--n-x", type=int, default=256, help="Inputs per weight draw.")
-    ap.add_argument("--repeat", type=int, default=8, help="Independent workload rounds.")
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="cpu, cuda[:index], or auto.",
-    )
-    ap.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("log/validation/xue2020jssc"),
-        help="Output directory.",
-    )
-    args = ap.parse_args()
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    log_path = args.output_dir / "validation.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-        handlers=(logging.StreamHandler(), logging.FileHandler(log_path, mode="w", encoding="utf-8")),
-        force=True,
-    )
-    _LOG.info("validation log: %s", log_path)
+def validate(args: ValidationArgs) -> None:
+    """Run the configured validation campaign."""
+    # --- 1: load the paper anchors and construct the macro ensemble ---
 
     with _ANCHORS_PATH.open("rb") as fh:
         anchors = tomllib.load(fh)
 
-    device = resolve_device(args.device)
-    macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device)
-    m = measure_rounds(
+    macro = build_macro(
+        _CONFIG_PATH,
+        _POLICY_PATH,
+        inst_shape=(args.n_w,),
+        device=args.device,
+        dtype=torch.float32,
+        T__K=TEMPERATURE__K,
+    )
+    if not isinstance(macro, Xue2020JsscCimMacro):
+        raise TypeError(f"validation config built {type(macro).__name__}, expected Xue2020JsscCimMacro")
+    reporter = Reporter(macro)
+    data = anchors["data"]
+    w_lo, w_hi = data["weight_range"]
+    x_lo, x_hi = data["input_range"]
+    static_by_name__fJ = static_energy_by_name__fJ(
         macro,
+        reporter,
+        measurement_cycle__ns=measurement_cycle__ns(anchors),
+    )
+    static__fJ = sum(static_by_name__fJ.values())
+    dynamic_rounds: list[dict[str, float]] = []
+    round_total__fJ: list[float] = []
+
+    # --- 2: sample, program, and profile every independent round ---
+
+    with torch.no_grad():
+        for round_index in range(args.repeat):
+            gen = torch.Generator(device=args.device).manual_seed(args.seed + round_index)
+            weight = _draw_weight(
+                gen,
+                n_w=args.n_w,
+                input_num=macro.input_num,
+                output_num=macro.output_num,
+                max_magnitude=max(abs(w_lo), abs(w_hi)),
+                nonzero_probability=float(data["weight_nonzero_probability"]),
+            )
+            macro.program(weight)
+            x = _draw_input(
+                gen,
+                n_x=args.n_x,
+                n_w=args.n_w,
+                input_num=macro.input_num,
+                max_active_num=macro.config.max_active_num,
+                lo=x_lo,
+                hi=x_hi,
+                nonzero_probability=float(data["input_nonzero_probability"]),
+            )
+            profiled = profile_vmm(
+                macro,
+                reporter,
+                x,
+                quantization_mode=_QUANTIZATION_MODE,
+                adc_active_bits=_ADC_BITS,
+            )
+            dynamic_rounds.append(profiled.dynamic_by_name_per_access__fJ)
+            round_total__fJ.append(sum(profiled.dynamic_by_name_per_access__fJ.values()) + static__fJ)
+
+    # --- 3: interpret the profiler rows against the paper anchors ---
+
+    dynamic_by_name__fJ = mean_by_name(dynamic_rounds)
+    m = measure(
+        dynamic_by_name__fJ,
+        static_by_name__fJ,
+        tuple(round_total__fJ),
         anchors,
+    )
+    run_summary = render_run_summary(
+        device=args.device,
         n_w=args.n_w,
         n_x=args.n_x,
         repeat=args.repeat,
+        scan_num=macro.scan_num,
         seed=args.seed,
     )
 
-    _LOG.info("%s", render_report(m, anchors, device=device))
+    # --- 4: emit the campaign-defined report, gate, and figure ---
+
+    _LOG.info("%s", render_report(m, anchors, run_summary=run_summary, repeat=args.repeat))
     plot_energy_breakdown(m, anchors, args.output_dir / "energy_breakdown.svg")
+
+
+def main(argv: list[str] | None = None) -> None:
+    cli_args = get_cli_args(description=__doc__, campaign="xue2020jssc", argv=argv)
+    args = parse_cli_args(cli_args)
+    with validation_run(args, campaign="xue2020jssc") as run_args:
+        validate(run_args)
 
 
 if __name__ == "__main__":

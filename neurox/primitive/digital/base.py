@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 
 
 class DigitalConfig(ConfigBase, ABC):

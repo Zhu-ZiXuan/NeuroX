@@ -1,11 +1,4 @@
-"""Accumulator billing: one energy quantum per operand element folded in.
-
-`SerialAccumulator` and `Accumulator` share the reduce function
-(modular-wrap sum) and the billing law — dynamic energy counts the adder
-evaluations, one per operand element, so the reduced extent stays visible in
-the energy whichever way the fold is realized. Energy records are captured
-under `Profiler`.
-"""
+"""Accumulator modular sums and energy scaling with operand count."""
 
 from __future__ import annotations
 
@@ -14,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from neurox import Profiler, stamp_names
-from neurox.common import EnergyRecord
+from neurox.api.profiler import EnergyRecord
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.digital import (
     Accumulator,

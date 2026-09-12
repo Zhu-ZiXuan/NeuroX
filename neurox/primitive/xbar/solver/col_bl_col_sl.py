@@ -1,641 +1,677 @@
-"""DC solver for a crossbar array with PARALLEL BL/SL rails.
-
-Each column's cells share one BL and one SL; columns do not interact. The two
-array rails (BL, SL) run side by side along the row axis; the gate/control
-line is a driven boundary, so the columns are independent and batched.
-
-Each rail is a UNIFORM ladder — one link resistance joins every pair of
-adjacent nodes and the same link joins the clamp driver to the node at index
-0 — so a whole rail enters the solve as one scalar.
-
-Probing is per-iteration: an active `ColBlColSlProber` makes the solve emit the
-residual pair of every outer clamp event and of every inner Newton step, on top
-of the terminal record carrying the converged operating point. The emission is a
-compile-time specialization of the solve body — an active prober compiles a
-second graph whose submit sites graph-break, correct but slower, while the
-unprobed graph stays break-free.
+"""Residual-driven DC solve for arrays with parallel column BL/SL rails.
 
 See Also:
     docs/reference/primitive/xbar/solver/col_bl_col_sl.md
-    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations
 
-from typing import Final, final
+__all__ = [
+    "ColBlColSlArraySolver",
+    "ColBlColSlArrayState",
+    "ColBlColSlArrayTrace",
+]
+
+from collections.abc import Callable
+from typing import ClassVar
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
+from torch._dynamo.decorators import patch_dynamo_config
 
-from neurox.common import ConfigBase, DcopBase, RecordBase, RecorderBase, SnapBase
+from neurox.common.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
+from neurox.common.torch_compat import torch_assert_async
 
-from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
-from ._wire_kcl import f_kcl__uA, g_self__uS, i_drive__uA
+from ._linalg import (
+    boundary_inverse_block_tridiagonal_2x2,
+    solve_2x2,
+    solve_block_tridiagonal_2x2,
+)
+from ._wire_kcl import dfkcl_dvnode__uS, f_kcl__uA, f_kcl_roundoff__uA
 from .clamp_driver import ClampDcop, ClampDriver, ClampSnap
-from .resistive_cell import ResistiveCell, ResistiveDcop
-
-# The axis the wire ladders run along in `[..., col, row]`.
-_WIRE_DIM: Final = -1
+from .resistive_cell import ResistiveCell, ResistiveCellDcop
 
 
-class ColBlColSlDcop[CellDcopT: ResistiveDcop](DcopBase):
-    i_bl_driver__uA: Tensor
-    """BL driver current.
-    Shape: `[..., col]`."""
-    i_sl_driver__uA: Tensor
-    """SL driver current.
-    Shape: `[..., col]`."""
+def _node_jacobian_components__uS(
+    g_cell_bl_eff__uS: Tensor,
+    g_cell_sl_eff__uS: Tensor,
+    bl_g__uS: float,
+    sl_g__uS: float,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    # Jacobian entries use KCL-equation rows and node-voltage columns.
+    return (
+        dfkcl_dvnode__uS(g_cell_bl_eff__uS, bl_g__uS, dim=-1),
+        -g_cell_sl_eff__uS,
+        -g_cell_bl_eff__uS,
+        dfkcl_dvnode__uS(g_cell_sl_eff__uS, sl_g__uS, dim=-1),
+    )
+
+
+# ### Node solver ###
+
+
+class _NodeState(SolvingState):
+    """Node voltages at the current iterate under fixed port voltages."""
+
     v_bl_node__V: Tensor
-    """BL node voltages.
-    Shape: `[..., col, row]`."""
+    """Shape: `[..., col, row]`."""
     v_sl_node__V: Tensor
-    """SL node voltages.
-    Shape: `[..., col, row]`."""
-    cell: CellDcopT
-    """Condensed cell DC working point at the converged node voltages,
-    including the internal node voltage."""
-    v_bl_clamp__V: Tensor
-    """BL clamp voltages.
-    Shape: `[..., col]`."""
-    v_sl_drive__V: Tensor
-    """SL drive voltages.
-    Shape: `[..., col]`."""
+    """Shape: `[..., col, row]`."""
 
 
-class ColBlColSlRecord[CellDcopT: ResistiveDcop](RecordBase):
-    """One event in the nested DC-solve trajectory.
+class _NodeTrace(SolvingTrace):
+    """Residuals and thresholds are compared before each node update.
 
-    `inner == 0` identifies an outer clamp event; `inner >= 1` identifies an
-    inner Newton step. The sole event at `outer == n_outer` is terminal and
-    carries only `dcop`. Every residual belongs to the pre-step iterate at
-    which it was evaluated, while the terminal event carries the state the
-    final step produced and no residuals.
+    Boolean fields have shape `[..., col, *history]`; residuals, thresholds,
+    and updates have shape `[..., col, row, *history]`.
     """
 
-    outer: int
-    """Outer step the record was emitted from; `n_outer` for the terminal one."""
-    inner: int
-    """`0` for that outer step's clamp event, `j + 1` for its `j`-th inner step."""
-
-    # === Outer clamp event ===
-
-    f_bl_clamp__V: Tensor | None
-    """BL outer residual, target minus clamp.
-    Shape: `[..., col]`."""
-    f_sl_clamp__V: Tensor | None
-    """SL outer residual, target minus drive.
-    Shape: `[..., col]`."""
-
-    # === Inner Newton step ===
-
-    f_bl_kcl__uA: Tensor | None
-    """BL wire KCL residual per node.
-    Shape: `[..., col, row]`."""
-    f_sl_kcl__uA: Tensor | None
-    """SL wire KCL residual per node.
-    Shape: `[..., col, row]`."""
-
-    # === Terminal ===
-
-    dcop: ColBlColSlDcop[CellDcopT] | None
-    """Converged operating point on the terminal record alone. Being a
-    dataclass, the record's field walk reaches its tensors, including the
-    nested cell working point."""
-
-
-class ColBlColSlProber(RecorderBase[ColBlColSlRecord[ResistiveDcop]]):
-    """Collect the iteration trajectory of every solve run inside its context.
-
-    Probing is not free and not silent: it forces the solve to emit at every
-    iteration, so it changes what a solve costs while leaving what it returns
-    bit-identical.
-
-    Args:
-        min_outer: Lowest outer step this recorder keeps; a record from an
-            earlier outer step is dropped on arrival, which is how a long
-            solve's trailing iterations are collected without holding the
-            whole trajectory. `0` keeps everything.
-        sync_device: Device a clean exit parks the collected records on; `None`
-            leaves each record where it was recorded.
-    """
-
-    _min_outer: int
-
-    def __init__(self, *, min_outer: int, sync_device: torch.device | None = None) -> None:
-        super().__init__(sync_device=sync_device)
-        self._min_outer = min_outer
-
-    @property
-    @final
-    def min_outer(self) -> int:
-        """Lowest outer step this recorder keeps."""
-        return self._min_outer
+    limited: Tensor
+    residual__uA: Tensor
+    threshold__uA: Tensor
+    dv_bl_node_abs__V: Tensor
+    dv_sl_node_abs__V: Tensor
 
     @classmethod
-    def _submit_impl(cls, record: ColBlColSlRecord[ResistiveDcop]) -> None:
-        """Collect one trajectory record unless its outer step is below `min_outer`.
+    def empty(
+        cls,
+        node_shape: tuple[int, ...],
+        *,
+        history_shape: tuple[int, ...] = (),
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> _NodeTrace:
+        """Construct unused observations with explicit position and history axes."""
 
-        The gate sits here rather than at the emit site: the solve emits its
-        whole trajectory blind to who is listening, so what a recorder does not
-        want is turned away on arrival, before the book grows.
+        def flags() -> Tensor:
+            return torch.zeros((*node_shape[:-1], *history_shape), dtype=torch.bool, device=device)
 
-        Args:
-            record: Record the solve emitted.
+        def values() -> Tensor:
+            return torch.full((*node_shape, *history_shape), torch.nan, dtype=dtype, device=device)
+
+        return cls(
+            limited=flags(),
+            residual__uA=values(),
+            threshold__uA=values(),
+            dv_bl_node_abs__V=values(),
+            dv_sl_node_abs__V=values(),
+        )
+
+
+class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
+    """Solve wire KCL at fixed port voltages, then apply `final_fn`.
+
+    Each call supplies initial node voltages and participating columns. Node
+    voltages have shape `[..., col, row]`; ports and activity have shape
+    `[..., col]`. `record_trace=False` requires convergence and returns no
+    history. `record_trace=True` permits a capped terminal state and retains
+    raw history; `trace_mask` selects observations without changing activity.
+    The callback runs once after the terminal check, under no-grad, and must
+    support compiled tensor execution.
+    """
+
+    MAX_ITER: ClassVar[int] = 20
+    MAX_STEP: ClassVar[float] = 0.05
+    FP32_RTOL: ClassVar[float] = 1.0e-5
+    FP32_ATOL: ClassVar[float] = 5.0e-6
+    FP64_RTOL: ClassVar[float] = 5.0e-12
+    FP64_ATOL: ClassVar[float] = 5.0e-15
+
+    def __init__(
+        self,
+        *,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
+        cell: ResistiveCell[CellSnapT, CellDcopT],
+        dtype: torch.dtype,
+    ) -> None:
+        self.cell = cell
+        self.bl_g__uS = 1.0 / bl_segment_r__MOhm
+        self.sl_g__uS = 1.0 / sl_segment_r__MOhm
+
+        if dtype == torch.float32:
+            self.rtol = self.FP32_RTOL
+            self.atol = self.FP32_ATOL
+        elif dtype == torch.float64:
+            self.rtol = self.FP64_RTOL
+            self.atol = self.FP64_ATOL
+        else:
+            raise TypeError(f"Wire node solve requires float32 or float64, got {dtype}")
+
+    @torch.no_grad()
+    def solve[ResultT](
+        self,
+        v_bl_node__V: Tensor,
+        v_sl_node__V: Tensor,
+        v_bl_port__V: Tensor,
+        v_sl_port__V: Tensor,
+        *,
+        cell_snap: CellSnapT,
+        final_fn: Callable[[_NodeState], ResultT],
+        record_trace: bool,
+        trace_mask: Tensor | None,
+        is_active: Tensor,
+    ) -> tuple[ResultT, _NodeTrace | None]:
+        """Return the caller's terminal projection and optional node history."""
+        state, trace = self._solve_node(
+            v_bl_node__V,
+            v_sl_node__V,
+            v_bl_port__V,
+            v_sl_port__V,
+            cell_snap=cell_snap,
+            record_trace=record_trace,
+            trace_mask=trace_mask,
+            is_active=is_active,
+        )
+        return final_fn(state), trace
+
+    def _solve_node(
+        self,
+        v_bl_node__V: Tensor,
+        v_sl_node__V: Tensor,
+        v_bl_port__V: Tensor,
+        v_sl_port__V: Tensor,
+        *,
+        cell_snap: CellSnapT,
+        record_trace: bool,
+        trace_mask: Tensor | None,
+        is_active: Tensor,
+    ) -> tuple[_NodeState, _NodeTrace | None]:
+        """Settle node voltages while holding both ports fixed."""
+        # --- 1: initialize node voltages ---
+
+        init_state = _NodeState(
+            v_bl_node__V=v_bl_node__V,
+            v_sl_node__V=v_sl_node__V,
+            is_active=is_active.clone(),
+        )
+
+        # --- 2: settle the wire ladders at fixed port voltages ---
+
+        def body_fn(current: _NodeState) -> tuple[_NodeState, _NodeTrace]:
+            return self._evaluate_node(
+                v_bl_port__V,
+                v_sl_port__V,
+                current.v_bl_node__V,
+                current.v_sl_node__V,
+                is_active=current.is_active,
+                cell_snap=cell_snap,
+            )
+
+        if record_trace:
+            return run_solving_trace_scan(
+                init_state=init_state,
+                body_fn=body_fn,
+                default_trace=_NodeTrace.empty(
+                    tuple(v_bl_node__V.shape), dtype=v_bl_node__V.dtype, device=v_bl_node__V.device
+                ),
+                max_iter=self.MAX_ITER,
+                strict=False,
+                trace_mask=trace_mask,
+            )
+
+        def solve_body(current: _NodeState) -> _NodeState:
+            next_state, _ = body_fn(current)
+            return next_state
+
+        final_state = run_solving_loop(init_state=init_state, body_fn=solve_body, max_iter=self.MAX_ITER, strict=True)
+        return final_state, None
+
+    def _evaluate_node(
+        self,
+        v_bl_port__V: Tensor,
+        v_sl_port__V: Tensor,
+        v_bl_node__V: Tensor,
+        v_sl_node__V: Tensor,
+        is_active: Tensor,
+        *,
+        cell_snap: CellSnapT,
+    ) -> tuple[_NodeState, _NodeTrace]:
+
+        # --- 1: evaluate cell branches and node KCL ---
+
+        # Shape: [..., col, row]
+        cell_dcop = self.cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
+        # KCL counts currents leaving each node. The branch leaves BL and enters SL.
+        # Shape: [..., col, row]
+        f_bl__uA = f_kcl__uA(v_bl_node__V, v_bl_port__V.unsqueeze(-1), self.bl_g__uS, cell_dcop.i__uA, dim=-1)
+        f_sl__uA = f_kcl__uA(v_sl_node__V, v_sl_port__V.unsqueeze(-1), self.sl_g__uS, -cell_dcop.i__uA, dim=-1)
+
+        # --- 2: evaluate node stopping thresholds ---
+
+        # Local wire rounding sets a floor even when a cell carries little current.
+        # Shape: [..., col, row]
+        roundoff__uA = torch.maximum(
+            f_kcl_roundoff__uA(v_bl_node__V, v_bl_port__V.unsqueeze(-1), self.bl_g__uS, dim=-1),
+            f_kcl_roundoff__uA(v_sl_node__V, v_sl_port__V.unsqueeze(-1), self.sl_g__uS, dim=-1),
+        )
+        threshold__uA = self.atol + self.rtol * cell_dcop.i__uA.abs() + roundoff__uA
+
+        # --- 3: form the next coupled node correction ---
+
+        # Adjacent rows couple through same-rail wires; each block keeps the BL/SL
+        # equations of one row together. The off-block is a constant diagonal pair.
+        # Shape: [..., col, row]
+        dv_bl_node__V, dv_sl_node__V = solve_block_tridiagonal_2x2(
+            diag=_node_jacobian_components__uS(
+                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS
+            ),
+            rhs=(-f_bl__uA, -f_sl__uA),
+            off_diag=(-self.bl_g__uS, -self.sl_g__uS),
+        )
+
+        # --- 4: reject non-finite updates ---
+
+        finite = (
+            v_bl_node__V.isfinite()
+            & v_sl_node__V.isfinite()
+            & v_bl_port__V.unsqueeze(-1).isfinite()
+            & v_sl_port__V.unsqueeze(-1).isfinite()
+            & cell_dcop.i__uA.isfinite()
+            & cell_dcop.di_dvbl__uS.isfinite()
+            & cell_dcop.di_dvsl__uS.isfinite()
+            & f_bl__uA.isfinite()
+            & f_sl__uA.isfinite()
+            & threshold__uA.isfinite()
+            & dv_bl_node__V.isfinite()
+            & dv_sl_node__V.isfinite()
+        )
+        torch_assert_async(finite.all(), "Node Newton solve produced a non-finite state")
+
+        # --- 5: return the updated state and raw observation ---
+
+        # Shape: [..., col]
+        residual__uA = torch.maximum(f_bl__uA.abs(), f_sl__uA.abs())
+        next_is_active = is_active & (residual__uA > threshold__uA).any(dim=-1)
+
+        applied_dv_bl_node__V = torch.where(
+            next_is_active.unsqueeze(-1), dv_bl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0
+        )
+        applied_dv_sl_node__V = torch.where(
+            next_is_active.unsqueeze(-1), dv_sl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0
+        )
+        state = _NodeState(
+            v_bl_node__V=v_bl_node__V + applied_dv_bl_node__V,
+            v_sl_node__V=v_sl_node__V + applied_dv_sl_node__V,
+            is_active=next_is_active,
+        )
+        limited = next_is_active & ((dv_bl_node__V.abs() > self.MAX_STEP) | (dv_sl_node__V.abs() > self.MAX_STEP)).any(
+            dim=-1
+        )
+        trace = _NodeTrace(
+            limited=limited,
+            residual__uA=residual__uA,
+            threshold__uA=threshold__uA,
+            dv_bl_node_abs__V=applied_dv_bl_node__V.abs(),
+            dv_sl_node_abs__V=applied_dv_sl_node__V.abs(),
+        )
+        return state, trace
+
+
+# ### Port solver ###
+
+
+class _PortState(SolvingState):
+    """Voltages exposed to the port solve's terminal callback.
+
+    A capped diagnostic state may contain a port update whose nodes have not
+    yet been re-solved. Only the ordinary solve guarantees joint convergence.
+    """
+
+    v_bl_node__V: Tensor
+    """Shape: `[..., col, row]`."""
+    v_sl_node__V: Tensor
+    """Shape: `[..., col, row]`."""
+    v_bl_port__V: Tensor
+    """Shape: `[..., col]`."""
+    v_sl_port__V: Tensor
+    """Shape: `[..., col]`."""
+
+
+class _PortTrace(SolvingTrace):
+    """Port observations with the corresponding node history.
+
+    Port fields have shape `[..., col, *history]`. Nested node fields insert
+    their row and node-iteration axes before the port history axes.
+    `node_trace` is present throughout a traced solve, including unused steps.
+    """
+
+    limited: Tensor
+    residual__V: Tensor
+    threshold__V: Tensor
+    dv_bl_port_abs__V: Tensor
+    dv_sl_port_abs__V: Tensor
+    node_trace: _NodeTrace | None
+
+    @classmethod
+    def empty(
+        cls, node_shape: tuple[int, ...], *, node_capacity: int, dtype: torch.dtype, device: torch.device
+    ) -> _PortTrace:
+        """Construct one unused port observation and its nested node history."""
+
+        def flags() -> Tensor:
+            return torch.zeros(node_shape[:-1], dtype=torch.bool, device=device)
+
+        def values() -> Tensor:
+            return torch.full(node_shape[:-1], torch.nan, dtype=dtype, device=device)
+
+        return cls(
+            limited=flags(),
+            residual__V=values(),
+            threshold__V=values(),
+            dv_bl_port_abs__V=values(),
+            dv_sl_port_abs__V=values(),
+            node_trace=_NodeTrace.empty(node_shape, history_shape=(node_capacity,), dtype=dtype, device=device),
+        )
+
+
+class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, SLSnapT: ClampSnap]:
+    """DC solver for parallel column BL/SL rails.
+
+    Cell and driver references are borrowed; their owner handles lifecycle and
+    accounting. Calls are stateless and receive per-call snapshots.
+
+    Args:
+        bl_segment_r__MOhm: Uniform BL resistance of one lattice link,
+            including the boundary link.
+        sl_segment_r__MOhm: Uniform SL resistance of one lattice link,
+            including the boundary link.
+        cell: Condensed two-terminal branch evaluated at every array node.
+        bl_driver: Borrowed BL clamp; its owner manages lifecycle and accounting.
+        sl_driver: Borrowed SL clamp; its owner manages lifecycle and accounting.
+        dtype: Floating dtype selecting the stopping tolerances. Only
+            `torch.float32` and `torch.float64` are supported.
+    """
+
+    MAX_ITER: ClassVar[int] = 20
+    MAX_STEP: ClassVar[float] = 0.10
+    FP32_RTOL: ClassVar[float] = 1.0e-5
+    FP32_ATOL: ClassVar[float] = 1.0e-7
+    FP64_RTOL: ClassVar[float] = 5.0e-12
+    FP64_ATOL: ClassVar[float] = 5.0e-15
+    WIRE_ROUNDOFF_FACTOR: ClassVar[float] = 2.0
+
+    def __init__(
+        self,
+        *,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
+        cell: ResistiveCell[CellSnapT, CellDcopT],
+        bl_driver: ClampDriver[BLSnapT, ClampDcop],
+        sl_driver: ClampDriver[SLSnapT, ClampDcop],
+        dtype: torch.dtype,
+    ) -> None:
+        self.cell = cell
+        self.bl_driver = bl_driver
+        self.sl_driver = sl_driver
+        self.bl_segment_r__MOhm = bl_segment_r__MOhm
+        self.sl_segment_r__MOhm = sl_segment_r__MOhm
+
+        if dtype == torch.float32:
+            self.rtol = self.FP32_RTOL
+            self.atol = self.FP32_ATOL
+        elif dtype == torch.float64:
+            self.rtol = self.FP64_RTOL
+            self.atol = self.FP64_ATOL
+        else:
+            raise TypeError(f"Parallel BL/SL solve requires float32 or float64, got {dtype}")
+
+        # Allow voltage rounding from both wire links attached to an interior node.
+        self.roundoff = self.WIRE_ROUNDOFF_FACTOR * torch.finfo(dtype).eps
+        self.bl_g__uS = 1.0 / bl_segment_r__MOhm
+        self.sl_g__uS = 1.0 / sl_segment_r__MOhm
+        self.node_solver = _NodeSolver(
+            bl_segment_r__MOhm=bl_segment_r__MOhm,
+            sl_segment_r__MOhm=sl_segment_r__MOhm,
+            cell=cell,
+            dtype=dtype,
+        )
+
+    @patch_dynamo_config(capture_scalar_outputs=True)
+    @torch.no_grad()
+    @torch.compile(dynamic=False)
+    def solve[ResultT](
+        self,
+        *,
+        cell_snap: CellSnapT,
+        bl_driver_snap: BLSnapT,
+        sl_driver_snap: SLSnapT,
+        final_fn: Callable[[_PortState], ResultT],
+        record_trace: bool,
+        trace_mask: Tensor | None,
+    ) -> tuple[ResultT, _PortTrace | None]:
+        """Return the caller's terminal projection and optional raw history.
+
+        Snaps share the complete runtime leading shape: cells at
+        `[..., col, row]` and clamps at `[..., col]`. `record_trace=False`
+        requires both loops to converge; `True` permits capped terminal states.
+        `trace_mask` selects column observations only. The callback receives
+        terminal node and port voltages once, under no-grad, and must support
+        compiled tensor execution. It owns the output's structure and meaning.
         """
-        recorder = cls.current()
-        if recorder is None or record.outer < recorder.min_outer:
-            return
-        cls._submit_record(record)
+        # --- 1: initialize every port and node at its nominal rail reference ---
 
-
-class ColBlColSlSolverConfig(ConfigBase):
-    n_outer: int
-    """Outer Newton iterations on the per-column clamp voltage. Each step
-    takes one implicit-Jacobian Newton step on V_clamp and then runs `n_inner`
-    inner array Newton steps at the updated V_clamp."""
-    n_inner: int
-    """Inner Newton iterations on the wire / cell coupled state at a frozen
-    V_clamp boundary."""
-
-    def validate(self) -> None:
-        super().validate()
-        self._require_pos(self.n_outer, "n_outer")
-        self._require_pos(self.n_inner, "n_inner")
-
-
-# Per-iteration |dV| damping bounds are fixed properties of the two Newton
-# methods rather than configurable inputs.
-_MAX_OUTER_STEP__V: float = 0.10
-_MAX_INNER_STEP__V: float = 0.05
-
-
-def solve_col_bl_col_sl_dc[
-    CellSnapT: SnapBase,
-    CellDcopT: ResistiveDcop,
-    BLSnapT: ClampSnap,
-    BLDcopT: ClampDcop,
-    SLSnapT: ClampSnap,
-    SLDcopT: ClampDcop,
-](
-    *,
-    config: ColBlColSlSolverConfig,
-    bl_segment_r__MOhm: float,
-    sl_segment_r__MOhm: float,
-    cell: ResistiveCell[CellSnapT, CellDcopT],
-    cell_snap: CellSnapT,
-    bl_driver: ClampDriver[BLSnapT, BLDcopT],
-    bl_driver_snap: BLSnapT,
-    sl_driver: ClampDriver[SLSnapT, SLDcopT],
-    sl_driver_snap: SLSnapT,
-) -> ColBlColSlDcop[CellDcopT]:
-    """Settle one parallel BL/SL array by block Gauss-Seidel and Newton steps.
-
-    Args:
-        config: Fixed outer and inner iteration counts.
-        bl_segment_r__MOhm: BL rail resistance of one lattice link.
-        sl_segment_r__MOhm: SL rail resistance of one lattice link.
-        cell: Condensed cell branch model.
-        cell_snap: Per-solve cell snap bundling the device snaps and the
-            per-cell word-line drive at `[..., col, row]`.
-        bl_driver: BL clamp driver.
-        bl_driver_snap: Per-solve BL driver snap.
-        sl_driver: SL clamp driver.
-        sl_driver_snap: Per-solve SL driver snap.
-
-    Returns:
-        Complete steady-state solution for the current VMM.
-    """
-    record = ColBlColSlProber.active()
-    dcop = _solve_col_bl_col_sl_dc_impl(
-        n_outer=config.n_outer,
-        n_inner=config.n_inner,
-        bl_segment_r__MOhm=bl_segment_r__MOhm,
-        sl_segment_r__MOhm=sl_segment_r__MOhm,
-        cell=cell,
-        cell_snap=cell_snap,
-        bl_driver=bl_driver,
-        bl_driver_snap=bl_driver_snap,
-        sl_driver=sl_driver,
-        sl_driver_snap=sl_driver_snap,
-        record=record,
-    )
-    if record:
-        ColBlColSlProber.submit(
-            ColBlColSlRecord(
-                outer=config.n_outer,
-                inner=0,
-                f_bl_clamp__V=None,
-                f_sl_clamp__V=None,
-                f_bl_kcl__uA=None,
-                f_sl_kcl__uA=None,
-                dcop=dcop,
-            )
-        )
-    return dcop
-
-
-# A Python-typed argument is part of the cache key by value, so each distinct
-# segment resistance compiles its own graph: sweeping one exhausts the
-# recompile budget and drops the leaf back to eager without raising.
-@torch.compile(dynamic=False)
-def _solve_col_bl_col_sl_dc_impl[
-    CellSnapT: SnapBase,
-    CellDcopT: ResistiveDcop,
-    BLSnapT: ClampSnap,
-    BLDcopT: ClampDcop,
-    SLSnapT: ClampSnap,
-    SLDcopT: ClampDcop,
-](
-    *,
-    n_outer: int,
-    n_inner: int,
-    bl_segment_r__MOhm: float,
-    sl_segment_r__MOhm: float,
-    cell: ResistiveCell[CellSnapT, CellDcopT],
-    cell_snap: CellSnapT,
-    bl_driver: ClampDriver[BLSnapT, BLDcopT],
-    bl_driver_snap: BLSnapT,
-    sl_driver: ClampDriver[SLSnapT, SLDcopT],
-    sl_driver_snap: SLSnapT,
-    record: bool,
-) -> ColBlColSlDcop[CellDcopT]:
-    """Run the fixed-shape nested solve, emitting a trajectory on `record`."""
-    # --- 1: read the lattice link as a conductance ---
-
-    # One uS is exactly one reciprocal MOhm, so no unit factor enters.
-    bl_g__uS = 1.0 / bl_segment_r__MOhm
-    sl_g__uS = 1.0 / sl_segment_r__MOhm
-
-    # --- 2: initialize the cell at the reference clamps ---
-
-    v_bl_seed__V = bl_driver_snap.v_ref__V
-    v_sl_seed__V = sl_driver_snap.v_ref__V
-    # Shape: [..., col, row]
-    cell_dcop = cell.solve_dc(v_bl_seed__V.unsqueeze(-1), v_sl_seed__V.unsqueeze(-1), cell_snap)
-    i_cell__uA = cell_dcop.i__uA
-
-    # --- 3: initialize the clamp voltages ---
-
-    # Shape: [..., col, row] -> [..., col]
-    i_bl_seed__uA = i_cell__uA.sum(dim=-1)
-    # Shape: [..., col, row] -> [..., col]
-    i_sl_seed__uA = -i_cell__uA.sum(dim=-1)
-    # Shape: [..., col]
-    v_bl_clamp__V = bl_driver.solve_dc(i_bl_seed__uA, bl_driver_snap, v_clamp_init__V=None).v_clamp__V
-    v_sl_drive__V = sl_driver.solve_dc(i_sl_seed__uA, sl_driver_snap, v_clamp_init__V=None).v_clamp__V
-
-    # --- 4: initialize wire nodes with first-order IR drop ---
-
-    # The grid lift of the clamp boundaries is carried through the outer
-    # loop and refreshed on every clamp update.
-    # Shape: [..., col] -> [..., col, row=1]
-    v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
-    v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
-
-    # Shape: [..., col, row]
-    v_bl_node__V, v_sl_node__V = _wire_ir_drop_seed(
-        i_cell__uA,
-        v_bl_clamp_grid__V,
-        v_sl_drive_grid__V,
-        bl_segment_r__MOhm,
-        sl_segment_r__MOhm,
-    )
-
-    # --- 5: solve coupled clamps and wire nodes ---
-
-    max_inner_step__V = _MAX_INNER_STEP__V
-    max_outer_step__V = _MAX_OUTER_STEP__V
-
-    for outer_step in range(n_outer):
-        # The preceding inner solve ends by updating its nodes, after its last
-        # branch evaluation. Refresh at those current nodes so the implicit
-        # clamp Jacobian never carries conductances from the pre-update state.
-        cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
-        i_cell__uA = cell_dcop.i__uA
-        di_dvbl__uS = cell_dcop.di_dvbl__uS
-        di_dvsl__uS = cell_dcop.di_dvsl__uS
-
-        # Coupled 2×2 Newton step on `(V_BL_clamp, V_SL_drive)`.
-        # K = ∂V_node[0]/∂V_clamp captures cross-rail cell coupling.
-        g_cell_bl_eff__uS = di_dvbl__uS
-        g_cell_sl_eff__uS = -di_dvsl__uS
-        # Shape: [..., col, rail=2, rail=2]
-        k_inner_2x2 = _compute_k_inner_coupled_2x2(
-            g_cell_bl_eff__uS,
-            g_cell_sl_eff__uS,
-            bl_g__uS,
-            sl_g__uS,
-        )
-
-        # Port current through the driver's own link, and the BL / SL
-        # clamp-driver targets it implies.
+        row_num = self.cell.inst_shape[-1]
+        # Materialize reference broadcasts so every loop-carried tensor has the
+        # same dense layout as the values returned by its first update.
         # Shape: [..., col]
-        i_bl_port__uA = (v_bl_clamp__V - v_bl_node__V[..., 0]) * bl_g__uS
-        i_sl_port__uA = (v_sl_drive__V - v_sl_node__V[..., 0]) * sl_g__uS
-        bl_clamp_dcop = bl_driver.solve_dc(
-            i_bl_port__uA,
-            bl_driver_snap,
-            v_clamp_init__V=v_bl_clamp__V,
-        )
-        sl_clamp_dcop = sl_driver.solve_dc(
-            i_sl_port__uA,
-            sl_driver_snap,
-            v_clamp_init__V=v_sl_drive__V,
-        )
-        v_bl_target__V = bl_clamp_dcop.v_clamp__V
-        bl_dvclamp_di__MOhm = bl_clamp_dcop.dvclamp_di__MOhm
-        v_sl_target__V = sl_clamp_dcop.v_clamp__V
-        sl_dvclamp_di__MOhm = sl_clamp_dcop.dvclamp_di__MOhm
+        v_bl_port__V = bl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
+        v_sl_port__V = sl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
+        # Shape: [..., col, row]
+        node_shape = (*v_bl_port__V.shape, row_num)
+        v_bl_node__V = v_bl_port__V.unsqueeze(-1).expand(node_shape).clone(memory_format=torch.contiguous_format)
+        v_sl_node__V = v_sl_port__V.unsqueeze(-1).expand(node_shape).clone(memory_format=torch.contiguous_format)
 
-        # Outer Newton on F_outer(V_clamp) = V_target(V_clamp) - V_clamp:
-        # each clamp driver maps the port current through its own link to
-        # a target clamp, and the 2×2 ∂F/∂V_clamp couples the driver slope,
-        # the port-current sensitivity, and K_inner's V_node[0] response.
+        # --- 2: solve the coupled port and node equilibrium ---
+
+        state, trace = self._solve_port(
+            v_bl_node__V,
+            v_sl_node__V,
+            v_bl_port__V,
+            v_sl_port__V,
+            cell_snap=cell_snap,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver_snap=sl_driver_snap,
+            record_trace=record_trace,
+            trace_mask=trace_mask,
+        )
+
+        return final_fn(state), trace
+
+    def _solve_port(
+        self,
+        v_bl_node__V: Tensor,
+        v_sl_node__V: Tensor,
+        v_bl_port__V: Tensor,
+        v_sl_port__V: Tensor,
+        *,
+        cell_snap: CellSnapT,
+        bl_driver_snap: BLSnapT,
+        sl_driver_snap: SLSnapT,
+        record_trace: bool,
+        trace_mask: Tensor | None,
+    ) -> tuple[_PortState, _PortTrace | None]:
+        """Settle both port voltages, re-solving the nodes after each update."""
+        # --- 1: initialize port voltages ---
+
+        init_state = _PortState(
+            v_bl_node__V=v_bl_node__V,
+            v_sl_node__V=v_sl_node__V,
+            v_bl_port__V=v_bl_port__V,
+            v_sl_port__V=v_sl_port__V,
+            is_active=torch.ones_like(v_bl_port__V, dtype=torch.bool),
+        )
+
+        # --- 2: settle the ports, solving the wire ladders after each update ---
+
+        def body_fn(current: _PortState) -> tuple[_PortState, _PortTrace]:
+            node_state, node_trace = self.node_solver.solve(
+                current.v_bl_node__V,
+                current.v_sl_node__V,
+                current.v_bl_port__V,
+                current.v_sl_port__V,
+                cell_snap=cell_snap,
+                is_active=current.is_active,
+                final_fn=lambda state: state,
+                record_trace=record_trace,
+                trace_mask=trace_mask,
+            )
+            return self._evaluate_port(
+                node_state,
+                node_trace=node_trace,
+                v_bl_port__V=current.v_bl_port__V,
+                v_sl_port__V=current.v_sl_port__V,
+                cell_snap=cell_snap,
+                is_active=current.is_active,
+                bl_driver_snap=bl_driver_snap,
+                sl_driver_snap=sl_driver_snap,
+            )
+
+        if record_trace:
+            return run_solving_trace_scan(
+                init_state=init_state,
+                body_fn=body_fn,
+                default_trace=_PortTrace.empty(
+                    tuple(v_bl_node__V.shape),
+                    node_capacity=self.node_solver.MAX_ITER,
+                    dtype=v_bl_node__V.dtype,
+                    device=v_bl_node__V.device,
+                ),
+                max_iter=self.MAX_ITER,
+                strict=False,
+                trace_mask=trace_mask,
+            )
+
+        def solve_body(current: _PortState) -> _PortState:
+            next_state, _ = body_fn(current)
+            return next_state
+
+        final_state = run_solving_loop(init_state=init_state, body_fn=solve_body, max_iter=self.MAX_ITER, strict=True)
+        return final_state, None
+
+    def _evaluate_port(
+        self,
+        node_state: _NodeState,
+        *,
+        node_trace: _NodeTrace | None,
+        v_bl_port__V: Tensor,
+        v_sl_port__V: Tensor,
+        is_active: Tensor,
+        cell_snap: CellSnapT,
+        bl_driver_snap: BLSnapT,
+        sl_driver_snap: SLSnapT,
+    ) -> tuple[_PortState, _PortTrace]:
+
+        # --- 1: evaluate driver targets and port residuals ---
+
+        v_bl_node__V = node_state.v_bl_node__V
+        v_sl_node__V = node_state.v_sl_node__V
+        i_bl_port__uA = (v_bl_port__V - v_bl_node__V[..., 0]) * self.bl_g__uS
+        i_sl_port__uA = (v_sl_port__V - v_sl_node__V[..., 0]) * self.sl_g__uS
         # Shape: [..., col]
-        f_bl_clamp__V = v_bl_target__V - v_bl_clamp__V
-        f_sl_clamp__V = v_sl_target__V - v_sl_drive__V
+        bl_driver_dcop = self.bl_driver.solve_dc(i_bl_port__uA, bl_driver_snap, v_port_init__V=v_bl_port__V)
+        sl_driver_dcop = self.sl_driver.solve_dc(i_sl_port__uA, sl_driver_snap, v_port_init__V=v_sl_port__V)
+        # Shape: [..., col]
+        f_bl_port__V = bl_driver_dcop.v_port__V - v_bl_port__V
+        f_sl_port__V = sl_driver_dcop.v_port__V - v_sl_port__V
 
-        if record:
-            ColBlColSlProber.submit(
-                ColBlColSlRecord(
-                    outer=outer_step,
-                    inner=0,
-                    f_bl_clamp__V=f_bl_clamp__V,
-                    f_sl_clamp__V=f_sl_clamp__V,
-                    f_bl_kcl__uA=None,
-                    f_sl_kcl__uA=None,
-                    dcop=None,
-                )
-            )
+        # --- 2: compute the port Jacobian and boundary correction ---
 
-        # MOhm times uS is dimensionless, so the driver slope scaled by
-        # its rail link conductance carries no unit into the Jacobian.
-        dg_bl = bl_dvclamp_di__MOhm * bl_g__uS
-        dg_sl = sl_dvclamp_di__MOhm * sl_g__uS
-        k00 = k_inner_2x2[..., 0, 0]
-        k01 = k_inner_2x2[..., 0, 1]
-        k10 = k_inner_2x2[..., 1, 0]
-        k11 = k_inner_2x2[..., 1, 1]
-        df_row0 = torch.stack(
-            [dg_bl * (1.0 - k00) - 1.0, -dg_bl * k01],
-            dim=-1,
+        cell_dcop = self.cell.solve_dc(node_state.v_bl_node__V, node_state.v_sl_node__V, cell_snap)
+        torch_assert_async(
+            cell_dcop.di_dvbl__uS.isfinite().all() & cell_dcop.di_dvsl__uS.isfinite().all(),
+            "Port linearization produced a non-finite state",
         )
-        df_row1 = torch.stack(
-            [-dg_sl * k10, dg_sl * (1.0 - k11) - 1.0],
-            dim=-1,
+        u_bl_bl, u_bl_sl, u_sl_bl, u_sl_sl = boundary_inverse_block_tridiagonal_2x2(
+            diag=_node_jacobian_components__uS(
+                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS
+            ),
+            off_diag=(-self.bl_g__uS, -self.sl_g__uS),
         )
-        # Shape: [..., col, rail=2, rail=2]
-        df_outer = torch.stack([df_row0, df_row1], dim=-2)
-        # Shape: [..., col, rail=2]
-        f_outer__V = torch.stack([f_bl_clamp__V, f_sl_clamp__V], dim=-1)
-        # Solve 2×2 system per column: δ = -inv(df_outer) · f_outer.
-        delta_2__V = block_solve(df_outer, -f_outer__V.unsqueeze(-1)).squeeze(-1)
-        delta_bl__V = delta_2__V[..., 0].clamp(min=-max_outer_step__V, max=max_outer_step__V)
-        delta_sl__V = delta_2__V[..., 1].clamp(min=-max_outer_step__V, max=max_outer_step__V)
-        v_bl_clamp__V = v_bl_clamp__V + delta_bl__V
-        v_sl_drive__V = v_sl_drive__V + delta_sl__V
+        di_bl_dv_bl__uS = self.bl_g__uS * (1.0 - u_bl_bl * self.bl_g__uS)
+        di_bl_dv_sl__uS = -self.bl_g__uS * u_bl_sl * self.sl_g__uS
+        di_sl_dv_bl__uS = -self.sl_g__uS * u_sl_bl * self.bl_g__uS
+        di_sl_dv_sl__uS = self.sl_g__uS * (1.0 - u_sl_sl * self.sl_g__uS)
 
-        # Solve the inner wire state at the updated clamp voltages.
-        # Shape: [..., col] -> [..., col, row=1]
-        v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
-        v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
+        # Signed target-voltage response to a boundary-link voltage drop.
+        # Its sign sets feedback polarity; its magnitude also scales roundoff below.
+        bl_driver_gain = bl_driver_dcop.dvport_di__MOhm * self.bl_g__uS
+        sl_driver_gain = sl_driver_dcop.dvport_di__MOhm * self.sl_g__uS
+        # Shape: [..., col]
+        dv_bl_port__V, dv_sl_port__V = solve_2x2(
+            (
+                bl_driver_dcop.dvport_di__MOhm * di_bl_dv_bl__uS - 1.0,
+                bl_driver_dcop.dvport_di__MOhm * di_bl_dv_sl__uS,
+                sl_driver_dcop.dvport_di__MOhm * di_sl_dv_bl__uS,
+                sl_driver_dcop.dvport_di__MOhm * di_sl_dv_sl__uS - 1.0,
+            ),
+            (-f_bl_port__V, -f_sl_port__V),
+        )
 
-        for inner_step in range(n_inner):
-            # The first step shares the outer evaluation because updating the
-            # clamps does not change the cell's node-voltage inputs.
-            if inner_step > 0:
-                cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
-                i_cell__uA = cell_dcop.i__uA
-                di_dvbl__uS = cell_dcop.di_dvbl__uS
-                di_dvsl__uS = cell_dcop.di_dvsl__uS
-            # Shape: [..., col, row]
-            g_cell_bl_eff__uS = di_dvbl__uS
-            g_cell_sl_eff__uS = -di_dvsl__uS
-            # Shape: [..., col, row]
-            f_bl_kcl__uA = f_kcl__uA(v_bl_node__V, v_bl_clamp_grid__V, bl_g__uS, i_cell__uA, dim=_WIRE_DIM)
-            f_sl_kcl__uA = f_kcl__uA(v_sl_node__V, v_sl_drive_grid__V, sl_g__uS, -i_cell__uA, dim=_WIRE_DIM)
+        # --- 3: evaluate stopping thresholds and assemble the port state ---
 
-            if record:
-                ColBlColSlProber.submit(
-                    ColBlColSlRecord(
-                        outer=outer_step,
-                        inner=inner_step + 1,
-                        f_bl_clamp__V=None,
-                        f_sl_clamp__V=None,
-                        f_bl_kcl__uA=f_bl_kcl__uA,
-                        f_sl_kcl__uA=f_sl_kcl__uA,
-                        dcop=None,
-                    )
-                )
+        # Shape: [..., col]
+        v_bl_port_scale__V = torch.maximum(v_bl_port__V.abs(), v_bl_node__V[..., 0].abs())
+        v_sl_port_scale__V = torch.maximum(v_sl_port__V.abs(), v_sl_node__V[..., 0].abs())
+        v_port_scale__V = torch.maximum(
+            torch.maximum(v_bl_port_scale__V, v_sl_port_scale__V),
+            torch.maximum(bl_driver_dcop.v_port__V.abs(), sl_driver_dcop.v_port__V.abs()),
+        )
+        # For an error allowance, use the magnitude of the driver's response:
+        # boundary-current rounding becomes voltage error through dV/dI.
+        threshold__V = (
+            self.atol
+            + self.rtol * v_port_scale__V
+            + self.roundoff
+            * torch.maximum(bl_driver_gain.abs() * v_bl_port_scale__V, sl_driver_gain.abs() * v_sl_port_scale__V)
+        )
 
-            dv_bl_node__V, dv_sl_node__V = _wire_newton_coupled_block2x2(
-                f_bl_kcl__uA,
-                f_sl_kcl__uA,
-                g_cell_bl_eff__uS,
-                g_cell_sl_eff__uS,
-                bl_g__uS,
-                sl_g__uS,
-            )
-            dv_bl_node__V = dv_bl_node__V.clamp(min=-max_inner_step__V, max=max_inner_step__V)
-            dv_sl_node__V = dv_sl_node__V.clamp(min=-max_inner_step__V, max=max_inner_step__V)
-            v_bl_node__V = v_bl_node__V + dv_bl_node__V
-            v_sl_node__V = v_sl_node__V + dv_sl_node__V
+        finite = (
+            v_bl_port__V.isfinite()
+            & v_sl_port__V.isfinite()
+            & i_bl_port__uA.isfinite()
+            & i_sl_port__uA.isfinite()
+            & f_bl_port__V.isfinite()
+            & f_sl_port__V.isfinite()
+            & bl_driver_dcop.dvport_di__MOhm.isfinite()
+            & sl_driver_dcop.dvport_di__MOhm.isfinite()
+            & threshold__V.isfinite()
+            & dv_bl_port__V.isfinite()
+            & dv_sl_port__V.isfinite()
+        )
+        torch_assert_async(
+            finite.all(),
+            "Port Newton solve produced a non-finite state",
+        )
 
-    # --- 6: refresh the cell and boundary currents ---
+        # Shape: [..., col]
+        residual__V = torch.maximum(f_bl_port__V.abs(), f_sl_port__V.abs())
+        next_is_active = is_active & (residual__V > threshold__V)
 
-    # The last inner step moved the nodes after the cell was last
-    # evaluated, so the returned working point is re-solved at the final
-    # node voltages rather than carried over from inside the loop.
-    cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
-
-    i_bl_driver__uA = i_drive__uA(v_bl_node__V, v_bl_clamp_grid__V, bl_g__uS, dim=_WIRE_DIM)
-    i_sl_driver__uA = i_drive__uA(v_sl_node__V, v_sl_drive_grid__V, sl_g__uS, dim=_WIRE_DIM)
-
-    return ColBlColSlDcop(
-        i_bl_driver__uA=i_bl_driver__uA,
-        i_sl_driver__uA=i_sl_driver__uA,
-        v_bl_node__V=v_bl_node__V,
-        v_sl_node__V=v_sl_node__V,
-        cell=cell_dcop,
-        v_bl_clamp__V=v_bl_clamp__V,
-        v_sl_drive__V=v_sl_drive__V,
-    )
-
-
-def _wire_ir_drop_seed(
-    i_cell__uA: Tensor,
-    v_bl_clamp_grid__V: Tensor,
-    v_sl_drive_grid__V: Tensor,
-    bl_segment_r__MOhm: float,
-    sl_segment_r__MOhm: float,
-) -> tuple[Tensor, Tensor]:
-    """First-order IR-drop seed for the wire ladders.
-
-    Every link carries the same resistance, so the drop accumulated down
-    a ladder is that one resistance times the running sum of the currents
-    its links carry. The two rails share that running sum: BL drains the
-    cell current and SL injects the very same current back.
-
-    Args:
-        i_cell__uA: Signed cell branch currents.
-            Shape: `[..., col, row]`.
-        v_bl_clamp_grid__V: BL clamp voltages on the cell grid.
-            Shape: `[..., col, row=1]`.
-        v_sl_drive_grid__V: SL drive voltages on the cell grid.
-            Shape: `[..., col, row=1]`.
-        bl_segment_r__MOhm: BL rail resistance of one lattice link.
-        sl_segment_r__MOhm: SL rail resistance of one lattice link.
-
-    Returns:
-        Initial BL and SL node voltages `(v_bl_node__V, v_sl_node__V)`.
-        Shape: `[..., col, row]`.
-    """
-    # Current in the link that feeds node k: everything drawn at k and beyond.
-    # Shape: [..., col, row]
-    i_link__uA = torch.flip(torch.cumsum(torch.flip(i_cell__uA, [-1]), -1), [-1])
-    # Shape: [..., col, row]
-    i_cumulative__uA = torch.cumsum(i_link__uA, dim=-1)
-    return (
-        v_bl_clamp_grid__V - bl_segment_r__MOhm * i_cumulative__uA,
-        v_sl_drive_grid__V + sl_segment_r__MOhm * i_cumulative__uA,
-    )
+        applied_dv_bl_port__V = torch.where(next_is_active, dv_bl_port__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
+        applied_dv_sl_port__V = torch.where(next_is_active, dv_sl_port__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
+        state = _PortState(
+            v_bl_node__V=v_bl_node__V,
+            v_sl_node__V=v_sl_node__V,
+            v_bl_port__V=v_bl_port__V + applied_dv_bl_port__V,
+            v_sl_port__V=v_sl_port__V + applied_dv_sl_port__V,
+            is_active=next_is_active,
+        )
+        limited = next_is_active & ((dv_bl_port__V.abs() > self.MAX_STEP) | (dv_sl_port__V.abs() > self.MAX_STEP))
+        trace = _PortTrace(
+            limited=limited,
+            residual__V=residual__V,
+            threshold__V=threshold__V,
+            dv_bl_port_abs__V=applied_dv_bl_port__V.abs(),
+            dv_sl_port_abs__V=applied_dv_sl_port__V.abs(),
+            node_trace=node_trace,
+        )
+        return state, trace
 
 
-def _g_diag_blocks__uS(
-    g_cell_bl_eff__uS: Tensor,
-    g_cell_sl_eff__uS: Tensor,
-    bl_segment_g__uS: float,
-    sl_segment_g__uS: float,
-) -> Tensor:
-    """Per-row 2×2 diagonal blocks of the coupled BL/SL wire Jacobian.
-
-    The rail entries are each ladder's per-node self-conductance; the cross
-    entries are the cell branch alone, which is what couples the two rails at
-    a node. The off-diagonal blocks of the same Jacobian are not built here —
-    they are the constant `diag(-g_BL, -g_SL)` the block solver takes as a
-    pair of scalars.
-
-    Args:
-        g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        bl_segment_g__uS: BL rail conductance of one lattice link.
-        sl_segment_g__uS: SL rail conductance of one lattice link.
-
-    Returns:
-        Diagonal blocks, rail-major within each block.
-        Shape: `[..., col, row, rail=2, rail=2]`.
-    """
-    # Shape: [..., col, row]
-    bl_diag_node__uS = g_self__uS(g_cell_bl_eff__uS, bl_segment_g__uS, dim=_WIRE_DIM)
-    sl_diag_node__uS = g_self__uS(g_cell_sl_eff__uS, sl_segment_g__uS, dim=_WIRE_DIM)
-    # ∂F_BL/∂V_SL on the top row, ∂F_SL/∂V_BL on the bottom.
-    # Shape: [..., col, row, rail=2, rail=2]
-    return torch.stack(
-        (
-            torch.stack((bl_diag_node__uS, -g_cell_sl_eff__uS), dim=-1),
-            torch.stack((-g_cell_bl_eff__uS, sl_diag_node__uS), dim=-1),
-        ),
-        dim=-2,
-    )
+# ### Public Aliases ###
 
 
-def _wire_newton_coupled_block2x2(
-    f_bl_kcl__uA: Tensor,
-    f_sl_kcl__uA: Tensor,
-    g_cell_bl_eff__uS: Tensor,
-    g_cell_sl_eff__uS: Tensor,
-    bl_segment_g__uS: float,
-    sl_segment_g__uS: float,
-) -> tuple[Tensor, Tensor]:
-    """Coupled BL/SL wire Newton step at frozen V_clamp / V_SL_drive.
-
-    Args:
-        f_bl_kcl__uA: BL KCL residuals.
-            Shape: `[..., col, row]`.
-        f_sl_kcl__uA: SL KCL residuals.
-            Shape: `[..., col, row]`.
-        g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        bl_segment_g__uS: BL rail conductance of one lattice link.
-        sl_segment_g__uS: SL rail conductance of one lattice link.
-
-    Returns:
-        BL and SL Newton voltage steps `(dv_bl_node__V, dv_sl_node__V)`.
-        Shape: `[..., col, row]`.
-    """
-    # Shape: [..., col, row, rail=2, rail=2]
-    diag_blocks__uS = _g_diag_blocks__uS(g_cell_bl_eff__uS, g_cell_sl_eff__uS, bl_segment_g__uS, sl_segment_g__uS)
-    # Shape: [..., col, row, rail=2]
-    rhs__uA = torch.stack((-f_bl_kcl__uA, -f_sl_kcl__uA), dim=-1)
-
-    # The block solver claims the row axis as its N axis and the per-node
-    # rail pair as its 2x2 block, so the column dim sits in its leading
-    # batch. Neighbouring rows couple through their shared rail link
-    # alone, which is the constant off-block it takes as two scalars.
-    # Shape: [..., col, row, rail=2]
-    delta__V = solve_block_tridiagonal_2x2_uniform(
-        diag_blocks__uS,
-        rhs__uA,
-        off_block=(-bl_segment_g__uS, -sl_segment_g__uS),
-    )
-    return delta__V[..., 0], delta__V[..., 1]
-
-
-def _compute_k_inner_coupled_2x2(
-    g_cell_bl_eff__uS: Tensor,
-    g_cell_sl_eff__uS: Tensor,
-    bl_segment_g__uS: float,
-    sl_segment_g__uS: float,
-) -> Tensor:
-    """Compute the 2x2 `K_inner = ∂V_node[0]/∂V_clamp` per column.
-
-    A clamp reaches the array through its own rail link alone, so its
-    forcing is that link's conductance at row 0 and nothing anywhere else.
-    The frozen array being linear in that forcing, each solve runs on the
-    bare row-0 unit vector and the link conductance scales the extracted
-    row-0 response.
-
-    Args:
-        g_cell_bl_eff__uS: BL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        g_cell_sl_eff__uS: Negated SL-side cell derivatives.
-            Shape: `[..., col, row]`.
-        bl_segment_g__uS: BL rail conductance of one lattice link.
-        sl_segment_g__uS: SL rail conductance of one lattice link.
-
-    Returns:
-        Dimensionless clamp-to-port-node sensitivity.
-        Shape: `[..., col, rail=2, rail=2]`.
-    """
-    # Shape: [..., col, row, rail=2, rail=2]
-    diag_blocks__uS = _g_diag_blocks__uS(g_cell_bl_eff__uS, g_cell_sl_eff__uS, bl_segment_g__uS, sl_segment_g__uS)
-    off_block = (-bl_segment_g__uS, -sl_segment_g__uS)
-
-    # Unit forcing at row 0, one rail at a time.
-    # Shape: [..., col, row]
-    zeros_node = torch.zeros_like(g_cell_bl_eff__uS)
-    unit_row0 = F.pad(torch.ones_like(g_cell_bl_eff__uS[..., :1]), (0, g_cell_bl_eff__uS.shape[-1] - 1))
-
-    # Shape: [..., col, row, rail=2]
-    u_bl = solve_block_tridiagonal_2x2_uniform(
-        diag_blocks__uS,
-        torch.stack((unit_row0, zeros_node), dim=-1),
-        off_block=off_block,
-    )
-    u_sl = solve_block_tridiagonal_2x2_uniform(
-        diag_blocks__uS,
-        torch.stack((zeros_node, unit_row0), dim=-1),
-        off_block=off_block,
-    )
-
-    # K[:, 0] is the BL-forced row-0 response, K[:, 1] the SL-forced one,
-    # each carrying the conductance of the link that forced it.
-    # Shape: [..., col, rail=2]
-    k_col_bl = u_bl[..., 0, :] * bl_segment_g__uS
-    k_col_sl = u_sl[..., 0, :] * sl_segment_g__uS
-    return torch.stack((k_col_bl, k_col_sl), dim=-1)
+ColBlColSlArraySolver = _PortSolver
+ColBlColSlArrayState = _PortState
+ColBlColSlArrayTrace = _PortTrace

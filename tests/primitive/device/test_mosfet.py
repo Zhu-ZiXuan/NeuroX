@@ -1,11 +1,4 @@
-"""Device-level tests for the polarity-parameterized MOSFET primitive.
-
-Exercises the EKV-softplus I-V law and its three node partials for both
-the `Nmos` (polarity +1) and `Pmos` (polarity -1)
-specializations, the finite-difference consistency of those partials,
-all-off determinism, and config validation. Everything runs on CPU in
-`float64` with no `torch.compile`.
-"""
+"""MOSFET current polarity, terminal derivatives, and deterministic fabrication."""
 
 from __future__ import annotations
 
@@ -13,7 +6,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox.primitive.device import Mosfet, MosfetConfig, MosfetPolicy, Nmos, Pmos
+from neurox.primitive.device.mosfet import Mosfet, MosfetConfig, MosfetPolicy, Nmos, Pmos
 
 _OFF = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
 
@@ -167,6 +160,34 @@ def test_all_off_snapshot_deterministic() -> None:
     assert torch.all(snap1.vth__V == snap1.vth__V[0])
     assert torch.equal(snap1.beta__uA_per_V2, snap2.beta__uA_per_V2)
     assert torch.equal(snap1.vth__V, snap2.vth__V)
+
+
+def test_beta_mismatch_preserves_positive_magnitude(monkeypatch: pytest.MonkeyPatch) -> None:
+    policy = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=True)
+    monkeypatch.setattr(torch, "randn_like", lambda value: torch.full_like(value, -2.0))
+
+    dev = _make(
+        Nmos,
+        vth0__V=0.4,
+        inst_shape=(2,),
+        policy=policy,
+        A_beta_relative__um=1.0,
+    )
+
+    assert torch.all(dev.snapshot(shape=(2,)).beta__uA_per_V2 > 0.0)
+
+
+def test_nominal_beta_must_be_representable_by_dtype() -> None:
+    with pytest.raises(ValueError, match="positive normal value representable"):
+        Nmos(
+            config=_config(vth0__V=0.4, mu0__cm2_per_V_s=1.0e-40),
+            policy=_OFF,
+            inst_shape=(1,),
+            dtype=torch.float32,
+            T__K=300.0,
+            W__um=1.0,
+            L__um=1.0,
+        )
 
 
 def test_abstract_base_cannot_instantiate() -> None:
