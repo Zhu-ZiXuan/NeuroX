@@ -6,6 +6,7 @@ See Also:
 
 from __future__ import annotations
 
+import torch
 from torch import Tensor
 
 from neurox.primitive.xbar.cell import (
@@ -38,14 +39,34 @@ class Ye2023Jssc2t1rCellPolicy(XbarCell1t1rLinearPolicy):
     pass
 
 
-class Ye2023Jssc2t1rCell(XbarCell1t1rLinear[Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellPolicy]):
+_Config = Ye2023Jssc2t1rCellConfig
+_Policy = Ye2023Jssc2t1rCellPolicy
+_Dcop = XbarCell1t1rDcop
+
+
+class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
     """WH-2T1R cell."""
+
+    config: _Config
+    policy: _Policy
+
+    def __init__(
+        self,
+        *,
+        config: _Config,
+        policy: _Policy,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+    ) -> None:
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     @property
     def i_t2_leak__uA(self) -> float:
         return self.config.i_t2_leak__uA
 
-    def i_t2_unit__uA(self, dcop: XbarCell1t1rDcop) -> Tensor:
+    @torch.no_grad()
+    def i_t2_unit__uA(self, dcop: _Dcop) -> Tensor:
         """Return the unit-width T2 current at the solved internal voltage."""
         config = self.config
         driven = dcop.v_x__V > config.v_x_on_threshold__V

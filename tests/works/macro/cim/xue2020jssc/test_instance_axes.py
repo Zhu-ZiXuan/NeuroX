@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Iterator
 
 import pytest
 import torch
-import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler, Reporter
@@ -23,13 +21,6 @@ from ._utils import (
     build_calibrated_macro,
     ideal_mac,
 )
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def _per_die_weights(inst_shape: tuple[int, ...]) -> Tensor:

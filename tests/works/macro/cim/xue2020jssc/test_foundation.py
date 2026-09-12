@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterator
 
 import pytest
 import torch
-import torch._dynamo
 
 from neurox.common.encoding import Encoding
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig
@@ -20,13 +18,6 @@ from ._utils import (
     build_config,
     build_macro,
 )
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def test_registry_dispatch() -> None:
@@ -52,12 +43,12 @@ def test_derived_geometry_laws() -> None:
     macro = build_macro(build_config(lane_num=2, scan_num=4))
     assert macro.lane_num == 2
     assert macro.scan_num == 4
-    assert macro.array.cell.inst_shape[-2:] == (macro.col_num, macro.row_num)
+    assert macro.array.cell.inst_shape[-2:] == (macro.row_num, macro.col_num)
 
     macro_d1 = build_macro(build_config(w_digit_num=1))
     macro_d3 = build_macro(build_config(w_digit_num=3))
-    assert macro_d1.array.cell.inst_shape[-2:] == (macro_d1.col_num, macro_d1.row_num)
-    assert macro_d3.array.cell.inst_shape[-2:] == (macro_d3.col_num, macro_d3.row_num)
+    assert macro_d1.array.cell.inst_shape[-2:] == (macro_d1.row_num, macro_d1.col_num)
+    assert macro_d3.array.cell.inst_shape[-2:] == (macro_d3.row_num, macro_d3.col_num)
 
 
 def test_derived_ratio_anchors() -> None:
@@ -174,12 +165,12 @@ def test_generalized_w_digit_num_accepted() -> None:
     assert d1.w_digit_num == 1
     macro1 = build_macro(d1)
     assert macro1.w_value_range == (-1, 1)
-    assert macro1.array.cell.inst_shape[-2:] == (macro1.col_num, macro1.row_num)
+    assert macro1.array.cell.inst_shape[-2:] == (macro1.row_num, macro1.col_num)
 
     d3 = build_config(w_digit_num=3)
     assert d3.w_digit_num == 3
     macro3 = build_macro(d3)
-    assert macro3.array.cell.inst_shape[-2:] == (macro3.col_num, macro3.row_num)
+    assert macro3.array.cell.inst_shape[-2:] == (macro3.row_num, macro3.col_num)
 
 
 def test_weight_radix_cannot_exceed_the_cell_state_count() -> None:

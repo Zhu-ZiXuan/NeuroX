@@ -12,9 +12,9 @@ from torch import Tensor
 
 from neurox.api.profiler import Profiler
 from neurox.api.reporter import Reporter
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.macro.cim import CimMacro
 
-type _Macro = CimMacro[CimMacroConfig, CimMacroPolicy]
+type _Macro = CimMacro
 
 
 @dataclass(frozen=True)

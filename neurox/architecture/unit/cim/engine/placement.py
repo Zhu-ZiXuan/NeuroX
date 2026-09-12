@@ -53,10 +53,17 @@ class PlacementStagePolicy(PolicyBase):
     pass
 
 
-class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
+_Config = PlacementStageConfig
+_Policy = PlacementStagePolicy
+
+
+class PlacementStage(ModuleBase):
     """Pair geometric weight placement with input scheduling and aggregation."""
 
     is_profile_target: ClassVar[bool] = False
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -66,8 +73,8 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
     def __init__(
         self,
         *,
-        config: PlacementStageConfig,
-        policy: PlacementStagePolicy,
+        config: _Config,
+        policy: _Policy,
         plan: MatmulPlacementPlan,
         input_num: int,
         macro_plane_num: int,
@@ -104,6 +111,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         self.contraction_accumulator = Accumulator(
             config=self.config.contraction_accumulator_config,
             policy=DigitalPolicy(),
+            # Shape: [Sw, G]
             inst_shape=(macro_plane_num, macro_group_num),
         )
 

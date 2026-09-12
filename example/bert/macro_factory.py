@@ -33,7 +33,7 @@ def build_macro_factory(
     policy_path: Path,
     *,
     ideal_macro: bool,
-) -> Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]:
+) -> Callable[..., CimUnit]:
     """Return `(w_logical_shape) → macro` for the given config + policy TOMLs.
 
     The circuit design lives in `config_path` (section `[cim_unit]`); the
@@ -43,7 +43,7 @@ def build_macro_factory(
     config already carries an ideal one.
     """
 
-    def factory(*, w_logical_shape: tuple[int, ...]) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
+    def factory(*, w_logical_shape: tuple[int, ...]) -> CimUnit:
         return CimUnit.from_config(
             config=read_macro_config(config_path),
             policy=read_macro_policy(policy_path),

@@ -18,7 +18,7 @@ class _Policy(PolicyBase):
     pass
 
 
-class _Node(ModuleBase[_Config, _Policy]):
+class _Node(ModuleBase):
     """NeuroX module that may hold NeuroX children."""
 
     def __init__(self, *children: nn.Module) -> None:

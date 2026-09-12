@@ -59,3 +59,18 @@ def test_conversion_bills_each_element_at_its_own_code() -> None:
     with Profiler() as p_free:
         free_zero.convert(code)
     assert _energy_total(p_free.records, free_zero) == pytest.approx(count_1 * _E_CODE_1__fJ)
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["eager", "compiled"])
+def test_conversion_does_not_track_signal_table_gradients(compiled: bool) -> None:
+    dac = _build((0.0, 0.0))
+    dac._code_to_signal.requires_grad_()
+    code = torch.tensor([0, 1], dtype=torch.int64)
+    convert = torch.compile(dac.convert) if compiled else dac.convert
+
+    with torch.enable_grad():
+        signal = convert(code)
+        assert torch.is_grad_enabled()
+
+    assert not signal.requires_grad
+    torch.testing.assert_close(signal, dac._code_to_signal)

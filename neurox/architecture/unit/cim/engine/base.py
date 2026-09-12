@@ -42,7 +42,11 @@ class CimEnginePolicy(PolicyBase):
     x_slice: XSliceStagePolicy
 
 
-class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
+_Config = CimEngineConfig
+_Policy = CimEnginePolicy
+
+
+class CimEngine(ModuleBase):
     """Map one logical matrix multiplication onto CIM macros.
 
     Args:
@@ -53,11 +57,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: CimEngineConfig,
-        policy: CimEnginePolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -165,6 +172,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self.cim_macro = self._build_cim_macro(
             cim_macro_config=self.config.cim_macro_config,
             cim_macro_policy=self.policy.cim_macro_policy,
+            # Shape: [M=1, Sx=1, Sw, Tc, G]
             inst_shape=macro_inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -206,8 +214,8 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def from_config(
         cls,
         *,
-        config: CimEngineConfig,
-        policy: CimEnginePolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -274,6 +282,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         # Shape: [..., M, K, Sx] -> [..., M, Sx, Sw=1, Tc, G=1, L]
         return self.placement.organize_x(sliced)
 
+    @torch.no_grad()
     def program(self, weight: Tensor) -> None:
         """Program one integer logical weight tensor.
 
@@ -345,10 +354,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
-    ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
+    ) -> CimMacro:
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,
+            # Shape: [*inst_shape]
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

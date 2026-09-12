@@ -7,15 +7,15 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ModuleBase
 from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy, VoltageDriverSnap
 from neurox.primitive.device.mosfet import MosfetConfig, MosfetPolicy, Nmos
 from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
 
-type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy, VoltageDriverSnap, VoltageDriverSnap]
-type _Module = ModuleBase[ConfigBase, PolicyBase]
+type _Array = XbarArray1t1r[VoltageDriverSnap, VoltageDriverSnap]
+type _Module = ModuleBase
 
 
 def _array_config() -> XbarArray1t1rConfig:

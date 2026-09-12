@@ -73,7 +73,13 @@ class VoltageDriverSnap(SnapBase):
     shape."""
 
 
-class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
+_Config = VoltageDriverConfig
+_Policy = VoltageDriverPolicy
+_Dcop = VoltageDriverDcop
+_Snap = VoltageDriverSnap
+
+
+class VoltageDriver(ModuleBase):
     """Generic Thevenin voltage-source clamp driver.
 
     The port voltage follows `v_port = v_ref + v_perturb - i_port * r_out`, where
@@ -81,6 +87,9 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
     the nominal reference it is handed. A zero output resistance represents an
     ideal voltage source.
     """
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -98,8 +107,8 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
     def __init__(
         self,
         *,
-        config: VoltageDriverConfig,
-        policy: VoltageDriverPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -137,12 +146,13 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
             enabled=self.policy.offset,
         )
 
+    @torch.no_grad()
     def snapshot(
         self,
         *,
         v_ref__V: Tensor,
         shape: tuple[int, ...],
-    ) -> VoltageDriverSnap:
+    ) -> _Snap:
         """Sample the driver's static state and per-call noise at `shape`.
 
         The reference and the fabricated static buffer both expand onto
@@ -173,24 +183,26 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
         v_perturb__V = apply_gaussian(v_perturb__V, self.config.thermal_sigma__V, enabled=self.policy.thermal)
         # The slope is one number for every position, and the expand is the
         # stride-0 view that says so without storing it.
-        return VoltageDriverSnap(
+        return _Snap(
             v_ref__V=v_ref__V,
             v_perturb__V=v_perturb__V,
             r_out__MOhm=self._r_out__MOhm.expand(shape),
         )
 
+    @torch.no_grad()
     def drive(self, *, i_port__uA: Tensor) -> None:
         """Record one access at the converged port-current layout."""
         if self._is_dynamic_energy_profile_active():
             self._record_dynamic_energy(self._energy_per_op__fJ.expand(i_port__uA.shape))
 
+    @torch.no_grad()
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snap: VoltageDriverSnap,
+        snap: _Snap,
         *,
         v_port_init__V: Tensor | None,
-    ) -> VoltageDriverDcop:
+    ) -> _Dcop:
         """Solve the Thevenin driver's port voltage at the present port current.
 
         Args:
@@ -207,7 +219,7 @@ class VoltageDriver(ModuleBase[VoltageDriverConfig, VoltageDriverPolicy]):
             non-positive.
         """
         del v_port_init__V
-        return VoltageDriverDcop(
+        return _Dcop(
             v_port__V=snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm,
             dvport_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),
         )

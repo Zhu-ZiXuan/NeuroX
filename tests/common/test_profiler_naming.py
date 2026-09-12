@@ -18,7 +18,7 @@ class _Policy(PolicyBase):
     pass
 
 
-class _Leaf(ModuleBase[_Config, _Policy]):
+class _Leaf(ModuleBase):
     """Minimal emitting module."""
 
     def __init__(self, *, energy__fJ: float = 0.0) -> None:

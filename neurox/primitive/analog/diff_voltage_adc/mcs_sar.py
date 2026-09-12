@@ -70,11 +70,12 @@ class McsSarDiffVadcPolicy(DiffVadcPolicy):
     """Apply kT/C sampling thermal noise on the held top plates."""
 
 
-@DiffVadc.register_neurox_module(
-    config_type=McsSarDiffVadcConfig,
-    policy_type=McsSarDiffVadcPolicy,
-)
-class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
+_Config = McsSarDiffVadcConfig
+_Policy = McsSarDiffVadcPolicy
+
+
+@DiffVadc.register_impl(config_type=_Config, policy_type=_Policy)
+class McsSarDiffVadc(DiffVadc):
     """V_cm-based (MCS) differential SAR voltage ADC.
 
     The CDAC swings against one full-scale reference, so this converter's
@@ -82,6 +83,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     per-bit switching energy.
 
     """
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -97,8 +101,8 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     def __init__(
         self,
         *,
-        config: McsSarDiffVadcConfig,
-        policy: McsSarDiffVadcPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -169,6 +173,7 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             enabled=policy.comparator_offset,
         )
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _convert_impl(
         self,
         v_pos__V: Tensor,
@@ -176,7 +181,8 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         *,
         v_refs__V: Tensor,
         active_bits: int,
-    ) -> Tensor:
+        record_energy: bool,
+    ) -> tuple[Tensor, Tensor | None]:
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
@@ -187,17 +193,12 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
                 axis and the leading dims broadcast against the inputs.
                 Shape: `[..., tap=1]`.
             active_bits: Active conversion resolution in `[1, bits]`.
+            record_energy: Whether to compute dynamic energy.
 
         Returns:
             Raw offset-binary code tensor valued in `[0, 2 ** active_bits - 1]`, one
-            code per `v_pos__V` element.
-
-        Raises:
-            ValueError: `active_bits` is outside `[1, bits]`, or `v_refs__V` does
-                not hold exactly one tap on its last axis.
+            code per `v_pos__V` element, and optional per-output dynamic energy [fJ].
         """
-        self._validate_runtime_args(v_refs__V)
-
         # Shape: [..., tap=1] -> [...]
         v_ref__V = v_refs__V[..., 0]
         v_cm__V = 0.5 * v_ref__V
@@ -259,9 +260,10 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
             code = (code << 1) | last_bit.to(torch.int32)
 
-        # --- 5: record dynamic energy when requested ---
+        # --- 5: compute dynamic energy when requested ---
 
-        if self._is_dynamic_energy_profile_active():
+        energy__fJ = None
+        if record_energy:
             e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
             e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
             e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.energy_per_op__fJ
@@ -281,9 +283,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             # Shape: [..., bit] -> [...]
             c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
             e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
-            self._record_dynamic_energy(e_sample__fJ + e_detect__fJ + e_reset__fJ)
+            energy__fJ = e_sample__fJ + e_detect__fJ + e_reset__fJ
 
-        return code
+        return code, energy__fJ
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.

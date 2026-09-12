@@ -38,6 +38,7 @@ def boundary_inverse_block_tridiagonal_2x2(
     diag: _TensorTuple4,
     *,
     off_diag: tuple[float, float],
+    dim: int,
 ) -> _TensorTuple4:
     """Return the leading diagonal block of a block-tridiagonal inverse.
 
@@ -46,21 +47,22 @@ def boundary_inverse_block_tridiagonal_2x2(
     `S[k] = D[k] - U @ inv(S[k + 1]) @ U`; the requested inverse block is
     `inv(S[0])`.
 
-    CUDA sweeps benefit from contiguous batch slices `component[..., k]`,
-    since each step processes all batch positions at one block index. The
-    final input axis is the recurrence axis; unit stride on that axis alone
-    does not provide this layout. Strided inputs remain supported, and this
-    function does not repack them.
+    CUDA sweeps benefit from contiguous slices `component.select(dim, k)`,
+    since each step processes every independent system at one block index.
+    Unit stride on the recurrence axis alone does not provide this layout.
+    Strided inputs remain supported, and this function does not repack them.
 
     Args:
         diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
-            Shape: `[..., N]`.
+            Shape: `[..., N, ...]`.
         off_diag: The two diagonal entries of the shared off-block.
+        dim: Positive or negative index of the recurrence axis of length `N`.
 
     Returns:
         Entries `(A_inv[0, 0], A_inv[0, 1], A_inv[1, 0], A_inv[1, 1])`
-        of the leading diagonal inverse block.
-        Shape: `[...]` per tuple component.
+        of the leading diagonal inverse block. The recurrence axis `dim`
+        is retained with length one, matching the input axis order.
+        Shape: `[..., 1, ...]` per tuple component.
     """
     diag_00, diag_01, diag_10, diag_11 = diag
     u_0, u_1 = off_diag
@@ -70,38 +72,42 @@ def boundary_inverse_block_tridiagonal_2x2(
     w_10 = u_1 * u_0
     w_11 = u_1 * u_1
 
-    block_num = diag_00.shape[-1]
+    block_num = diag_00.shape[dim]
 
     def body_fn(state: _TensorTuple4, index: Tensor) -> _TensorTuple4:
         a_00, a_01, a_10, a_11 = state
         k = index.view(1)
-        # Shape: [..., N] -> [...]
-        m_00 = diag_00[..., k].squeeze(-1) - w_00 * a_00
-        m_01 = diag_01[..., k].squeeze(-1) - w_01 * a_01
-        m_10 = diag_10[..., k].squeeze(-1) - w_10 * a_10
-        m_11 = diag_11[..., k].squeeze(-1) - w_11 * a_11
+
+        def select(t: Tensor) -> Tensor:
+            return t.index_select(dim, k)
+
+        # Shape: [..., N, ...] -> [..., 1, ...]
+        m_00 = select(diag_00) - w_00 * a_00
+        m_01 = select(diag_01) - w_01 * a_01
+        m_10 = select(diag_10) - w_10 * a_10
+        m_11 = select(diag_11) - w_11 * a_11
         inv_det = 1.0 / (m_00 * m_11 - m_01 * m_10)
         a_00 = m_11 * inv_det
         a_01 = -m_01 * inv_det
         a_10 = -m_10 * inv_det
         a_11 = m_00 * inv_det
-        # Shape: [...]
+        # Shape: [..., 1, ...]
         return a_00, a_01, a_10, a_11
 
     # A zero inverse represents the virtual block beyond the trailing boundary,
     # so the first loop update reduces directly to inv(D[N - 1]).
-    # Shape: [...]
+    # Shape: [..., N, ...] -> [..., 1, ...]
     init_state = (
-        torch.zeros_like(diag_00[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_01[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_10[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_11[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_00.narrow(dim, 0, 1), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_01.narrow(dim, 0, 1), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_10.narrow(dim, 0, 1), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_11.narrow(dim, 0, 1), memory_format=torch.contiguous_format),
     )
 
     # Reverse the small index sequence rather than materializing flipped coefficients.
     indices = torch.arange(block_num - 1, -1, -1, device=diag_00.device)
 
-    # Shape: [...]
+    # Shape: [..., 1, ...]
     return run_scan_without_output(init_state=init_state, xs=indices, body_fn=body_fn, device=diag_00.device)
 
 
@@ -110,6 +116,7 @@ def solve_block_tridiagonal_2x2(
     rhs: _TensorTuple2,
     *,
     off_diag: tuple[float, float],
+    dim: int,
 ) -> _TensorTuple2:
     """Solve batched 2×2 block-tridiagonal systems with ONE constant off-block.
 
@@ -123,23 +130,24 @@ def solve_block_tridiagonal_2x2(
     coefficients and solutions are collected as outputs; their storage grows
     with `N`. The two solution components are returned in ascending row order.
 
-    CUDA sweeps benefit when each input slice `component[..., k]` is contiguous
-    across the batch dimensions, for both `diag` and `rhs`. The final input
-    axis is the recurrence axis; making that axis contiguous alone does not
-    provide this layout. Strided inputs remain supported, and this function
-    does not repack them. Collected histories use contiguous batch slices.
+    CUDA sweeps benefit when `component.select(dim, k)` is contiguous across
+    the remaining axes, for both `diag` and `rhs`. Unit stride on the recurrence
+    axis alone does not provide this layout. Strided inputs remain supported,
+    and this function does not repack them. Collected histories use contiguous
+    slices for each block index.
 
     Args:
         diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
-            Shape: `[..., N]`.
+            Shape: `[..., N, ...]`.
         rhs: Right-hand-side entries `(b[k, 0], b[k, 1])`.
-            Shape: `[..., N]`.
+            Shape: `[..., N, ...]`.
         off_diag: The two diagonal entries of the shared off-block, i.e.
             `U = diag(off_diag[0], off_diag[1])`.
+        dim: Positive or negative index of the recurrence axis of length `N`.
 
     Returns:
-        The solution components `(x[..., 0], x[..., 1])`.
-        Shape: `[..., N]`.
+        The two solution components, retaining the input axis order.
+        Shape: `[..., N, ...]`.
     """
     diag_00, diag_01, diag_10, diag_11 = diag
     rhs_0, rhs_1 = rhs
@@ -151,7 +159,7 @@ def solve_block_tridiagonal_2x2(
     w_10 = u_1 * u_0
     w_11 = u_1 * u_1
 
-    block_num = rhs_0.shape[-1]
+    block_num = rhs_0.shape[dim]
 
     # --- Forward elimination ---
 
@@ -184,21 +192,21 @@ def solve_block_tridiagonal_2x2(
     # Canonical strides also match subsequent carries for singleton batch axes.
     # Shape: [...]
     init_state = (
-        torch.zeros_like(diag_00[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_01[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_10[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(diag_11[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(rhs_0[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(rhs_1[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_00.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_01.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_10.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(diag_11.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_0.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_1.select(dim, 0), memory_format=torch.contiguous_format),
     )
 
-    # Shape: [..., N] per output component.
+    # Shape: [..., N, ...] per output component.
     _, reduced = run_scan(
         init_state=init_state,
         xs=(diag_00, diag_01, diag_10, diag_11, rhs_0, rhs_1),
         body_fn=forward_elimination_step,
         output_template=init_state,
-        dim=-1,
+        dim=dim,
     )
     a_00_seq, a_01_seq, a_10_seq, a_11_seq, e_0_seq, e_1_seq = reduced
 
@@ -207,17 +215,22 @@ def solve_block_tridiagonal_2x2(
     def back_substitution_step(state: _TensorTuple2, index: Tensor) -> tuple[_TensorTuple2, _TensorTuple2]:
         x_0_next, x_1_next = state
         k = index.view(1)
+
+        def select(t: Tensor) -> Tensor:
+            return t.index_select(dim, k).squeeze(dim)
+
         s_0 = u_0 * x_0_next
         s_1 = u_1 * x_1_next
-        x_0 = e_0_seq[..., k].squeeze(-1) - (a_00_seq[..., k].squeeze(-1) * s_0 + a_01_seq[..., k].squeeze(-1) * s_1)
-        x_1 = e_1_seq[..., k].squeeze(-1) - (a_10_seq[..., k].squeeze(-1) * s_0 + a_11_seq[..., k].squeeze(-1) * s_1)
+        # Shape: [..., N, ...] -> [...]
+        x_0 = select(e_0_seq) - (select(a_00_seq) * s_0 + select(a_01_seq) * s_1)
+        x_1 = select(e_1_seq) - (select(a_10_seq) * s_0 + select(a_11_seq) * s_1)
         return (x_0, x_1), (x_0.clone(), x_1.clone())
 
     # x_N = 0 makes the last-row update x_{N-1} = e_{N-1}, including N = 1.
     # Shape: [...]
     init_solution = (
-        torch.zeros_like(rhs_0[..., 0], memory_format=torch.contiguous_format),
-        torch.zeros_like(rhs_1[..., 0], memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_0.select(dim, 0), memory_format=torch.contiguous_format),
+        torch.zeros_like(rhs_1.select(dim, 0), memory_format=torch.contiguous_format),
     )
 
     # Reverse only the small index sequence, leaving all six histories in place.
@@ -230,7 +243,7 @@ def solve_block_tridiagonal_2x2(
         reverse=True,
     )
     x_0_seq, x_1_seq = solution
-    return x_0_seq.movedim(0, -1), x_1_seq.movedim(0, -1)
+    return x_0_seq.movedim(0, dim), x_1_seq.movedim(0, dim)
 
 
 def solve_tridiagonal(

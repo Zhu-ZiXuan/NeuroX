@@ -74,10 +74,13 @@ def test_solve_dc_matches_table_conductance() -> None:
     on = v_wl__V > _V_WL_ON_THRESHOLD__V
     g_cell__uS = torch.where(on, g_cell_on, g_cell_off)
 
-    v_bl__V = torch.full((2, 2), 0.3, dtype=torch.float64)
+    v_bl__V = torch.full((2, 2), 0.3, dtype=torch.float64, requires_grad=True)
     v_sl__V = torch.full((2, 2), 0.05, dtype=torch.float64)
     dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
 
+    assert not dcop.i__uA.requires_grad
+    assert not dcop.v_x__V.requires_grad
+    assert torch.is_grad_enabled()
     torch.testing.assert_close(dcop.i__uA, g_cell__uS * (v_bl__V - v_sl__V))
     torch.testing.assert_close(dcop.di_dvbl__uS, g_cell__uS)
     torch.testing.assert_close(dcop.di_dvsl__uS, -g_cell__uS)

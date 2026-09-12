@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import pytest
 import torch
-import torch._dynamo
 
 from neurox import Profiler, Reporter
 
@@ -23,13 +20,6 @@ from ._utils import (
 
 _CHANNEL_KEYS = (".cablc", ".dswct", ".sinwp_sc", ".pn_isub")
 _MODULE_ROWS = ("array", "tmcsa", "control")
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def _mixed_sign_weight() -> torch.Tensor:

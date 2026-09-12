@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
 
 import pytest
 import torch
-import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler, Reporter
@@ -30,13 +28,6 @@ from ._utils import (
 
 _POLARITY_NUM = 2
 _FLOAT_TOLERANCE = {"rtol": 1.0e-10, "atol": 1.0e-12}
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def _mixed_weight(input_num: int, output_num: int) -> Tensor:
@@ -68,14 +59,14 @@ def _twin_pair(
 def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> XbarArray1t1rDcop:
     """Solve the programmed array under the serialized WL and driver inputs."""
     v_wl__V = macro._x_transcoder.encode(x.long(), dim=-2) * macro._v_wl_on__V
-    seat_shape = (*v_wl__V.shape[:-1], macro.lane_num, macro.scan_num, _POLARITY_NUM, macro.config.w_digit_num)
+    seat_shape = (*v_wl__V.shape[:-1], 1, macro.lane_num, macro.scan_num, _POLARITY_NUM, macro.config.w_digit_num)
     bl_v_ref__V = macro.cablc_vref.values()
-    bl_v_ref__V = bl_v_ref__V.view(*bl_v_ref__V.shape, 1, 1, 1, 1, 1)
+    bl_v_ref__V = bl_v_ref__V.view(*bl_v_ref__V.shape, 1, 1, 1, 1, 1, 1)
     bl_snap = macro.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
     sl_snap = macro.sl_driver.snapshot(v_ref__V=macro._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
     return macro.array.solve_dc(
-        v_wl__V=v_wl__V,
-        wl_phase_dims=(-2,),
+        v_wl__V=v_wl__V.unsqueeze(macro.array.col_dim),
+        wl_phase_dims=(-3,),
         bl_driver_snap=bl_snap,
         sl_driver_snap=sl_snap,
     )
@@ -138,8 +129,8 @@ def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch
     w = torch.tensor([[1, -1, 2, -2], [2, -2, 1, -1], [3, 0, -3, 0], [0, 3, 0, -3]], dtype=torch.long)
     assert tuple(w.shape) == (macro.input_num, macro.output_num)
 
-    # Shape: [phys_col, row]
-    want_state = torch.zeros(macro.col_num, macro.row_num, dtype=torch.long)
+    # Shape: [row, phys_col]
+    want_state = torch.zeros(macro.row_num, macro.col_num, dtype=torch.long)
     for row in range(macro.input_num):
         for col in range(macro.output_num):
             value = int(w[row, col])
@@ -149,10 +140,10 @@ def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch
                 for pol in range(_POLARITY_NUM):  # 0 = PWG (positive), 1 = NWG (negative)
                     phys_col = ((lane * scan_num + scan) * _POLARITY_NUM + pol) * w_digit_num + w_digit
                     carries = (value >= 0) if pol == 0 else (value < 0)
-                    want_state[phys_col, row] = magnitude if carries else 0
+                    want_state[row, phys_col] = magnitude if carries else 0
 
     # Both digit order and polarity must be observable.
-    seat_state = want_state.unflatten(
+    seat_state = want_state.movedim(-1, 0).unflatten(
         0,
         (lane_num, scan_num, _POLARITY_NUM, w_digit_num),
     )
@@ -205,8 +196,8 @@ def test_true_shape_law(device: torch.device) -> None:
             macro = build_macro(config, device=device, inst_shape=inst)
             lane_num = macro.lane_num
             for name, trailing in (
-                ("cablc", (1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
-                ("sl_driver", (1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
+                ("cablc", (1, 1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
+                ("sl_driver", (1, 1, lane_num, 1, _POLARITY_NUM, config.w_digit_num)),
                 ("tmcsa", (lane_num, 1)),
                 ("control", (1,)),
             ):
@@ -217,6 +208,6 @@ def test_true_shape_law(device: torch.device) -> None:
             assert macro.array.cell.inst_shape == (
                 *inst,
                 1,
-                macro.scan_num * lane_num * _POLARITY_NUM * config.w_digit_num,
                 macro.row_num,
+                macro.scan_num * lane_num * _POLARITY_NUM * config.w_digit_num,
             )

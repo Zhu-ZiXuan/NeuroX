@@ -365,7 +365,7 @@ def _detail_array_solve_kwargs(
     )
     shape = (1, 2, 2)
     cell_snap = cell.snapshot(
-        control=harness.v_wl_drive__V.unsqueeze(-2).expand(shape),
+        control=harness.v_wl_drive__V.unsqueeze(-1).expand(shape),
         shape=shape,
     )
     kwargs = harness.solve_kwargs()

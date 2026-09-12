@@ -32,7 +32,7 @@ def cim_macro_from_file(
     T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
-) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
+) -> CimMacro:
     """Load and validate a file pair, then construct its registered CIM macro."""
     config = CimMacroConfig.from_file(*config_files, section=config_section)
     policy = CimMacroPolicy.from_file(*policy_files, section=policy_section)
@@ -55,7 +55,7 @@ def cim_unit_from_file(
     ideal_macro: bool,
     config_section: str | None = None,
     policy_section: str | None = None,
-) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
+) -> CimUnit:
     """Load and validate a file pair, then construct its registered CIM unit.
 
     Args:
@@ -84,7 +84,7 @@ def iadc_from_file(
     T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
-) -> Iadc[IadcConfig, IadcPolicy]:
+) -> Iadc:
     """Load and validate a file pair, then construct its registered current ADC."""
     config = IadcConfig.from_file(*config_files, section=config_section)
     policy = IadcPolicy.from_file(*policy_files, section=policy_section)
@@ -106,7 +106,7 @@ def diff_vadc_from_file(
     T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
-) -> DiffVadc[DiffVadcConfig, DiffVadcPolicy]:
+) -> DiffVadc:
     """Load and validate a file pair, then construct its registered differential voltage ADC."""
     config = DiffVadcConfig.from_file(*config_files, section=config_section)
     policy = DiffVadcPolicy.from_file(*policy_files, section=policy_section)

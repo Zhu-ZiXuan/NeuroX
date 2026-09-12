@@ -37,10 +37,17 @@ class SelectorPolicy(PolicyBase):
     """Draw a per-cell threshold offset at fabricate time."""
 
 
-class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
+_Config = SelectorConfig
+_Policy = SelectorPolicy
+
+
+class Selector(ModuleBase):
     """OTS selector with static per-cell V_th mismatch."""
 
     is_profile_target: ClassVar[bool] = False
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -53,8 +60,8 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     def __init__(
         self,
         *,
-        config: SelectorConfig,
-        policy: SelectorPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -77,6 +84,7 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
             enabled=self.policy.vth_mismatch,
         )
 
+    @torch.no_grad()
     def sample_vth_like(self, reference: Tensor) -> Tensor:
         """Broadcast the fabricated threshold to the shape of `reference`.
 

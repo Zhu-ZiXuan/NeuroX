@@ -37,8 +37,12 @@ class IdealConv2dUnitPolicy(CimUnitPolicy):
     pass
 
 
-@CimUnit.register_neurox_module(config_type=IdealConv2dUnitConfig, policy_type=IdealConv2dUnitPolicy)
-class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnitPolicy]):
+_Config = IdealConv2dUnitConfig
+_Policy = IdealConv2dUnitPolicy
+
+
+@CimUnit.register_impl(config_type=_Config, policy_type=_Policy)
+class IdealConv2dUnit(Conv2dUnit, CimUnit):
     """Exact integer convolution unit without output quantization.
 
     Args:
@@ -47,6 +51,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         ideal_macro: Accepted without changing this already ideal unit.
     """
 
+    config: _Config
+    policy: _Policy
+
     # === Programmed state ===
 
     _weight: Tensor  # Shape: [C_out, C_in*kh*kw]
@@ -54,8 +61,8 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
     def __init__(
         self,
         *,
-        config: IdealConv2dUnitConfig,
-        policy: IdealConv2dUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -125,6 +132,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         # Shape: [C_out, C_in, kh, kw] -> [C_out, C_in*kh*kw]
         return weight.flatten(start_dim=1).to(torch.int64)
 
+    @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")

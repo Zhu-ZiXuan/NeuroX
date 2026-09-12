@@ -59,8 +59,15 @@ class ReferencePolicy(PolicyBase):
     """Apply `tolerance_sigma_relative` at fabrication."""
 
 
-class Reference(ModuleBase[ReferenceConfig, ReferencePolicy]):
+_Config = ReferenceConfig
+_Policy = ReferencePolicy
+
+
+class Reference(ModuleBase):
     """Return one fabricated tensor without interpreting its axes or units."""
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -73,8 +80,8 @@ class Reference(ModuleBase[ReferenceConfig, ReferencePolicy]):
     def __init__(
         self,
         *,
-        config: ReferenceConfig,
-        policy: ReferencePolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -99,6 +106,7 @@ class Reference(ModuleBase[ReferenceConfig, ReferencePolicy]):
             enabled=self.policy.tolerance,
         )
 
+    @torch.no_grad()
     def values(self) -> Tensor:
         """Return the fabricated tensor unchanged."""
         return self._values

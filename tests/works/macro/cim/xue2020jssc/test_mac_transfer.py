@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterator
 
 import pytest
 import torch
-import torch._dynamo
 from torch import Tensor
 
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
@@ -23,13 +21,6 @@ from ._utils import (
     ideal_mac,
     probe_i_sub_grid,
 )
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def _assert_decode_matches_ideal(macro: Xue2020JsscCimMacro, w: Tensor, x: Tensor) -> Tensor:

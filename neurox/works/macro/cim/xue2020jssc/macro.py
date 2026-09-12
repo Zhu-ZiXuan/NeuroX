@@ -166,9 +166,16 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     tmcsa_iref_policy: ReferencePolicy
 
 
-@CimMacro.register_neurox_module(config_type=Xue2020JsscCimMacroConfig, policy_type=Xue2020JsscCimMacroPolicy)
-class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacroPolicy]):
+_Config = Xue2020JsscCimMacroConfig
+_Policy = Xue2020JsscCimMacroPolicy
+
+
+@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+class Xue2020JsscCimMacro(CimMacro):
     """Xue2020 SINWP 1T1R CIM sub-array."""
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -180,8 +187,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def __init__(
         self,
         *,
-        config: Xue2020JsscCimMacroConfig,
-        policy: Xue2020JsscCimMacroPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -205,10 +212,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         config = self.config
         policy = self.policy
+        lane_num = self.lane_num
+        w_digit_num = config.w_digit_num
         self.cablc = VoltageDriver(
             config=config.cablc_config,
             policy=policy.cablc_policy,
-            inst_shape=(*self.inst_shape, 1, self.lane_num, 1, _POLARITY_NUM, config.w_digit_num),
+            # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
+            inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -223,7 +233,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
-            inst_shape=(*self.inst_shape, 1, self.lane_num, 1, _POLARITY_NUM, config.w_digit_num),
+            # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
+            inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -232,6 +243,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.array = XbarArray1t1r(
             config=config.array_config,
             policy=policy.array_policy,
+            # Shape: [*inst_shape, x_bit=1]
             inst_shape=(*self.inst_shape, 1),
             row_num=self.row_num,
             col_num=self.col_num,
@@ -245,7 +257,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.tmcsa = Tmcsa(
             config=config.tmcsa_config,
             policy=policy.tmcsa_policy,
-            inst_shape=(*self.inst_shape, self.lane_num, 1),
+            # Shape: [*inst_shape, lane, scan=1]
+            inst_shape=(*self.inst_shape, lane_num, 1),
             vdd__V=config.vdd__V,
             dtype=dtype,
             T__K=T__K,
@@ -261,6 +274,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.control = UnmodeledBlock(
             config=config.control_config,
             policy=UnmodeledBlockPolicy(),
+            # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
             T__K=T__K,
@@ -294,6 +308,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
         return access__ns * self.scan_num
 
+    @torch.no_grad()
     def program(self, w: Tensor) -> None:
         """Encode logical weights into the physical cell grid.
 
@@ -313,11 +328,11 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         state_idx = torch.stack((digits.clamp_min(0), (-digits).clamp_min(0)), dim=-2)
 
         # col = lane * scan_num + scan
-        # Shape: [..., row, col, polarity, w_digit] -> [..., lane, scan, polarity, w_digit, row]
-        state_idx = state_idx.unflatten(-3, (self.lane_num, self.scan_num)).movedim(-5, -1)
-        # Shape: [..., lane, scan, polarity, w_digit, row] -> [..., x_bit=1, phys_col, row]
-        state_idx = state_idx.flatten(-5, -2).unsqueeze(-3)
-        self.array.program(state_idx)
+        # Shape: [..., row, col, polarity, w_digit] -> [..., row, lane, scan, polarity, w_digit]
+        state_idx = state_idx.unflatten(-3, (self.lane_num, self.scan_num))
+        # Shape: [..., row, lane, scan, polarity, w_digit] -> [..., x_bit=1, row, phys_col]
+        state_idx = state_idx.flatten(-4, -1).unsqueeze(-3)
+        self.array.program(state_idx.contiguous())
 
     def _record_cablc_dynamic_energy(
         self,
@@ -397,28 +412,30 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # Shape: [..., row] -> [..., x_bit, row]
         v_wl__V = self._x_transcoder.encode(x.long(), dim=-2) * self._v_wl_on__V
+        # Shape: [..., x_bit, row] -> [..., x_bit, row, col=1]
+        v_wl__V = v_wl__V.unsqueeze(self.array.col_dim)
 
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
-        seat_shape = (*v_wl__V.shape[:-1], self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        # Shape: [...] -> [..., x_bit=1, lane=1, scan=1, polarity=1, w_digit=1]
+        seat_shape = (*v_wl__V.shape[:-2], 1, self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
+        # Shape: [...] -> [..., x_bit=1, row=1, lane=1, scan=1, polarity=1, w_digit=1]
         bl_v_ref__V = self.cablc_vref.values()
-        bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1)
+        bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1, 1)
         bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
 
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, phys_col]
+        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit] -> [..., x_bit, row=1, phys_col]
         bl_driver_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, phys_col]
+        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit] -> [..., x_bit, row=1, phys_col]
         sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
 
-        # Shape: [..., x_bit, row]
+        # Shape: [..., x_bit, row, col=1]
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
-            wl_phase_dims=(-2,),
+            wl_phase_dims=(-3,),
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )
-        # Shape: [..., x_bit, phys_col] -> [..., x_bit, lane, scan, polarity, w_digit]
+        # Shape: [..., x_bit, row=1, phys_col] -> [..., x_bit, row=1, lane, scan, polarity, w_digit]
         seat_axes = (self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
         i_bl_seat__uA = array_dcop.i_bl_port__uA.unflatten(-1, seat_axes)
         i_sl_seat__uA = array_dcop.i_sl_port__uA.unflatten(-1, seat_axes)
@@ -426,7 +443,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.sl_driver.drive(i_port__uA=i_sl_seat__uA)
 
         # Shape: [..., x_bit, lane, scan, polarity, w_digit]
-        i_dl = i_bl_seat__uA
+        i_dl = array_dcop.i_bl_port__uA.squeeze(self.array.row_dim).unflatten(-1, seat_axes)
 
         # CABLC bills the whole VDD·I input branch; the array bills node capacitance.
         record_dynamic_energy = self._is_dynamic_energy_profile_active()

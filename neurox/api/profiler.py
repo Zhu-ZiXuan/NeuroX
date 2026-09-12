@@ -19,7 +19,10 @@ class EnergyRecord(RecordBase):
     """Virtual submodule the energy is billed under; `None` for a plain record."""
 
 
-class Profiler(RecorderBase[EnergyRecord]):
+_Record = EnergyRecord
+
+
+class Profiler(RecorderBase[_Record]):
     """Ledger capturing physical modules' dynamic-energy records.
 
     Every emitter names itself from the stamp its tree gave it, so the model is
@@ -56,7 +59,7 @@ class Profiler(RecorderBase[EnergyRecord]):
         qualified_name: str,
         dynamic_energy__fJ: Tensor,
         channel: str | None,
-    ) -> EnergyRecord:
+    ) -> _Record:
         """Build one record by folding an energy tensor onto `[*caller_leading]`.
 
         The ledger owns the layout rule and runs it in the emitter's frame:
@@ -82,7 +85,7 @@ class Profiler(RecorderBase[EnergyRecord]):
             energy = energy.sum()
         elif reduced:
             energy = energy.sum(dim=reduced)
-        return EnergyRecord(
+        return _Record(
             qualified_name=qualified_name,
             dynamic_energy__fJ=energy,
             channel=channel,

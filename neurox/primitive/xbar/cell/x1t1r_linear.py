@@ -90,8 +90,11 @@ _Policy = XbarCell1t1rLinearPolicy
 _Snap = XbarCell1t1rLinearSnap
 
 
-@XbarCell1t1r.register_neurox_module(config_type=_Config, policy_type=_Policy)
-class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[ConfigT, PolicyT, _Snap]):
+@XbarCell1t1r.register_impl(config_type=_Config, policy_type=_Policy)
+class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
+    config: _Config
+    policy: _Policy
+
     # === Functional buffers ===
 
     _g_cell_off_table__uS: Tensor  # Shape: [w_state]
@@ -109,8 +112,8 @@ class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[Config
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -138,6 +141,7 @@ class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[Config
     def w_state_num(self) -> int:
         return len(self.config.g_cell_off_table__uS)
 
+    @torch.no_grad()
     def program(self, w_state_idx: Tensor) -> None:
         """Program per-cell branch parameters from state indices.
 
@@ -160,6 +164,7 @@ class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[Config
         """Return whether the linear model selects its WL-on tables."""
         return snap.v_wl__V > self.config.v_wl_on_threshold__V
 
+    @torch.no_grad()
     def solve_dc(
         self,
         v_bl__V: Tensor,
@@ -178,6 +183,7 @@ class XbarCell1t1rLinear[ConfigT: _Config, PolicyT: _Policy](XbarCell1t1r[Config
             v_x__V=v_bl__V - vx_ratio * dv__V,
         )
 
+    @torch.no_grad()
     def snapshot(
         self,
         *,

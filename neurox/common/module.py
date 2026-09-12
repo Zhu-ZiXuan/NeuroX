@@ -7,13 +7,14 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Self, dataclass_transform, final
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 
 from .profile_mixin import ProfileMixin
 from .pytree_dataclass_mixin import PyTreeDataClassMixin
 from .serialize_mixin import SerializeMixin
-from .tensor_dataclass_mixin import TensorDataClassMixin, walk_single_tensor_fields
+from .tensor_dataclass_mixin import TensorDataClassMixin, map_single_tensor_fields
 from .validate_mixin import ValidateMixin
 
 
@@ -91,7 +92,7 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
         def fn(tensor: Tensor) -> Tensor:
             return tensor.expand(shape)
 
-        return walk_single_tensor_fields(fn, self)
+        return map_single_tensor_fields(fn, self)
 
     @final
     def flatten_axes(self, start_dim: int, end_dim: int) -> Self:
@@ -100,7 +101,7 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
         def fn(tensor: Tensor) -> Tensor:
             return tensor.flatten(start_dim, end_dim)
 
-        return walk_single_tensor_fields(fn, self)
+        return map_single_tensor_fields(fn, self)
 
     @final
     def index_select(self, dim: int, index: Tensor) -> Self:
@@ -109,14 +110,14 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
         def fn(tensor: Tensor) -> Tensor:
             return tensor.index_select(dim, index)
 
-        return walk_single_tensor_fields(fn, self)
+        return map_single_tensor_fields(fn, self)
 
 
 class DcopBase(TensorDataClassMixin):
     pass
 
 
-class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMixin, ABC):
+class ModuleBase(nn.Module, ProfileMixin, ABC):
     """Base for config- and policy-managed physical modules.
 
     Construct the owned module tree, place it on its device, then fabricate and
@@ -148,36 +149,21 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: ConfigBase,
+        policy: PolicyBase,
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
         if any(size <= 0 for size in inst_shape):
             raise ValueError(f"inst_shape extents must be positive; got {inst_shape}")
-        self.__config = config
-        self.__policy = policy
-        self.__inst_shape = inst_shape
-
-    @property
-    @final
-    def config(self) -> ConfigT:
-        return self.__config
-
-    @property
-    @final
-    def policy(self) -> PolicyT:
-        return self.__policy
-
-    @property
-    @final
-    def inst_shape(self) -> tuple[int, ...]:
-        return self.__inst_shape
+        self.config = config
+        self.policy = policy
+        self.inst_shape = inst_shape
 
     @property
     @final
     def inst_count(self) -> int:
-        return math.prod(self.__inst_shape)
+        return math.prod(self.inst_shape)
 
     @final
     def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
@@ -208,6 +194,7 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
             child.stamp_names(qualified_name=child_name)
 
     @final
+    @torch.no_grad()
     def fabricate(self) -> None:
         """Resample static manufacturing variation across this module subtree."""
         self._sample_fabrication_variation()
@@ -218,10 +205,7 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMix
         pass
 
 
-type NeuroxModule = ModuleBase[ConfigBase, PolicyBase]
-
-
-def neurox_roots(model: nn.Module) -> list[NeuroxModule]:
+def neurox_roots(model: nn.Module) -> list[ModuleBase]:
     """Collect the outermost NeuroX modules `model` holds.
 
     The walk stops descending at the first `ModuleBase` it meets, so a root
@@ -239,7 +223,7 @@ def neurox_roots(model: nn.Module) -> list[NeuroxModule]:
 
 def neurox_children(
     module: nn.Module,
-) -> list[tuple[str, NeuroxModule]]:
+) -> list[tuple[str, ModuleBase]]:
     """Collect the nearest NeuroX descendants.
 
     Plain module containers are traversed; descent stops at each NeuroX module.
@@ -249,8 +233,8 @@ def neurox_children(
     Returns:
         Pairs of relative registered paths and NeuroX modules.
     """
-    children: list[tuple[str, NeuroxModule]] = []
-    seen: set[NeuroxModule] = set()
+    children: list[tuple[str, ModuleBase]] = []
+    seen: set[ModuleBase] = set()
     for name, child in module.named_children():
         if isinstance(child, ModuleBase):
             candidates = [(name, child)]

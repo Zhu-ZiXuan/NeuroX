@@ -41,15 +41,15 @@ def torch_assert_async(condition: Tensor, message: str) -> None:
     torch._assert_async(condition, message)  # noqa: SLF001
 
 
-def torch_cond[OperandT, OutputT](
+def torch_cond[InputsT, OutputT](
     pred: Tensor | bool,
-    true_fn: Callable[[OperandT], OutputT],
-    false_fn: Callable[[OperandT], OutputT],
-    operands: OperandT,
+    true_fn: Callable[[InputsT], OutputT],
+    false_fn: Callable[[InputsT], OutputT],
+    inputs: InputsT,
     *,
     output_template: OutputT,
 ) -> OutputT:
-    """Adapt `torch.cond` to one structured operand and a structured result.
+    """Adapt `torch.cond` to one structured input and a structured output.
 
     Args:
         output_template: Result PyTree structure; tensor values and metadata
@@ -63,35 +63,35 @@ def torch_cond[OperandT, OutputT](
             raise TypeError(f"{name} must contain only Tensor leaves")
         return tuple(leaves), spec
 
-    flat_operands, operand_spec = _flatten_pytree(operands, name="operands")
+    flat_inputs, input_spec = _flatten_pytree(inputs, name="inputs")
     _, output_spec = _flatten_pytree(output_template, name="output_template")
 
     # --- 2. Define unflatten functions ---
 
-    def _unflatten_operands(flat_operands: tuple[Tensor, ...]) -> OperandT:
-        return cast(OperandT, pytree.tree_unflatten(flat_operands, operand_spec))
+    def _unflatten_inputs(flat_inputs: tuple[Tensor, ...]) -> InputsT:
+        return cast(InputsT, pytree.tree_unflatten(flat_inputs, input_spec))
 
     def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
         return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
 
     # --- 3. Define wrapper functions ---
 
-    def flatten_branch(fn: Callable[[OperandT], OutputT], flat_operands: tuple[Tensor, ...]) -> tuple[Tensor, ...]:
-        output = fn(_unflatten_operands(flat_operands))
+    def flatten_branch(fn: Callable[[InputsT], OutputT], flat_inputs: tuple[Tensor, ...]) -> tuple[Tensor, ...]:
+        output = fn(_unflatten_inputs(flat_inputs))
         flat_output, branch_spec = _flatten_pytree(output, name="branch output")
         if branch_spec != output_spec:
             raise TypeError("branch output must match the output_template PyTree structure")
         return flat_output
 
-    def flat_true_fn(*flat_operands: Tensor) -> tuple[Tensor, ...]:
-        return flatten_branch(true_fn, flat_operands)
+    def flat_true_fn(*flat_inputs: Tensor) -> tuple[Tensor, ...]:
+        return flatten_branch(true_fn, flat_inputs)
 
-    def flat_false_fn(*flat_operands: Tensor) -> tuple[Tensor, ...]:
-        return flatten_branch(false_fn, flat_operands)
+    def flat_false_fn(*flat_inputs: Tensor) -> tuple[Tensor, ...]:
+        return flatten_branch(false_fn, flat_inputs)
 
     # --- 4. Run pytorch cond ---
 
-    flat_output = torch.cond(pred, flat_true_fn, flat_false_fn, flat_operands)
+    flat_output = torch.cond(pred, flat_true_fn, flat_false_fn, flat_inputs)
 
     # --- 5. Unflatten pytree ---
 

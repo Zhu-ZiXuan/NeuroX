@@ -54,27 +54,27 @@ class _ModulePolicy(PolicyBase):
 
 class _ModuleRegistryRoot(
     RegistryMixin[_ModuleConfig, _ModulePolicy, "_ModuleRegistryRoot"],
-    ModuleBase[_ModuleConfig, _ModulePolicy],
+    ModuleBase,
 ):
     pass
 
 
-@_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
+@_ModuleRegistryRoot.register_impl(config_type=_ModuleConfig, policy_type=_ModulePolicy)
 class _RegisteredModule(_ModuleRegistryRoot):
     pass
 
 
-class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
+class _Module(ModuleBase):
     pass
 
 
-class _BufferedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+class _BufferedModule(ModuleBase):
     def __init__(self) -> None:
         super().__init__(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
         self._register_nonpersistent_buffer("anchor", torch.tensor(1.0))
 
 
-class _FabricatingModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+class _FabricatingModule(ModuleBase):
     def __init__(self, name: str, events: list[str], *children: nn.Module) -> None:
         super().__init__(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
         self.name = name
@@ -175,9 +175,7 @@ def test_fabricate_samples_a_shared_module_once() -> None:
 
 
 def test_module_registry_resolves_config_and_policy_instances() -> None:
-    assert (
-        _ModuleRegistryRoot._lookup_neurox_module(config=_ModuleConfig(), policy=_ModulePolicy()) is _RegisteredModule
-    )
+    assert _ModuleRegistryRoot._lookup_impl(config=_ModuleConfig(), policy=_ModulePolicy()) is _RegisteredModule
 
 
 def test_module_registry_rejects_a_duplicate_config_policy_key() -> None:
@@ -186,7 +184,7 @@ def test_module_registry_rejects_a_duplicate_config_policy_key() -> None:
         match=r"config _ModuleConfig and policy _ModulePolicy already select _RegisteredModule",
     ):
 
-        @_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
+        @_ModuleRegistryRoot.register_impl(config_type=_ModuleConfig, policy_type=_ModulePolicy)
         class _DuplicateRegisteredModule(_ModuleRegistryRoot):
             pass
 
@@ -218,7 +216,7 @@ def test_a_profile_target_without_static_ppa_fails_when_the_metric_is_read(metri
 
 
 def test_a_module_counted_at_its_owner_needs_no_static_ppa() -> None:
-    class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    class _OwnedModule(ModuleBase):
         is_profile_target = False
 
     assert _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=()).inst_count == 1
@@ -226,7 +224,7 @@ def test_a_module_counted_at_its_owner_needs_no_static_ppa() -> None:
 
 @pytest.mark.parametrize("metric", ["area__um2", "leakage__uW"])
 def test_a_module_counted_at_its_owner_refuses_static_ppa_access(metric: str) -> None:
-    class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    class _OwnedModule(ModuleBase):
         is_profile_target = False
 
     module = _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
@@ -237,7 +235,7 @@ def test_a_module_counted_at_its_owner_refuses_static_ppa_access(metric: str) ->
 def test_a_module_counted_at_its_owner_rejects_declared_static_ppa() -> None:
     with pytest.raises(TypeError, match=r"sets is_profile_target = False but declares _area_per_inst__um2"):
 
-        class _InvalidOwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+        class _InvalidOwnedModule(ModuleBase):
             is_profile_target = False
 
             @property

@@ -29,22 +29,30 @@ class ImuxPolicy(PolicyBase):
     pass
 
 
-class Imux(ModuleBase[ImuxConfig, ImuxPolicy]):
+_Config = ImuxConfig
+_Policy = ImuxPolicy
+
+
+class Imux(ModuleBase):
     """Ideal N:1 time-share current mux — identity·gain transport."""
 
     is_profile_target: ClassVar[bool] = False
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ImuxConfig,
-        policy: ImuxPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
+    @torch.no_grad()
     def transport(self, i__uA: Tensor) -> Tensor:
         """Apply the mux transport gain elementwise.
 

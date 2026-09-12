@@ -126,9 +126,13 @@ class CimMacroPolicy(PolicyBase, ABC):
     pass
 
 
-class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["CimMacroConfig", "CimMacroPolicy", "CimMacro[CimMacroConfig, CimMacroPolicy]"],
+_Config = CimMacroConfig
+_Policy = CimMacroPolicy
+
+
+class CimMacro(
+    ModuleBase,
+    RegistryMixin["_Config", "_Policy", "CimMacro"],
     ABC,
 ):
     """Abstract base class for a CIM macro.
@@ -141,11 +145,14 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         inst_shape: Per-instance multiplicity prefix.
     """
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -209,18 +216,18 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     def from_config(
         cls,
         *,
-        config: CimMacroConfig,
-        policy: CimMacroPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
+    ) -> CimMacro:
         """Build the implementation registered for the config-policy pair.
 
         Returns:
             Registered CIM macro implementation.
         """
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -282,6 +289,7 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
         raise NotImplementedError
 
     @final
+    @torch.no_grad()
     def vec_mat_mul(
         self,
         x: Tensor,

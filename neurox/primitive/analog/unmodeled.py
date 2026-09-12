@@ -29,16 +29,23 @@ class UnmodeledBlockPolicy(PolicyBase):
     pass
 
 
-class UnmodeledBlock(ModuleBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
+_Config = UnmodeledBlockConfig
+_Policy = UnmodeledBlockPolicy
+
+
+class UnmodeledBlock(ModuleBase):
     """Circuit block represented by flat per-instance and per-operation PPA."""
+
+    config: _Config
+    policy: _Policy
 
     _energy_per_op__fJ: Tensor
 
     def __init__(
         self,
         *,
-        config: UnmodeledBlockConfig,
-        policy: UnmodeledBlockPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -57,6 +64,7 @@ class UnmodeledBlock(ModuleBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    @torch.no_grad()
     def execute(self, shape: tuple[int, ...]) -> None:
         """Record one operation at every position in `shape`."""
         if self._is_dynamic_energy_profile_active():

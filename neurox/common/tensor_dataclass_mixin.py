@@ -2,15 +2,15 @@
 
 What a tensor field costs a data class — equality, freezing, the keyword-only
 call — is settled here once for classes that opt into this hierarchy.
-The free walker functions rebuild arbitrary nested dataclass instances while
-mapping either one tensor tree or a corresponding pair.
+Mapping transforms tensor fields into a dataclass of the same type; visiting
+inspects tensor fields without reconstructing their enclosing objects.
 """
 
 from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeGuard, cast, dataclass_transform
+from typing import TYPE_CHECKING, TypeGuard, dataclass_transform
 
 from torch import Tensor
 
@@ -28,7 +28,7 @@ class TensorDataClassMixin:
     throughout the hierarchy.
 
     A subclass declares its fields as annotations without initial values, and
-    must not apply `@dataclass`, define `__init__`, or define `__post_init__`;
+    must not apply `@dataclass` or define `__init__`;
     this mixin supplies a frozen, keyword-only dataclass to every descendant,
     however deep. The transformation completes before delegating to later
     class-initialization hooks, so they can inspect the complete fields.
@@ -37,8 +37,6 @@ class TensorDataClassMixin:
     def __init_subclass__(cls) -> None:
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
-        if "__post_init__" in cls.__dict__:
-            raise TypeError(f"{cls.__qualname__} carries data only; it declares fields, not __post_init__()")
         for name in cls.__annotations__:
             if name in cls.__dict__:
                 raise TypeError(f"{cls.__qualname__}.{name} carries an initial value; declare the annotation alone")
@@ -50,8 +48,11 @@ def _is_dataclass_instance(obj: object) -> TypeGuard[DataclassInstance]:
     return not isinstance(obj, type) and dataclasses.is_dataclass(obj)
 
 
-def walk_single_tensor_fields[NodeT](fn: Callable[[Tensor], Tensor], node: NodeT) -> NodeT:
-    """Rebuild a dataclass by transforming its tensor fields in declaration order.
+def map_single_tensor_fields[NodeT: DataclassInstance](
+    fn: Callable[[Tensor], Tensor],
+    node: NodeT,
+) -> NodeT:
+    """Transform tensor fields of a dataclass in declaration order.
 
     Equivalent Python control flow:
 
@@ -60,37 +61,31 @@ def walk_single_tensor_fields[NodeT](fn: Callable[[Tensor], Tensor], node: NodeT
     ```
 
     Args:
-        fn: Receives each tensor field and returns its replacement; owns any
-            tensor mutation.
-        node: Dataclass instance supporting reconstruction, including any
-            nested dataclasses.
+        fn: Returns a replacement for each tensor field; owns any tensor mutation.
+        node: Dataclass instance, including any nested dataclasses.
 
     Returns:
-        Rebuilt dataclass with the same concrete types. Non-tensor fields,
-        including `None`, remain unchanged.
-
-    Raises:
-        TypeError: `node` is not a dataclass instance.
+        Dataclass of the same concrete type. Non-tensor fields are preserved;
+        subtrees without tensor fields retain their original objects.
     """
-    if not _is_dataclass_instance(node):
-        raise TypeError(f"walk_single_tensor_fields() requires a dataclass instance, got {type(node).__name__}")
-
     replacements: dict[str, object] = {}
     for field in dataclasses.fields(node):
         value = getattr(node, field.name)
         if isinstance(value, Tensor):
             replacements[field.name] = fn(value)
         elif _is_dataclass_instance(value):
-            replacements[field.name] = walk_single_tensor_fields(fn, value)
-    return cast(NodeT, dataclasses.replace(node, **replacements))
+            nested = map_single_tensor_fields(fn, value)
+            if nested is not value:
+                replacements[field.name] = nested
+    return dataclasses.replace(node, **replacements) if replacements else node
 
 
-def walk_paired_tensor_fields[NodeT](
+def map_paired_tensor_fields[NodeT: DataclassInstance](
     fn: Callable[[Tensor, Tensor], Tensor],
     node: NodeT,
     other: NodeT,
 ) -> NodeT:
-    """Rebuild a dataclass by transforming corresponding tensor fields of a pair.
+    """Transform corresponding tensor fields of two dataclasses.
 
     Equivalent Python control flow:
 
@@ -106,29 +101,46 @@ def walk_paired_tensor_fields[NodeT](
             field positions as `node`.
 
     Returns:
-        Rebuilt dataclass with the same concrete types. Non-tensor fields,
-        including `None`, retain their values from `node`.
+        Dataclass of the same concrete type. Non-tensor fields retain their
+        values from `node`; subtrees without tensor fields retain their
+        original objects from `node`.
 
     Raises:
-        TypeError: An input is not a dataclass instance or the inputs have
-            incompatible concrete structures.
+        TypeError: Inputs have incompatible concrete structures.
     """
-    if not _is_dataclass_instance(node) or not _is_dataclass_instance(other) or type(other) is not type(node):
-        raise TypeError(
-            f"walk_paired_tensor_fields() requires two dataclass instances with the same concrete structure, "
-            f"got {type(node).__name__} and {type(other).__name__}"
-        )
+    if type(other) is not type(node):
+        raise TypeError("map_paired_tensor_fields() inputs must have the same concrete dataclass structure")
 
     replacements: dict[str, object] = {}
     for field in dataclasses.fields(node):
         value = getattr(node, field.name)
         other_value = getattr(other, field.name)
         if isinstance(value, Tensor):
-            if not isinstance(other_value, Tensor):
-                raise TypeError("walk_paired_tensor_fields() inputs must have corresponding tensor fields")
             replacements[field.name] = fn(value, other_value)
         elif _is_dataclass_instance(value):
-            replacements[field.name] = walk_paired_tensor_fields(fn, value, other_value)
-        elif isinstance(other_value, Tensor) or _is_dataclass_instance(other_value):
-            raise TypeError("walk_paired_tensor_fields() inputs must have the same concrete dataclass structure")
-    return cast(NodeT, dataclasses.replace(node, **replacements))
+            nested = map_paired_tensor_fields(fn, value, other_value)
+            if nested is not value:
+                replacements[field.name] = nested
+    return dataclasses.replace(node, **replacements) if replacements else node
+
+
+def visit_tensor_fields(fn: Callable[[Tensor], None], node: DataclassInstance) -> None:
+    """Visit tensor fields in declaration order without reconstructing objects.
+
+    Equivalent Python control flow:
+
+    ```python
+    fn(node)
+    ```
+
+    Args:
+        fn: Inspects each tensor field; owns any tensor mutation.
+        node: Dataclass instance, including any nested dataclasses. Subtrees
+            without tensor fields do not invoke the callback.
+    """
+    for field in dataclasses.fields(node):
+        value = getattr(node, field.name)
+        if isinstance(value, Tensor):
+            fn(value)
+        elif _is_dataclass_instance(value):
+            visit_tensor_fields(fn, value)

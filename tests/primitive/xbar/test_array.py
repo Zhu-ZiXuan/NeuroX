@@ -67,7 +67,8 @@ def _build_array(
     array.to(device)
     array.eval()
     array.fabricate()
-    array.program((torch.arange(_COL_NUM * _ROW_NUM, device=device) % 2).reshape(_COL_NUM, _ROW_NUM))
+    state = (torch.arange(_COL_NUM * _ROW_NUM, device=device) % 2).reshape(_ROW_NUM, _COL_NUM)
+    array.program(state)
     stamp_names(array)
     return array
 
@@ -83,7 +84,7 @@ def _driver(*, device: torch.device) -> VoltageDriver:
             leakage_per_inst__uW=0.0,
         ),
         policy=VoltageDriverPolicy(offset=False, thermal=False),
-        inst_shape=(_COL_NUM,),
+        inst_shape=(1, _COL_NUM),
         dtype=_DTYPE,
         T__K=300.0,
     )
@@ -110,10 +111,10 @@ def _inputs(array: XbarArray1t1r) -> tuple[Tensor, object, object]:
     leading = tuple(v_wl__V.shape[:-1])
     bl_driver = array.solver.bl_driver
     sl_driver = array.solver.sl_driver
-    bl_ref = torch.full((), 0.3, dtype=_DTYPE, device=device).expand(*leading, _COL_NUM)
-    sl_ref = torch.full((), 0.1, dtype=_DTYPE, device=device).expand(*leading, _COL_NUM)
+    bl_ref = torch.full((), 0.3, dtype=_DTYPE, device=device).expand(*leading, _COL_NUM).unsqueeze(array.row_dim)
+    sl_ref = torch.full((), 0.1, dtype=_DTYPE, device=device).expand(*leading, _COL_NUM).unsqueeze(array.row_dim)
     return (
-        v_wl__V,
+        v_wl__V.unsqueeze(array.col_dim),
         bl_driver.snapshot(v_ref__V=bl_ref, shape=bl_ref.shape),
         sl_driver.snapshot(v_ref__V=sl_ref, shape=sl_ref.shape),
     )
@@ -123,7 +124,7 @@ def _solve(array: XbarArray1t1r, *, record_trace: bool):
     v_wl__V, bl_snap, sl_snap = _inputs(array)
     kwargs = {
         "v_wl__V": v_wl__V,
-        "wl_phase_dims": (-2,),
+        "wl_phase_dims": (-3,),
         "bl_driver_snap": bl_snap,
         "sl_driver_snap": sl_snap,
     }
@@ -162,9 +163,11 @@ def test_trace_is_explicit_and_reassembled(device: torch.device, expected_chunk_
     reference_raw, reference_raw_spec = torch.utils._pytree.tree_flatten(reference_trace)
     assert actual_raw_spec == reference_raw_spec
     torch.testing.assert_close(actual_raw, reference_raw, equal_nan=True)
-    assert trace.residual__V.shape[-1] == 20
+    assert traced[0].i_bl_port__uA.shape == (5, 1, 1, _COL_NUM)
+    assert trace.residual__V.shape == (5, 1, 1, _COL_NUM, 20)
     assert trace.node_trace is not None
-    assert trace.node_trace.residual__uA.shape[-2:] == (20, 20)
+    assert trace.node_trace.residual__uA.shape == (5, 1, _ROW_NUM, _COL_NUM, 20, 20)
+    assert trace.node_trace.limited.shape == (5, 1, 1, _COL_NUM, 20, 20)
     for residual, threshold, iteration_dim in (
         (trace.residual__V, trace.threshold__V, -1),
         (trace.node_trace.residual__uA, trace.node_trace.threshold__uA, -2),
@@ -191,7 +194,7 @@ def test_solve_dc_keeps_the_dcop_surface(device: torch.device) -> None:
     v_wl__V, bl_snap, sl_snap = _inputs(array)
     kwargs = {
         "v_wl__V": v_wl__V,
-        "wl_phase_dims": (-2,),
+        "wl_phase_dims": (-3,),
         "bl_driver_snap": bl_snap,
         "sl_driver_snap": sl_snap,
     }
@@ -201,3 +204,38 @@ def test_solve_dc_keeps_the_dcop_surface(device: torch.device) -> None:
 
     torch.testing.assert_close(dcop.i_bl_port__uA, traced.i_bl_port__uA)
     assert trace is not None
+
+
+@pytest.mark.parametrize("invalid_input", ["missing_column", "multiple_columns", "grid_phase"])
+def test_wl_input_requires_grid_axes_and_leading_phases(device: torch.device, invalid_input: str) -> None:
+    array = _build_array(device=device, expected_chunk_size=0)
+    v_wl__V, bl_snap, sl_snap = _inputs(array)
+    phase_dims = (-3,)
+    message = "v_wl__V"
+    if invalid_input == "missing_column":
+        v_wl__V = v_wl__V.squeeze(array.col_dim)
+        phase_dims = (-2,)
+        message = "wl_phase_dims"
+    elif invalid_input == "multiple_columns":
+        v_wl__V = v_wl__V.expand(*v_wl__V.shape[:-2], *array._grid_shape)
+    else:
+        phase_dims = (array.row_dim,)
+        message = "wl_phase_dims"
+
+    with pytest.raises(ValueError, match=message):
+        array.solve_dc(
+            v_wl__V=v_wl__V,
+            wl_phase_dims=phase_dims,
+            bl_driver_snap=bl_snap,
+            sl_driver_snap=sl_snap,
+        )
+
+
+def test_array_uses_solver_grid_layout(device: torch.device) -> None:
+    array = _build_array(device=device, expected_chunk_size=2)
+    assert array.row_dim == array.solver.row_dim == array.solver.node_solver.row_dim == -2
+    assert array.col_dim == array.solver.col_dim == array.solver.node_solver.col_dim == -1
+    assert array.cell.inst_shape == (_ROW_NUM, _COL_NUM)
+    v_wl__V, bl_snap, sl_snap = _inputs(array)
+    assert v_wl__V.shape == (5, 1, _ROW_NUM, 1)
+    assert bl_snap.v_ref__V.shape == sl_snap.v_ref__V.shape == (5, 1, 1, _COL_NUM)

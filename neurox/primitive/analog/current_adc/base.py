@@ -46,15 +46,12 @@ class IadcPolicy(PolicyBase, ABC):
     pass
 
 
-class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin[
-        "IadcConfig",
-        "IadcPolicy",
-        "Iadc[IadcConfig, IadcPolicy]",
-    ],
-    ABC,
-):
+_Record = IadcRecord
+_Config = IadcConfig
+_Policy = IadcPolicy
+
+
+class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
     """Base class for single-ended current ADCs with injected references.
 
     The base owns the `bits` contract and nothing else about the call. How
@@ -67,11 +64,14 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     and the bit width.
     """
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -83,18 +83,18 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     def from_config(
         cls,
         *,
-        config: IadcConfig,
-        policy: IadcPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> Iadc[IadcConfig, IadcPolicy]:
+    ) -> Iadc:
         """Build the implementation registered for the config-policy pair.
 
         Returns:
             Registered current-ADC implementation.
         """
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -138,6 +138,7 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         """
         raise NotImplementedError
 
+    @torch.no_grad()
     def convert(
         self,
         i_in__uA: Tensor,
@@ -170,9 +171,16 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
             ValueError: `active_bits` is outside `[1, bits]`.
         """
         self._check_active_bits(active_bits)
-        code = self._convert_impl(i_in__uA, i_refs__uA, active_bits=active_bits)
+        code, energy__fJ = self._convert_impl(
+            i_in__uA,
+            i_refs__uA,
+            active_bits=active_bits,
+            record_energy=self._is_dynamic_energy_profile_active(),
+        )
+        if energy__fJ is not None:
+            self._record_dynamic_energy(energy__fJ)
         if AdcProber.active():
-            AdcProber.submit(IadcRecord(i_in__uA=i_in__uA))
+            AdcProber.submit(_Record(i_in__uA=i_in__uA))
         return code
 
     @abstractmethod
@@ -182,8 +190,18 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
         i_refs__uA: Tensor,
         *,
         active_bits: int,
-    ) -> Tensor:
-        """Convert inputs according to the `convert` contract."""
+        record_energy: bool,
+    ) -> tuple[Tensor, Tensor | None]:
+        """Compute conversion outputs according to the `convert` contract.
+
+        Args:
+            record_energy: Whether to compute dynamic energy.
+
+        Returns:
+            Output codes and per-output dynamic energy [fJ]. Energy is `None`
+            when not requested or when the implementation owns no energy.
+            The caller submits the energy and observation records.
+        """
         raise NotImplementedError
 
     @final

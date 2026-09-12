@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+
 import pytest
 import torch
 from torch import Tensor
+from torch.utils import _pytree as pytree
 
 from neurox.common.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
 from neurox.common.torch_compat import torch_assert_async
@@ -289,31 +292,54 @@ def test_trace_mask_preserves_nested_axes_dtypes_and_existing_nan(device: torch.
     assert trace.limited.all()
 
 
-@pytest.mark.parametrize("record_trace", [False, True])
-def test_solving_rejects_nonboolean_activity(device: torch.device, record_trace: bool) -> None:
-    state = _State(value=torch.ones(2, device=device), is_active=torch.ones(2, device=device))
-
-    def solve() -> None:
-        if record_trace:
-            run_solving_trace_scan(
-                init_state=state,
-                body_fn=lambda state: (state, _Trace(value=state.value)),
-                default_trace=_Trace(value=torch.full_like(state.value, torch.nan)),
-                max_iter=1,
-                strict=False,
-            )
-        else:
-            run_solving_loop(init_state=state, body_fn=lambda state: state, max_iter=1, strict=False)
-
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int64])
+def test_state_construction_rejects_nonboolean_activity(device: torch.device, dtype: torch.dtype) -> None:
     with pytest.raises(TypeError, match="is_active must be a boolean mask"):
-        solve()
+        _State(value=torch.ones(2, device=device), is_active=torch.ones(2, dtype=dtype, device=device))
+
+
+def test_state_reconstruction_validates_activity(device: torch.device) -> None:
+    state = _State(value=torch.ones(2, device=device), is_active=torch.ones(2, dtype=torch.bool, device=device))
+    invalid = torch.ones(2, device=device)
+    with pytest.raises(TypeError, match="boolean mask"):
+        replace(state, is_active=invalid)
+    leaves, spec = pytree.tree_flatten(state)
+    restored = pytree.tree_unflatten(leaves, spec)
+    torch.testing.assert_close(restored.is_active, state.is_active)
+    with pytest.raises(TypeError, match="boolean mask"):
+        pytree.tree_unflatten([leaf.float() if leaf.dtype == torch.bool else leaf for leaf in leaves], spec)
 
 
 @pytest.mark.parametrize("dtype", [torch.uint8, torch.complex64])
-def test_trace_mask_rejects_fields_without_the_declared_unused_value(device: torch.device, dtype: torch.dtype) -> None:
-    trace = _Trace(value=torch.ones(2, dtype=dtype, device=device))
+def test_trace_construction_rejects_fields_without_the_declared_unused_value(
+    device: torch.device, dtype: torch.dtype
+) -> None:
     with pytest.raises(TypeError, match="signed integer"):
-        trace.mask_invalid(torch.ones(2, dtype=torch.bool, device=device))
+        _Trace(value=torch.ones(2, dtype=dtype, device=device))
+
+
+def test_trace_reconstruction_validates_replacement_tensors(device: torch.device) -> None:
+    trace = _Trace(value=torch.ones(2, device=device))
+    invalid = torch.ones(2, dtype=torch.uint8, device=device)
+    with pytest.raises(TypeError, match="signed integer"):
+        replace(trace, value=invalid)
+    leaves, spec = pytree.tree_flatten(trace)
+    torch.testing.assert_close(pytree.tree_unflatten(leaves, spec).value, trace.value)
+    with pytest.raises(TypeError, match="signed integer"):
+        pytree.tree_unflatten([invalid], spec)
+
+
+def test_trace_construction_validates_nested_dataclass_fields(device: torch.device) -> None:
+    @dataclass
+    class _Observation:
+        value: Tensor
+
+    class _ContainerTrace(SolvingTrace):
+        observation: _Observation
+
+    observation = _Observation(value=torch.ones(2, dtype=torch.uint8, device=device))
+    with pytest.raises(TypeError, match="signed integer"):
+        _ContainerTrace(observation=observation)
 
 
 @pytest.mark.parametrize("compiled", [False, True])

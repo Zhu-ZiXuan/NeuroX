@@ -20,8 +20,12 @@ class IdealLinearUnitPolicy(CimUnitPolicy):
     pass
 
 
-@CimUnit.register_neurox_module(config_type=IdealLinearUnitConfig, policy_type=IdealLinearUnitPolicy)
-class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnitPolicy]):
+_Config = IdealLinearUnitConfig
+_Policy = IdealLinearUnitPolicy
+
+
+@CimUnit.register_impl(config_type=_Config, policy_type=_Policy)
+class IdealLinearUnit(LinearUnit, CimUnit):
     """Exact integer linear unit without output quantization.
 
     Args:
@@ -30,6 +34,9 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         ideal_macro: Accepted without changing this already ideal unit.
     """
 
+    config: _Config
+    policy: _Policy
+
     # === Programmed state ===
 
     _weight: Tensor  # Shape: [N, K]
@@ -37,8 +44,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     def __init__(
         self,
         *,
-        config: IdealLinearUnitConfig,
-        policy: IdealLinearUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -105,6 +112,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         del input_shape, adc_active_bits
         return 0.0
 
+    @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")

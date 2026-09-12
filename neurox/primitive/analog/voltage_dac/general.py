@@ -47,9 +47,16 @@ class GeneralVdacPolicy(VdacPolicy):
     """Apply `drive_thermal__V` at convert time."""
 
 
-@Vdac.register_neurox_module(config_type=GeneralVdacConfig, policy_type=GeneralVdacPolicy)
-class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
+_Config = GeneralVdacConfig
+_Policy = GeneralVdacPolicy
+
+
+@Vdac.register_impl(config_type=_Config, policy_type=_Policy)
+class GeneralVdac(Vdac):
     """General voltage DAC model with a code-to-voltage LUT."""
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -59,8 +66,8 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
     def __init__(
         self,
         *,
-        config: GeneralVdacConfig,
-        policy: GeneralVdacPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -91,7 +98,7 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
     def code_max(self) -> int:
         return len(self.config.code_to_signal) - 1
 
-    def convert(self, code: Tensor) -> Tensor:
+    def _convert_impl(self, code: Tensor) -> Tensor:
         nominal__V = self._code_to_signal[code]
         signal = apply_gaussian(
             nominal__V,

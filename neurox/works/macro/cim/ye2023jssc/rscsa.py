@@ -25,8 +25,15 @@ class RsCsaIadcPolicy(SarIadcPolicy):
     pass
 
 
-class RsCsaIadc(SarIadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
+_Config = RsCsaIadcConfig
+_Policy = RsCsaIadcPolicy
+
+
+class RsCsaIadc(SarIadc):
     """Reference-subtracting current-sense ADC."""
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -35,8 +42,8 @@ class RsCsaIadc(SarIadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     def __init__(
         self,
         *,
-        config: RsCsaIadcConfig,
-        policy: RsCsaIadcPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

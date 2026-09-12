@@ -34,14 +34,21 @@ class AdderConfig(DigitalConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Adder(DigitalBase[AdderConfig]):
+_Config = AdderConfig
+_Policy = DigitalPolicy
+
+
+class Adder(DigitalBase):
     """Element-wise integer adder without saturation or wrapping."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: AdderConfig,
-        policy: DigitalPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
@@ -58,6 +65,7 @@ class Adder(DigitalBase[AdderConfig]):
         """Combinational latency of one add."""
         return self.config.latency_per_op__ns
 
+    @torch.no_grad()
     def add(self, a: Tensor, b: Tensor) -> Tensor:
         """Add two integer tensors element-wise.
 

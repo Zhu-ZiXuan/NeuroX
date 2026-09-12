@@ -35,14 +35,21 @@ class AccumulatorConfig(DigitalConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Accumulator(DigitalBase[AccumulatorConfig]):
+_Config = AccumulatorConfig
+_Policy = DigitalPolicy
+
+
+class Accumulator(DigitalBase):
     """Modular adder-tree that sums an integer tensor along one axis."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: AccumulatorConfig,
-        policy: DigitalPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
@@ -59,6 +66,7 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
         """Latency of one accumulator evaluation."""
         return self.config.latency_per_op__ns
 
+    @torch.no_grad()
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
         """Sum `x` along `dim` and wrap into the signed `bit_width` range.
 

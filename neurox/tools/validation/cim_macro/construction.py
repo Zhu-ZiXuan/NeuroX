@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 
 from neurox.api.module_from_file import cim_macro_from_file
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.physics import T_ROOM__K
 from neurox.tools.module import prepare_module
 
@@ -23,7 +23,7 @@ def build_macro(
     device: torch.device,
     dtype: torch.dtype = torch.float32,
     T__K: float = T_ROOM__K,
-) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
+) -> CimMacro:
     """Load, build, fabricate, and name one validation macro."""
     macro = cim_macro_from_file(
         config_files=(config_path,),

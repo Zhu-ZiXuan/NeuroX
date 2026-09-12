@@ -23,7 +23,7 @@ import torch
 from neurox.common.module import ConfigBase
 from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
 from neurox.common.validate_mixin import ValidateMixin
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
+from neurox.primitive.macro.cim import CimMacro, IdealCimMacro
 from neurox.tools.config import resolve_relative_path
 
 from ._layout import unroll_active_positions
@@ -78,7 +78,7 @@ class ModeFitResult(TensorDataClassMixin):
 
 
 def _fit_one_mode(
-    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
+    physical: CimMacro,
     ideal: IdealCimMacro,
     *,
     quantization_mode: int,

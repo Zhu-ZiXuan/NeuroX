@@ -30,11 +30,11 @@ _VX_RATIO_OFF_TABLE = (0.10, 0.40)
 _VX_RATIO_OFF_AT_REST = (0.0, 0.0)
 _V_WL_ON_THRESHOLD__V = 0.5
 
-type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy, VoltageDriverSnap, VoltageDriverSnap]
+type _Array = XbarArray1t1r[VoltageDriverSnap, VoltageDriverSnap]
 
 
 def _states() -> Tensor:
-    return torch.tensor([[0, 1], [1, 0], [0, 0]], dtype=torch.long)
+    return torch.tensor([[0, 1, 0], [1, 0, 0]], dtype=torch.long)
 
 
 def _phases() -> Tensor:
@@ -107,7 +107,7 @@ def _ideal_driver() -> VoltageDriver:
             leakage_per_inst__uW=0.0,
         ),
         policy=VoltageDriverPolicy(offset=False, thermal=False),
-        inst_shape=(_COL_NUM,),
+        inst_shape=(1, _COL_NUM),
         dtype=_DTYPE,
         T__K=300.0,
     )
@@ -128,13 +128,13 @@ def _solve(
     leading_shape = tuple(v_wl__V.shape[:-1])
     bl_driver = array.solver.bl_driver
     sl_driver = array.solver.sl_driver
-    bl_ref__V = torch.full((*leading_shape, _COL_NUM), bl_ref__V, dtype=_DTYPE)
-    sl_ref__V = torch.full((*leading_shape, _COL_NUM), sl_ref__V, dtype=_DTYPE)
+    bl_ref__V = torch.full((*leading_shape, 1, _COL_NUM), bl_ref__V, dtype=_DTYPE)
+    sl_ref__V = torch.full((*leading_shape, 1, _COL_NUM), sl_ref__V, dtype=_DTYPE)
     billed: list[Tensor] = []
     monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
     with Profiler(), torch.no_grad():
         dcop = array.solve_dc(
-            v_wl__V=v_wl__V,
+            v_wl__V=v_wl__V.unsqueeze(array.col_dim),
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref__V, shape=bl_ref__V.shape),
             sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref__V, shape=sl_ref__V.shape),
@@ -144,7 +144,7 @@ def _solve(
 
 
 def _v_x(col: int, row: int, v_wl__V: Tensor) -> float:
-    state = int(_states()[col, row])
+    state = int(_states()[row, col])
     table = _VX_RATIO_ON_TABLE if float(v_wl__V[row]) > _V_WL_ON_THRESHOLD__V else _VX_RATIO_OFF_TABLE
     return _BL_V_REF__V - table[state] * (_BL_V_REF__V - _SL_V_REF__V)
 
@@ -216,7 +216,7 @@ def test_access_node_rests_at_the_ideal_bl_reference(monkeypatch: pytest.MonkeyP
     for phase in phases:
         for col in range(_COL_NUM):
             for row in range(_ROW_NUM):
-                state = int(_states()[col, row])
+                state = int(_states()[row, col])
                 off_rest = _BL_V_REF__V - _VX_RATIO_OFF_TABLE[state] * (_BL_V_REF__V - _SL_V_REF__V)
                 off_divider_total += _VDD__V * _X_NODE_C__fF * abs(_v_x(col, row, phase) - off_rest)
                 off_divider_total += _VDD__V * _WL_NODE_C__fF * abs(float(phase[row]))

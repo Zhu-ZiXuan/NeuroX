@@ -22,6 +22,7 @@ def test_macro_owns_the_logical_to_physical_mapping(device: torch.device) -> Non
     assert config.x_digit_n == 1
     assert config.x_digit_r == 2
     assert config.x_enc is Encoding.UNSIGNED
+    assert macro.array.cell.inst_shape[-2:] == (macro.row_num, macro.col_num)
     assert macro.row_num == macro.output_num
     assert macro.col_num == macro.input_num * (config.w_digit_num + 1)
     assert macro.lane_num == 1
@@ -46,10 +47,10 @@ def test_each_scan_activates_one_row_per_lane(device: torch.device) -> None:
     macro = build_macro(device=device, lane_num=lane_num, scan_num=scan_num)
 
     wl_on = macro._v_wl_scan__V > 0
-    grouped = wl_on.unflatten(-1, (lane_num, scan_num))
+    grouped = wl_on.unflatten(macro.array.row_dim, (lane_num, scan_num))
 
-    assert wl_on.shape == (scan_num, lane_num * scan_num)
-    lane_activation_count = grouped.sum(dim=-1)
+    assert wl_on.shape == (scan_num, lane_num * scan_num, 1)
+    lane_activation_count = grouped.sum(dim=macro.array.row_dim)
     row_activation_count = wl_on.sum(dim=0)
     assert torch.equal(lane_activation_count, torch.ones_like(lane_activation_count))
     assert torch.equal(row_activation_count, torch.ones_like(row_activation_count))

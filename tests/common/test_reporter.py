@@ -21,7 +21,7 @@ class _Policy(PolicyBase):
     pass
 
 
-class _Leaf(ModuleBase[_Config, _Policy]):
+class _Leaf(ModuleBase):
     """Minimal emitting module."""
 
     def __init__(self, *, energy__fJ: float = 0.0, inst_count: int = 1) -> None:
@@ -44,7 +44,7 @@ class _Other(_Leaf):
     """A second emitter class, so a report covers more than one kind of host."""
 
 
-class _Untargeted(ModuleBase[_Config, _Policy]):
+class _Untargeted(ModuleBase):
     """A module whose silicon is counted at its owner, so it declares none."""
 
     is_profile_target = False

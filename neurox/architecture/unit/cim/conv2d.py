@@ -43,15 +43,22 @@ class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
     pass
 
 
-@CimUnit.register_neurox_module(config_type=Conv2dCimUnitConfig, policy_type=Conv2dCimUnitPolicy)
-class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dCimUnitPolicy]):
+_Config = Conv2dCimUnitConfig
+_Policy = Conv2dCimUnitPolicy
+
+
+@CimUnit.register_impl(config_type=_Config, policy_type=_Policy)
+class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit):
     """CIM-backed convolution using one programmed kernel matrix."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: Conv2dCimUnitConfig,
-        policy: Conv2dCimUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -124,6 +131,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         # Shape: [C_out, C_in, kh, kw] -> [C_out, K]
         return weight.flatten(start_dim=1)
 
+    @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")

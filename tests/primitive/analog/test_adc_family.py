@@ -10,7 +10,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.primitive.analog import Reference, ReferenceConfig, ReferencePolicy
+from neurox import Profiler, stamp_names
+from neurox.primitive.analog import AdcProber, Reference, ReferenceConfig, ReferencePolicy
 from neurox.primitive.analog.diff_voltage_adc import (
     McsSarDiffVadc,
     McsSarDiffVadcConfig,
@@ -143,3 +144,50 @@ class TestConvertCallValidation:
         v = torch.zeros(1, dtype=_DTYPE)
         with pytest.raises(ValueError, match="tap_num"):
             adc.convert(v, v, v_refs__V=torch.tensor([0.8, 0.4], dtype=_DTYPE), active_bits=4)
+
+
+@pytest.mark.parametrize("active_bits", [1, 4])
+@pytest.mark.parametrize("record_energy", [False, True])
+def test_conversion_kernel_supports_standalone_and_caller_compilation(active_bits: int, record_energy: bool) -> None:
+    adc = _build_mcs_sar_adc()
+    v_pos = torch.tensor([0.12, 0.3, 0.6], dtype=_DTYPE)
+    v_neg = torch.zeros_like(v_pos)
+    refs = _mode_ref__V(0)
+
+    def convert(v_pos: torch.Tensor, v_neg: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+        return adc._convert_impl(v_pos, v_neg, v_refs__V=refs, active_bits=active_bits, record_energy=record_energy)
+
+    with torch.no_grad(), Profiler() as profiler, AdcProber() as prober:
+        expected = adc._convert_impl.__wrapped__(
+            adc, v_pos, v_neg, v_refs__V=refs, active_bits=active_bits, record_energy=record_energy
+        )
+        standalone = convert(v_pos, v_neg)
+        composed = torch.compile(convert, fullgraph=True)(v_pos, v_neg)
+
+    torch.testing.assert_close(standalone, expected)
+    torch.testing.assert_close(composed, expected)
+    assert (standalone[1] is not None) == record_energy
+    assert profiler.records == ()
+    assert prober.records == ()
+
+
+def test_public_conversion_records_returned_energy_once() -> None:
+    adc = _build_mcs_sar_adc()
+    stamp_names(adc)
+    v_pos = torch.tensor([0.12, 0.3, 0.6], dtype=_DTYPE)
+    v_neg = torch.zeros_like(v_pos)
+    refs = _mode_ref__V(0)
+
+    with torch.no_grad():
+        expected_code, expected_energy = adc._convert_impl(
+            v_pos, v_neg, v_refs__V=refs, active_bits=4, record_energy=True
+        )
+    without_records = adc.convert(v_pos, v_neg, v_refs__V=refs, active_bits=4)
+    with Profiler(leading_rank=1) as profiler, AdcProber() as prober:
+        code = adc.convert(v_pos, v_neg, v_refs__V=refs, active_bits=4)
+
+    torch.testing.assert_close(code, expected_code)
+    torch.testing.assert_close(without_records, expected_code)
+    assert len(profiler.records) == 1
+    assert len(prober.records) == 1
+    torch.testing.assert_close(profiler.records[0].dynamic_energy__fJ, expected_energy)

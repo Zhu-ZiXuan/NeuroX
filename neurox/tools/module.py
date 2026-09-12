@@ -5,12 +5,12 @@ from __future__ import annotations
 import torch
 
 from neurox.api.function import stamp_names
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ModuleBase
 
 __all__ = ["prepare_module"]
 
 
-def prepare_module[ModuleT: ModuleBase[ConfigBase, PolicyBase]](
+def prepare_module[ModuleT: ModuleBase](
     module: ModuleT,
     *,
     device: torch.device,

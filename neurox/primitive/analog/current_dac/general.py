@@ -38,17 +38,24 @@ class GeneralIdacPolicy(IdacPolicy):
     """Apply `drive_thermal__uA` at convert time."""
 
 
-@Idac.register_neurox_module(config_type=GeneralIdacConfig, policy_type=GeneralIdacPolicy)
-class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
+_Config = GeneralIdacConfig
+_Policy = GeneralIdacPolicy
+
+
+@Idac.register_impl(config_type=_Config, policy_type=_Policy)
+class GeneralIdac(Idac):
     """General current DAC model — code-to-current LUT plus signal-independent output noise."""
+
+    config: _Config
+    policy: _Policy
 
     _code_to_signal: Tensor  # Shape: [code]
 
     def __init__(
         self,
         *,
-        config: GeneralIdacConfig,
-        policy: GeneralIdacPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -75,7 +82,7 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
     def code_max(self) -> int:
         return len(self.config.code_to_signal) - 1
 
-    def convert(self, code: Tensor) -> Tensor:
+    def _convert_impl(self, code: Tensor) -> Tensor:
         signal = apply_gaussian(
             self._code_to_signal[code],
             self.config.drive_thermal__uA,

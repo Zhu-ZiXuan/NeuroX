@@ -10,7 +10,7 @@ import torch
 
 from neurox.api.module_from_file import cim_macro_from_file
 from neurox.common.validate_mixin import ValidateMixin
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, IdealCimMacro
 from neurox.primitive.physics import T_ROOM__K
 from neurox.tools.config import resolve_relative_path
 from neurox.tools.module import prepare_module
@@ -48,7 +48,7 @@ def build_physical_macro(
     base: Path,
     device: torch.device,
     inst_shape: tuple[int, ...],
-) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
+) -> CimMacro:
     """Build the physical macro selected by a calibration run config."""
     config_paths = [resolve_relative_path(file, base) for file in section.config_files]
     policy_path = resolve_relative_path(section.policy_file, base)
@@ -74,7 +74,7 @@ def build_physical_macro(
 
 
 def build_ideal_twin(
-    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
+    macro: CimMacro,
     *,
     device: torch.device,
 ) -> IdealCimMacro:

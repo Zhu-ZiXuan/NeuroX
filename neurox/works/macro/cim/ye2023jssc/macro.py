@@ -130,16 +130,20 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
     sl_driver_policy: VoltageDriverPolicy
 
 
-@CimMacro.register_neurox_module(
-    config_type=Ye2023JsscCimMacroConfig,
-    policy_type=Ye2023JsscCimMacroPolicy,
-)
-class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPolicy]):
+_Config = Ye2023JsscCimMacroConfig
+_Policy = Ye2023JsscCimMacroPolicy
+
+
+@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+class Ye2023JsscCimMacro(CimMacro):
     """WH-2T1R array with RSM disabled and a time-shared RS-CSA readout."""
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
-    _v_wl_scan__V: Tensor  # Shape: [scan, row]
+    _v_wl_scan__V: Tensor  # Shape: [scan, row, col=1]
     _scan_indices: Tensor  # Shape: [scan, lane=1]
     _tbl_row_indices: Tensor  # Shape: [scan, lane]
     _v_bl__V: Tensor  # Shape: []
@@ -148,8 +152,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     def __init__(
         self,
         *,
-        config: Ye2023JsscCimMacroConfig,
-        policy: Ye2023JsscCimMacroPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -194,14 +198,16 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.bl_driver = VoltageDriver(
             config=config.bl_driver_config,
             policy=policy.bl_driver_policy,
-            inst_shape=(*self.inst_shape, 1, self.col_num),
+            # Shape: [*inst_shape, scan=1, row=1, col]
+            inst_shape=(*self.inst_shape, 1, 1, self.col_num),
             dtype=dtype,
             T__K=T__K,
         )
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
-            inst_shape=(*self.inst_shape, 1, self.col_num),
+            # Shape: [*inst_shape, scan=1, row=1, col]
+            inst_shape=(*self.inst_shape, 1, 1, self.col_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -211,6 +217,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.array = Ye2023Jssc2t1rArray(
             config=config.array_config,
             policy=policy.array_policy,
+            # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             row_num=self.row_num,
             col_num=self.col_num,
@@ -228,6 +235,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.rscsa = RsCsaIadc(
             config=config.adc_config,
             policy=policy.adc_policy,
+            # Shape: [*inst_shape, lane, scan=1]
             inst_shape=(*self.inst_shape, self.lane_num, 1),
             dtype=dtype,
             T__K=T__K,
@@ -246,6 +254,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.mux_driver = UnmodeledBlock(
             config=config.mux_driver_config,
             policy=UnmodeledBlockPolicy(),
+            # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
             T__K=T__K,
@@ -253,6 +262,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.timing_ctrl = UnmodeledBlock(
             config=config.timing_ctrl_config,
             policy=UnmodeledBlockPolicy(),
+            # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
             T__K=T__K,
@@ -261,8 +271,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
         # Shape: [row, row] -> [lane, scan, row]
         scan_wl_on = torch.eye(self.row_num, dtype=dtype).unflatten(0, (self.lane_num, self.scan_num))
-        # Shape: [lane, scan, row] -> [scan, row]
-        scan_wl_on = scan_wl_on.sum(dim=0)
+        # Shape: [lane, scan, row] -> [scan, row, col=1]
+        scan_wl_on = scan_wl_on.sum(dim=0).unsqueeze(self.array.col_dim)
         # Shape: [scan] -> [scan, lane=1]
         scan_indices = torch.arange(self.scan_num).unsqueeze(-1)
         # Shape: [scan, lane]
@@ -283,6 +293,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         rsm = torch.zeros_like(value.narrow(dim, 0, 1))
         return torch.cat((value, rsm), dim=dim)
 
+    @torch.no_grad()
     def program(self, w: Tensor) -> None:
         """Encode logical weights onto the physical cell grid.
 
@@ -296,11 +307,13 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # Shape: [..., input, output] -> [..., w_digit, input, output]
         digits = self._w_transcoder.encode(w.long(), dim=-3)
-        # Shape: [..., w_digit, input, output] -> [..., col, row]
-        state_idx = self._append_disabled_rsm(digits, dim=-3).flatten(-3, -2)
-        # Shape: [..., col, row] -> [..., scan=1, col, row]
+        # Shape: [..., w_digit, input, output] -> [..., w_digit+1, input, output]
+        digits = self._append_disabled_rsm(digits, dim=-3)
+        # Shape: [..., w_digit, input, row] -> [..., row, w_digit, input] -> [..., row, col]
+        state_idx = digits.movedim(-1, -3).flatten(-2, -1)
+        # Shape: [..., row, col] -> [..., scan=1, row, col]
         state_idx = state_idx.unsqueeze(-3)
-        self.array.program(state_idx)
+        self.array.program(state_idx.contiguous())
 
     def _vec_mat_mul_impl(
         self,
@@ -325,17 +338,19 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- 2: append the serialized row-scan axis ---
 
-        # Shape: [scan, row] -> [..., scan, row]
-        v_wl__V = self._v_wl_scan__V.expand(*leading_shape, self.scan_num, self.row_num)
+        # Shape: [scan, row, col=1] -> [..., scan, row, col=1]
+        v_wl__V = self._v_wl_scan__V.expand(*leading_shape, self.scan_num, self.row_num, 1)
 
         # --- 3: solve every scan phase ---
 
-        port_shape = (*leading_shape, self.scan_num, self.col_num)
-        bl_driver_snap = self.bl_driver.snapshot(v_ref__V=v_bl__V.unsqueeze(-2), shape=port_shape)
+        port_shape = (*leading_shape, self.scan_num, 1, self.col_num)
+        bl_driver_snap = self.bl_driver.snapshot(
+            v_ref__V=v_bl__V.unsqueeze(-2).unsqueeze(self.array.row_dim), shape=port_shape
+        )
         sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._v_sl__V, shape=port_shape)
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
-            wl_phase_dims=(-2,),
+            wl_phase_dims=(-3,),
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )

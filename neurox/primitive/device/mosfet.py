@@ -94,7 +94,13 @@ class MosfetSnap(SnapBase):
     """Per-cell signed threshold voltage."""
 
 
-class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
+_Config = MosfetConfig
+_Policy = MosfetPolicy
+_Dcop = MosfetDcop
+_Snap = MosfetSnap
+
+
+class Mosfet(ModuleBase, ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
@@ -103,6 +109,9 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     """
 
     is_profile_target: ClassVar[bool] = False
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -117,8 +126,8 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     def __init__(
         self,
         *,
-        config: MosfetConfig,
-        policy: MosfetPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -215,11 +224,12 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
             enabled=self.policy.A_vt_mismatch,
         )
 
+    @torch.no_grad()
     def snapshot(
         self,
         *,
         shape: tuple[int, ...],
-    ) -> MosfetSnap:
+    ) -> _Snap:
         """Sample one per-call runtime snap of the fabricated state.
 
         Args:
@@ -230,15 +240,16 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         """
         vth_view = self._vth__V.expand(shape) if shape else self._vth__V
         beta_view = self._beta__uA_per_V2.expand(shape) if shape else self._beta__uA_per_V2
-        return MosfetSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
+        return _Snap(vth__V=vth_view, beta__uA_per_V2=beta_view)
 
+    @torch.no_grad()
     def solve_dc(
         self,
         vg__V: Tensor | float,
         vd__V: Tensor | float,
         vs__V: Tensor | float,
-        snap: MosfetSnap,
-    ) -> MosfetDcop:
+        snap: _Snap,
+    ) -> _Dcop:
         """Evaluate `I_ds` and its three node partials at one op point."""
         p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2
@@ -271,7 +282,7 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         did_dvd__uS = beta__uA_per_V2 * v_d_sigma_d
         did_dvs__uS = -beta__uA_per_V2 * v_s_sigma_s
 
-        return MosfetDcop(
+        return _Dcop(
             ids__uA=ids__uA,
             did_dvg__uS=did_dvg__uS,
             did_dvd__uS=did_dvd__uS,

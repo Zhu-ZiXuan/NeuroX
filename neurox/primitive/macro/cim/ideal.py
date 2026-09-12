@@ -89,17 +89,24 @@ class IdealCimMacroPolicy(CimMacroPolicy):
     pass
 
 
-@CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)
-class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
+_Config = IdealCimMacroConfig
+_Policy = IdealCimMacroPolicy
+
+
+@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+class IdealCimMacro(CimMacro):
     """Ideal macro VMM whose highest precision is the exact integer result."""
+
+    config: _Config
+    policy: _Policy
 
     _w: Tensor  # Shape: [*inst_shape, input, output]
 
     def __init__(
         self,
         *,
-        config: IdealCimMacroConfig,
-        policy: IdealCimMacroPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -154,12 +161,14 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             adc_active_bits=adc_active_bits,
         )
 
+    @torch.no_grad()
     def program(self, w: Tensor) -> None:
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
         self._w = w.detach().clone()
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,

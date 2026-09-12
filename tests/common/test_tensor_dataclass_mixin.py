@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
 from inspect import Parameter, signature
 
 import pytest
@@ -44,12 +44,30 @@ def test_tensor_data_class_rejects_a_custom_init() -> None:
                 pass
 
 
-def test_tensor_data_class_rejects_a_custom_post_init() -> None:
-    with pytest.raises(TypeError, match=r"carries data only; it declares fields, not __post_init__\(\)"):
+def test_post_init_validates_inherited_fields_and_reconstruction() -> None:
+    class _ValidatedParent(TensorDataClassMixin):
+        value: Tensor
 
-        class _InvalidTensorData(TensorDataClassMixin):
-            def __post_init__(self) -> None:
-                pass
+        def __post_init__(self) -> None:
+            if self.value.ndim != 1:
+                raise ValueError("value must be a vector")
+
+    class _ValidatedChild(_ValidatedParent):
+        count: int
+
+        def __post_init__(self) -> None:
+            super().__post_init__()
+            if self.count <= 0:
+                raise ValueError("count must be positive")
+
+    node = _ValidatedChild(value=torch.ones(2), count=1)
+    assert replace(node, count=2).count == 2
+    with pytest.raises(ValueError, match="vector"):
+        _ValidatedChild(value=torch.ones(()), count=1)
+    with pytest.raises(ValueError, match="positive"):
+        replace(node, count=0)
+    with pytest.raises(ValueError, match="vector"):
+        replace(node, value=torch.ones(()))
 
 
 def test_tensor_data_class_rejects_an_initial_value() -> None:

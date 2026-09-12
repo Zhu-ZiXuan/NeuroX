@@ -16,7 +16,7 @@ The device, analog, digital, and macro models under `neurox.primitive` are what 
 ## Extension SPI
 
 - **Module root** — inherit `neurox.common.module.ModuleBase` and use `ConfigBase` and `PolicyBase` for its configuration and policy.
-- **Family dispatch** — inherit `neurox.common.registry_mixin.RegistryMixin` and register implementations with `register_neurox_module`.
+- **Family dispatch** — inherit `neurox.common.registry_mixin.RegistryMixin` and register implementations with `register_impl`.
 - **Serialization and validation** — use `neurox.common.serialize_mixin.SerializeMixin`, `neurox.common.validate_mixin.ValidateMixin`, and the functions in `neurox.common.serialize`.
 - **Cross-module data** — inherit `neurox.common.module.SnapBase` for snapshots and `DcopBase` for DC operating points.
 - **Recording** — inherit `neurox.common.recorder.RecorderBase` and `RecordBase`.

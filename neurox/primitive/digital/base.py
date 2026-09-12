@@ -22,7 +22,11 @@ class DigitalPolicy(PolicyBase):
     pass
 
 
-class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], ABC):
+_Config = DigitalConfig
+_Policy = DigitalPolicy
+
+
+class DigitalBase(ModuleBase, ABC):
     """Base for digital, integer-exact circuit blocks.
 
     A block bills dynamic energy as a flat per-op lump: the config's per-op
@@ -34,3 +38,9 @@ class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], AB
     everything past those dims folds away, so a block bills what it was handed
     and positions no axis of its own.
     """
+
+    config: _Config
+    policy: _Policy
+
+    def __init__(self, *, config: _Config, policy: _Policy, inst_shape: tuple[int, ...]) -> None:
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)

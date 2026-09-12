@@ -11,7 +11,7 @@ from torch import Tensor
 
 from neurox.common.module import PolicyBase
 from neurox.primitive.analog import AdcProber
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
+from neurox.primitive.macro.cim import CimMacro, IdealCimMacro
 from neurox.tools.calibration.cim_macro.construction import build_ideal_twin, build_physical_macro
 
 from ._stimulus import TargetStimulusSampler, feasible_ideal_values, sample_sparse_inputs, sample_values
@@ -53,7 +53,7 @@ def _ideal_value_range(
 
 
 def _run_paired(
-    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
+    physical: CimMacro,
     ideal: IdealCimMacro,
     x: Tensor,
     *,
@@ -85,7 +85,7 @@ def _run_paired(
 
 
 def _collect_random(
-    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
+    physical: CimMacro,
     ideal: IdealCimMacro,
     config: AdcProbeToolConfig,
     *,
@@ -142,7 +142,7 @@ def _collect_random(
 
 
 def _collect_targeted(
-    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
+    physical: CimMacro,
     ideal: IdealCimMacro,
     config: AdcProbeToolConfig,
     target_batch_num: dict[int, int],
@@ -202,7 +202,7 @@ def _prepare_probe(
     run_config_path: Path,
     device: torch.device,
     batch_w: int,
-) -> tuple[CimMacro[CimMacroConfig, CimMacroPolicy], IdealCimMacro, tuple[int, ...]]:
+) -> tuple[CimMacro, IdealCimMacro, tuple[int, ...]]:
     physical = build_physical_macro(
         cfg.macro,
         base=run_config_path,

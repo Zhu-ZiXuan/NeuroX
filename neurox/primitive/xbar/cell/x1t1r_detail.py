@@ -267,9 +267,12 @@ _Snap = XbarCell1t1rDetailSnap
 XbarCell1t1rDetailTrace = _Trace
 
 
-@XbarCell1t1r.register_neurox_module(config_type=_Config, policy_type=_Policy)
-class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
+@XbarCell1t1r.register_impl(config_type=_Config, policy_type=_Policy)
+class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
     """Nonlinear RRAM-NMOS branch condensed at its access node."""
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -315,6 +318,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
     def w_state_num(self) -> int:
         return len(self.config.state_to_g_map__uS)
 
+    @torch.no_grad()
     def snapshot(
         self,
         *,
@@ -327,10 +331,12 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
             v_wl__V=control,
         )
 
+    @torch.no_grad()
     def program(self, w_state_idx: Tensor) -> None:
         target_g__uS = self._state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS)
 
+    @torch.no_grad()
     def solve_dc_trace(
         self,
         v_bl__V: Tensor,
@@ -351,6 +357,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
             raise RuntimeError("A traced cell solve returned no trace")
         return dcop, trace
 
+    @torch.no_grad()
     def solve_dc(
         self,
         v_bl__V: Tensor,
@@ -361,6 +368,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Config, _Policy, _Snap]):
         dcop, _ = self._solve_dc_impl(v_bl__V, v_sl__V, snap, record_trace=False, trace_mask=None)
         return dcop
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _solve_dc_impl(
         self,
         v_bl__V: Tensor,

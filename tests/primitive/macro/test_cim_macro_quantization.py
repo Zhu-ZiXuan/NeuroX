@@ -53,7 +53,7 @@ class _StubMacroPolicy(CimMacroPolicy):
     pass
 
 
-class _StubMacro(CimMacro[_StubMacroConfig, _StubMacroPolicy]):
+class _StubMacro(CimMacro):
     @property
     def adc_bits(self) -> int:
         return self.config.adc_bits

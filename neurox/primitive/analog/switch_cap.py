@@ -45,13 +45,20 @@ class SwitchCapPolicy(PolicyBase):
     """Apply kT/C settling noise at sample time."""
 
 
-class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
+_Config = SwitchCapConfig
+_Policy = SwitchCapPolicy
+
+
+class SwitchCap(ModuleBase):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
         cap_weights: Per-cap multipliers on `config.c_unit__fF`; the length
             fixes the bank's cap count.
     """
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -64,8 +71,8 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
     def __init__(
         self,
         *,
-        config: SwitchCapConfig,
-        policy: SwitchCapPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -116,6 +123,7 @@ class SwitchCap(ModuleBase[SwitchCapConfig, SwitchCapPolicy]):
             enabled=self.policy.cap_mismatch,
         )
 
+    @torch.no_grad()
     def sample_and_accumulate(self, v_in__V: Tensor) -> Tensor:
         """Sample per-cap voltages and run passive charge-sharing.
 

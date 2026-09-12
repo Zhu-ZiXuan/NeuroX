@@ -14,7 +14,7 @@ An array solve is defined over one column of $N_{\mathrm{row}}$ cells with unkno
 
 ## Programming
 
-The array carries a conductance grid whose shape `(*inst_shape, col_num, row_num)` fixes the mapped weight layout. A program step writes the cells from one state-index tensor whose shape matches that layout; each entry selects one cell's programmed device state. The state-to-conductance map, RRAM window, and device sizing are cell-level parameters, specified in [cell](../cell/family.md).
+Each concrete array adopts the grid axis order declared by its solver; that order defines its mapped weight layout. A program step writes the cells from one state-index tensor whose shape matches that layout; each entry selects one cell's programmed device state. The state-to-conductance map, RRAM window, and device sizing are cell-level parameters, specified in [cell](../cell/family.md).
 
 ## Noise & non-idealities
 

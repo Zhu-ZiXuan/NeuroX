@@ -28,9 +28,13 @@ class VdacPolicy(PolicyBase, ABC):
     pass
 
 
-class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["VdacConfig", "VdacPolicy", "Vdac[VdacConfig, VdacPolicy]"],
+_Config = VdacConfig
+_Policy = VdacPolicy
+
+
+class Vdac(
+    ModuleBase,
+    RegistryMixin["_Config", "_Policy", "Vdac"],
     ABC,
 ):
     """Base class for voltage-domain DAC implementations.
@@ -39,11 +43,14 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
     scheduled window.
     """
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -55,18 +62,18 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
     def from_config(
         cls,
         *,
-        config: VdacConfig,
-        policy: VdacPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> Vdac[VdacConfig, VdacPolicy]:
+    ) -> Vdac:
         """Build the implementation registered for the config-policy pair.
 
         Returns:
             Registered voltage-DAC implementation.
         """
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -81,7 +88,7 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
         """Largest code the converter accepts; valid codes lie in `[0, code_max]`."""
         raise NotImplementedError
 
-    @abstractmethod
+    @torch.no_grad()
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to analog output voltages.
 
@@ -92,4 +99,9 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
             Analog output voltage [V], one value per `code` element. Dynamic
             energy is emitted through the profiler side channel.
         """
+        return self._convert_impl(code)
+
+    @abstractmethod
+    def _convert_impl(self, code: Tensor) -> Tensor:
+        """Convert inputs according to the `convert` contract."""
         raise NotImplementedError

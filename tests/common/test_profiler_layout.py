@@ -32,7 +32,7 @@ class _Policy(PolicyBase):
     pass
 
 
-class _Emitter(ModuleBase[_Config, _Policy]):
+class _Emitter(ModuleBase):
     """Minimal emitting module."""
 
     def __init__(self, inst_count: int = 1) -> None:

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import torch.nn as nn
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase, neurox_children
-
-type NeuroxModule = ModuleBase[ConfigBase, PolicyBase]
+from neurox.common.module import ModuleBase, neurox_children
 
 
 def check_unique_binding(model: nn.Module) -> None:
@@ -15,7 +13,7 @@ def check_unique_binding(model: nn.Module) -> None:
     Raises:
         ValueError: One module instance is bound at two paths.
     """
-    locations: dict[NeuroxModule, str] = {}
+    locations: dict[ModuleBase, str] = {}
     for relative_name, module in model.named_modules(remove_duplicate=False):
         if not isinstance(module, ModuleBase):
             continue

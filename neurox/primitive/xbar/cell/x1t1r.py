@@ -40,22 +40,31 @@ class XbarCell1t1rDcop(DcopBase):
     """Access-node voltage at the NMOS drain / RRAM bottom."""
 
 
-class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, SnapT: XbarCell1t1rSnap](
-    ModuleBase[ConfigT, PolicyT],
+_Config = XbarCell1t1rConfig
+_Policy = XbarCell1t1rPolicy
+_Snap = XbarCell1t1rSnap
+_Dcop = XbarCell1t1rDcop
+
+
+class XbarCell1t1r[SnapT: _Snap](
+    ModuleBase,
     RegistryMixin[
-        XbarCell1t1rConfig,
-        XbarCell1t1rPolicy,
-        "XbarCell1t1r[XbarCell1t1rConfig, XbarCell1t1rPolicy, Any]",
+        _Config,
+        _Policy,
+        "XbarCell1t1r[Any]",
     ],
     ABC,
 ):
     is_profile_target: ClassVar[bool] = False
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -90,7 +99,7 @@ class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, Sna
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: SnapT,
-    ) -> XbarCell1t1rDcop:
+    ) -> _Dcop:
         """Return the branch operating point including the access node."""
         raise NotImplementedError
 
@@ -98,18 +107,18 @@ class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, Sna
     def from_config(
         cls,
         *,
-        config: XbarCell1t1rConfig,
-        policy: XbarCell1t1rPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> XbarCell1t1r[XbarCell1t1rConfig, XbarCell1t1rPolicy, Any]:
+    ) -> XbarCell1t1r[Any]:
         """Build the 1T1R cell registered for the config-policy pair.
 
         Returns:
             Registered 1T1R cell implementation.
         """
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

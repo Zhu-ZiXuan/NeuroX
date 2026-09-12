@@ -1,5 +1,8 @@
 """Residual-driven DC solve for arrays with parallel column BL/SL rails.
 
+Grid axes follow row-before-column order. Ports retain both grid axes with
+the row extent set to one.
+
 See Also:
     docs/reference/primitive/xbar/solver/col_bl_col_sl.md
 """
@@ -37,13 +40,15 @@ def _node_jacobian_components__uS(
     g_cell_sl_eff__uS: Tensor,
     bl_g__uS: float,
     sl_g__uS: float,
+    *,
+    row_dim: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     # Jacobian entries use KCL-equation rows and node-voltage columns.
     return (
-        dfkcl_dvnode__uS(g_cell_bl_eff__uS, bl_g__uS, dim=-1),
+        dfkcl_dvnode__uS(g_cell_bl_eff__uS, bl_g__uS, dim=row_dim),
         -g_cell_sl_eff__uS,
         -g_cell_bl_eff__uS,
-        dfkcl_dvnode__uS(g_cell_sl_eff__uS, sl_g__uS, dim=-1),
+        dfkcl_dvnode__uS(g_cell_sl_eff__uS, sl_g__uS, dim=row_dim),
     )
 
 
@@ -54,16 +59,16 @@ class _NodeState(SolvingState):
     """Node voltages at the current iterate under fixed port voltages."""
 
     v_bl_node__V: Tensor
-    """Shape: `[..., col, row]`."""
+    """Shape: `[..., row, col]`."""
     v_sl_node__V: Tensor
-    """Shape: `[..., col, row]`."""
+    """Shape: `[..., row, col]`."""
 
 
 class _NodeTrace(SolvingTrace):
     """Residuals and thresholds are compared before each node update.
 
-    Boolean fields have shape `[..., col, *history]`; residuals, thresholds,
-    and updates have shape `[..., col, row, *history]`.
+    Boolean fields have shape `[..., row=1, col, *history]`; residuals, thresholds,
+    and updates have shape `[..., row, col, *history]`.
     """
 
     limited: Tensor
@@ -77,6 +82,7 @@ class _NodeTrace(SolvingTrace):
         cls,
         node_shape: tuple[int, ...],
         *,
+        port_shape: tuple[int, ...],
         history_shape: tuple[int, ...] = (),
         dtype: torch.dtype,
         device: torch.device,
@@ -84,7 +90,7 @@ class _NodeTrace(SolvingTrace):
         """Construct unused observations with explicit position and history axes."""
 
         def flags() -> Tensor:
-            return torch.zeros((*node_shape[:-1], *history_shape), dtype=torch.bool, device=device)
+            return torch.zeros((*port_shape, *history_shape), dtype=torch.bool, device=device)
 
         def values() -> Tensor:
             return torch.full((*node_shape, *history_shape), torch.nan, dtype=dtype, device=device)
@@ -102,8 +108,8 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
     """Solve wire KCL at fixed port voltages, then apply `final_fn`.
 
     Each call supplies initial node voltages and participating columns. Node
-    voltages have shape `[..., col, row]`; ports and activity have shape
-    `[..., col]`. `record_trace=False` requires convergence and returns no
+    voltages have shape `[..., row, col]`; ports and activity have shape
+    `[..., row=1, col]`. `record_trace=False` requires convergence and returns no
     history. `record_trace=True` permits a capped terminal state and retains
     raw history; `trace_mask` selects observations without changing activity.
     The callback runs once after the terminal check, under no-grad, and must
@@ -124,7 +130,13 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
         sl_segment_r__MOhm: float,
         cell: ResistiveCell[CellSnapT, CellDcopT],
         dtype: torch.dtype,
+        row_dim: int,
+        col_dim: int,
     ) -> None:
+        if (row_dim, col_dim) not in ((-2, -1), (-1, -2)):
+            raise ValueError("row_dim and col_dim must order the final two grid axes")
+        self.row_dim = row_dim
+        self.col_dim = col_dim
         self.cell = cell
         self.bl_g__uS = 1.0 / bl_segment_r__MOhm
         self.sl_g__uS = 1.0 / sl_segment_r__MOhm
@@ -203,7 +215,10 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
                 init_state=init_state,
                 body_fn=body_fn,
                 default_trace=_NodeTrace.empty(
-                    tuple(v_bl_node__V.shape), dtype=v_bl_node__V.dtype, device=v_bl_node__V.device
+                    tuple(v_bl_node__V.shape),
+                    port_shape=tuple(v_bl_port__V.shape),
+                    dtype=v_bl_node__V.dtype,
+                    device=v_bl_node__V.device,
                 ),
                 max_iter=self.MAX_ITER,
                 strict=False,
@@ -227,23 +242,24 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
         *,
         cell_snap: CellSnapT,
     ) -> tuple[_NodeState, _NodeTrace]:
+        row_dim = self.row_dim
 
         # --- 1: evaluate cell branches and node KCL ---
 
-        # Shape: [..., col, row]
+        # Shape: [..., row, col]
         cell_dcop = self.cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
         # KCL counts currents leaving each node. The branch leaves BL and enters SL.
-        # Shape: [..., col, row]
-        f_bl__uA = f_kcl__uA(v_bl_node__V, v_bl_port__V.unsqueeze(-1), self.bl_g__uS, cell_dcop.i__uA, dim=-1)
-        f_sl__uA = f_kcl__uA(v_sl_node__V, v_sl_port__V.unsqueeze(-1), self.sl_g__uS, -cell_dcop.i__uA, dim=-1)
+        # Shape: [..., row, col]
+        f_bl__uA = f_kcl__uA(v_bl_node__V, v_bl_port__V, self.bl_g__uS, cell_dcop.i__uA, dim=row_dim)
+        f_sl__uA = f_kcl__uA(v_sl_node__V, v_sl_port__V, self.sl_g__uS, -cell_dcop.i__uA, dim=row_dim)
 
         # --- 2: evaluate node stopping thresholds ---
 
         # Local wire rounding sets a floor even when a cell carries little current.
-        # Shape: [..., col, row]
+        # Shape: [..., row, col]
         roundoff__uA = torch.maximum(
-            f_kcl_roundoff__uA(v_bl_node__V, v_bl_port__V.unsqueeze(-1), self.bl_g__uS, dim=-1),
-            f_kcl_roundoff__uA(v_sl_node__V, v_sl_port__V.unsqueeze(-1), self.sl_g__uS, dim=-1),
+            f_kcl_roundoff__uA(v_bl_node__V, v_bl_port__V, self.bl_g__uS, dim=row_dim),
+            f_kcl_roundoff__uA(v_sl_node__V, v_sl_port__V, self.sl_g__uS, dim=row_dim),
         )
         threshold__uA = self.atol + self.rtol * cell_dcop.i__uA.abs() + roundoff__uA
 
@@ -251,13 +267,14 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
         # Adjacent rows couple through same-rail wires; each block keeps the BL/SL
         # equations of one row together. The off-block is a constant diagonal pair.
-        # Shape: [..., col, row]
+        # Shape: [..., row, col]
         dv_bl_node__V, dv_sl_node__V = solve_block_tridiagonal_2x2(
             diag=_node_jacobian_components__uS(
-                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS
+                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS, row_dim=row_dim
             ),
             rhs=(-f_bl__uA, -f_sl__uA),
             off_diag=(-self.bl_g__uS, -self.sl_g__uS),
+            dim=row_dim,
         )
 
         # --- 4: reject non-finite updates ---
@@ -265,8 +282,8 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
         finite = (
             v_bl_node__V.isfinite()
             & v_sl_node__V.isfinite()
-            & v_bl_port__V.unsqueeze(-1).isfinite()
-            & v_sl_port__V.unsqueeze(-1).isfinite()
+            & v_bl_port__V.isfinite()
+            & v_sl_port__V.isfinite()
             & cell_dcop.i__uA.isfinite()
             & cell_dcop.di_dvbl__uS.isfinite()
             & cell_dcop.di_dvsl__uS.isfinite()
@@ -280,23 +297,19 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
         # --- 5: return the updated state and raw observation ---
 
-        # Shape: [..., col]
+        # Shape: [..., row, col]
         residual__uA = torch.maximum(f_bl__uA.abs(), f_sl__uA.abs())
-        next_is_active = is_active & (residual__uA > threshold__uA).any(dim=-1)
+        next_is_active = is_active & (residual__uA > threshold__uA).any(dim=row_dim, keepdim=True)
 
-        applied_dv_bl_node__V = torch.where(
-            next_is_active.unsqueeze(-1), dv_bl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0
-        )
-        applied_dv_sl_node__V = torch.where(
-            next_is_active.unsqueeze(-1), dv_sl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0
-        )
+        applied_dv_bl_node__V = torch.where(next_is_active, dv_bl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
+        applied_dv_sl_node__V = torch.where(next_is_active, dv_sl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
         state = _NodeState(
             v_bl_node__V=v_bl_node__V + applied_dv_bl_node__V,
             v_sl_node__V=v_sl_node__V + applied_dv_sl_node__V,
             is_active=next_is_active,
         )
         limited = next_is_active & ((dv_bl_node__V.abs() > self.MAX_STEP) | (dv_sl_node__V.abs() > self.MAX_STEP)).any(
-            dim=-1
+            dim=row_dim, keepdim=True
         )
         trace = _NodeTrace(
             limited=limited,
@@ -319,20 +332,20 @@ class _PortState(SolvingState):
     """
 
     v_bl_node__V: Tensor
-    """Shape: `[..., col, row]`."""
+    """Shape: `[..., row, col]`."""
     v_sl_node__V: Tensor
-    """Shape: `[..., col, row]`."""
+    """Shape: `[..., row, col]`."""
     v_bl_port__V: Tensor
-    """Shape: `[..., col]`."""
+    """Shape: `[..., row=1, col]`."""
     v_sl_port__V: Tensor
-    """Shape: `[..., col]`."""
+    """Shape: `[..., row=1, col]`."""
 
 
 class _PortTrace(SolvingTrace):
     """Port observations with the corresponding node history.
 
-    Port fields have shape `[..., col, *history]`. Nested node fields insert
-    their row and node-iteration axes before the port history axes.
+    Port fields have shape `[..., row=1, col, *history]`. Nested node fields
+    expand the row extent and append a node-iteration axis before port history.
     `node_trace` is present throughout a traced solve, including unused steps.
     """
 
@@ -345,15 +358,21 @@ class _PortTrace(SolvingTrace):
 
     @classmethod
     def empty(
-        cls, node_shape: tuple[int, ...], *, node_capacity: int, dtype: torch.dtype, device: torch.device
+        cls,
+        node_shape: tuple[int, ...],
+        *,
+        port_shape: tuple[int, ...],
+        node_capacity: int,
+        dtype: torch.dtype,
+        device: torch.device,
     ) -> _PortTrace:
         """Construct one unused port observation and its nested node history."""
 
         def flags() -> Tensor:
-            return torch.zeros(node_shape[:-1], dtype=torch.bool, device=device)
+            return torch.zeros(port_shape, dtype=torch.bool, device=device)
 
         def values() -> Tensor:
-            return torch.full(node_shape[:-1], torch.nan, dtype=dtype, device=device)
+            return torch.full(port_shape, torch.nan, dtype=dtype, device=device)
 
         return cls(
             limited=flags(),
@@ -361,7 +380,9 @@ class _PortTrace(SolvingTrace):
             threshold__V=values(),
             dv_bl_port_abs__V=values(),
             dv_sl_port_abs__V=values(),
-            node_trace=_NodeTrace.empty(node_shape, history_shape=(node_capacity,), dtype=dtype, device=device),
+            node_trace=_NodeTrace.empty(
+                node_shape, port_shape=port_shape, history_shape=(node_capacity,), dtype=dtype, device=device
+            ),
         )
 
 
@@ -369,7 +390,8 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
     """DC solver for parallel column BL/SL rails.
 
     Cell and driver references are borrowed; their owner handles lifecycle and
-    accounting. Calls are stateless and receive per-call snapshots.
+    accounting. Calls are stateless and receive per-call snapshots. Node grids
+    use `[..., row, col]`, as declared by `row_dim` and `col_dim`.
 
     Args:
         bl_segment_r__MOhm: Uniform BL resistance of one lattice link,
@@ -390,6 +412,10 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
     FP64_RTOL: ClassVar[float] = 5.0e-12
     FP64_ATOL: ClassVar[float] = 5.0e-15
     WIRE_ROUNDOFF_FACTOR: ClassVar[float] = 2.0
+
+    # Column-last layout improves scan input locality and reduces layout-conversion traffic.
+    row_dim: ClassVar[int] = -2
+    col_dim: ClassVar[int] = -1
 
     def __init__(
         self,
@@ -425,11 +451,11 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
             sl_segment_r__MOhm=sl_segment_r__MOhm,
             cell=cell,
             dtype=dtype,
+            row_dim=self.row_dim,
+            col_dim=self.col_dim,
         )
 
-    @patch_dynamo_config(capture_scalar_outputs=True)
     @torch.no_grad()
-    @torch.compile(dynamic=False)
     def solve[ResultT](
         self,
         *,
@@ -443,24 +469,27 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         """Return the caller's terminal projection and optional raw history.
 
         Snaps share the complete runtime leading shape: cells at
-        `[..., col, row]` and clamps at `[..., col]`. `record_trace=False`
+        `[..., row, col]` and clamps at `[..., row=1, col]`. `record_trace=False`
         requires both loops to converge; `True` permits capped terminal states.
         `trace_mask` selects column observations only. The callback receives
         terminal node and port voltages once, under no-grad, and must support
         compiled tensor execution. It owns the output's structure and meaning.
         """
+        row_dim = self.row_dim
+
         # --- 1: initialize every port and node at its nominal rail reference ---
 
-        row_num = self.cell.inst_shape[-1]
+        row_num = self.cell.inst_shape[row_dim]
         # Materialize reference broadcasts so every loop-carried tensor has the
         # same dense layout as the values returned by its first update.
-        # Shape: [..., col]
+        # Shape: [..., row=1, col]
         v_bl_port__V = bl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
         v_sl_port__V = sl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
-        # Shape: [..., col, row]
-        node_shape = (*v_bl_port__V.shape, row_num)
-        v_bl_node__V = v_bl_port__V.unsqueeze(-1).expand(node_shape).clone(memory_format=torch.contiguous_format)
-        v_sl_node__V = v_sl_port__V.unsqueeze(-1).expand(node_shape).clone(memory_format=torch.contiguous_format)
+        # Shape: [..., row, col]
+        node_shape = list(v_bl_port__V.shape)
+        node_shape[row_dim] = row_num
+        v_bl_node__V = v_bl_port__V.expand(node_shape).clone(memory_format=torch.contiguous_format)
+        v_sl_node__V = v_sl_port__V.expand(node_shape).clone(memory_format=torch.contiguous_format)
 
         # --- 2: solve the coupled port and node equilibrium ---
 
@@ -533,6 +562,7 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
                 body_fn=body_fn,
                 default_trace=_PortTrace.empty(
                     tuple(v_bl_node__V.shape),
+                    port_shape=tuple(v_bl_port__V.shape),
                     node_capacity=self.node_solver.MAX_ITER,
                     dtype=v_bl_node__V.dtype,
                     device=v_bl_node__V.device,
@@ -561,17 +591,19 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
     ) -> tuple[_PortState, _PortTrace]:
+        row_dim = self.row_dim
 
         # --- 1: evaluate driver targets and port residuals ---
 
         v_bl_node__V = node_state.v_bl_node__V
         v_sl_node__V = node_state.v_sl_node__V
-        i_bl_port__uA = (v_bl_port__V - v_bl_node__V[..., 0]) * self.bl_g__uS
-        i_sl_port__uA = (v_sl_port__V - v_sl_node__V[..., 0]) * self.sl_g__uS
-        # Shape: [..., col]
+        # Shape: [..., row=1, col]
+        i_bl_port__uA = (v_bl_port__V - v_bl_node__V.narrow(row_dim, 0, 1)) * self.bl_g__uS
+        i_sl_port__uA = (v_sl_port__V - v_sl_node__V.narrow(row_dim, 0, 1)) * self.sl_g__uS
+        # Shape: [..., row=1, col]
         bl_driver_dcop = self.bl_driver.solve_dc(i_bl_port__uA, bl_driver_snap, v_port_init__V=v_bl_port__V)
         sl_driver_dcop = self.sl_driver.solve_dc(i_sl_port__uA, sl_driver_snap, v_port_init__V=v_sl_port__V)
-        # Shape: [..., col]
+        # Shape: [..., row=1, col]
         f_bl_port__V = bl_driver_dcop.v_port__V - v_bl_port__V
         f_sl_port__V = sl_driver_dcop.v_port__V - v_sl_port__V
 
@@ -584,9 +616,10 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         )
         u_bl_bl, u_bl_sl, u_sl_bl, u_sl_sl = boundary_inverse_block_tridiagonal_2x2(
             diag=_node_jacobian_components__uS(
-                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS
+                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS, row_dim=row_dim
             ),
             off_diag=(-self.bl_g__uS, -self.sl_g__uS),
+            dim=row_dim,
         )
         di_bl_dv_bl__uS = self.bl_g__uS * (1.0 - u_bl_bl * self.bl_g__uS)
         di_bl_dv_sl__uS = -self.bl_g__uS * u_bl_sl * self.sl_g__uS
@@ -597,7 +630,7 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         # Its sign sets feedback polarity; its magnitude also scales roundoff below.
         bl_driver_gain = bl_driver_dcop.dvport_di__MOhm * self.bl_g__uS
         sl_driver_gain = sl_driver_dcop.dvport_di__MOhm * self.sl_g__uS
-        # Shape: [..., col]
+        # Shape: [..., row=1, col]
         dv_bl_port__V, dv_sl_port__V = solve_2x2(
             (
                 bl_driver_dcop.dvport_di__MOhm * di_bl_dv_bl__uS - 1.0,
@@ -610,9 +643,9 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
 
         # --- 3: evaluate stopping thresholds and assemble the port state ---
 
-        # Shape: [..., col]
-        v_bl_port_scale__V = torch.maximum(v_bl_port__V.abs(), v_bl_node__V[..., 0].abs())
-        v_sl_port_scale__V = torch.maximum(v_sl_port__V.abs(), v_sl_node__V[..., 0].abs())
+        # Shape: [..., row=1, col]
+        v_bl_port_scale__V = torch.maximum(v_bl_port__V.abs(), v_bl_node__V.narrow(row_dim, 0, 1).abs())
+        v_sl_port_scale__V = torch.maximum(v_sl_port__V.abs(), v_sl_node__V.narrow(row_dim, 0, 1).abs())
         v_port_scale__V = torch.maximum(
             torch.maximum(v_bl_port_scale__V, v_sl_port_scale__V),
             torch.maximum(bl_driver_dcop.v_port__V.abs(), sl_driver_dcop.v_port__V.abs()),
@@ -644,7 +677,7 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
             "Port Newton solve produced a non-finite state",
         )
 
-        # Shape: [..., col]
+        # Shape: [..., row=1, col]
         residual__V = torch.maximum(f_bl_port__V.abs(), f_sl_port__V.abs())
         next_is_active = is_active & (residual__V > threshold__V)
 

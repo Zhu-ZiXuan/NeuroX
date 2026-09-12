@@ -25,10 +25,17 @@ class InputActivationStagePolicy(PolicyBase):
     pass
 
 
-class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivationStagePolicy]):
+_Config = InputActivationStageConfig
+_Policy = InputActivationStagePolicy
+
+
+class InputActivationStage(ModuleBase):
     """Pair max-active input scheduling with P-axis aggregation."""
 
     is_profile_target: ClassVar[bool] = False
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -37,8 +44,8 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
     def __init__(
         self,
         *,
-        config: InputActivationStageConfig,
-        policy: InputActivationStagePolicy,
+        config: _Config,
+        policy: _Policy,
         input_block_size: int,
         max_active_num: int,
         macro_plane_num: int,
@@ -60,6 +67,7 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
         self.phase_accumulator = SerialAccumulator(
             config=config.phase_accumulator_config,
             policy=DigitalPolicy(),
+            # Shape: [Sw, Tc, G]
             inst_shape=(
                 macro_plane_num,
                 input_tile_num,

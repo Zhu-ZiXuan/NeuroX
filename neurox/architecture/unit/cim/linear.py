@@ -23,15 +23,22 @@ class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
     pass
 
 
-@CimUnit.register_neurox_module(config_type=LinearCimUnitConfig, policy_type=LinearCimUnitPolicy)
-class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearCimUnitPolicy]):
+_Config = LinearCimUnitConfig
+_Policy = LinearCimUnitPolicy
+
+
+@CimUnit.register_impl(config_type=_Config, policy_type=_Policy)
+class LinearCimUnit(LinearUnit, EngineBackedCimUnit):
     """CIM-backed integer linear unit."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: LinearCimUnitConfig,
-        policy: LinearCimUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -64,6 +71,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
         del input_shape
         return self.engine.latency__ns(output_plane_num=1, adc_active_bits=adc_active_bits)
 
+    @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:
             raise TypeError(f"CIM execution requires an integer weight tensor; got dtype {weight.dtype}")

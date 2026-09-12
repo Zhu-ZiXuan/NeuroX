@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterator
 from typing import TypedDict
 
 import pytest
 import torch
-import torch._dynamo
 from torch import Tensor
 
 from neurox import Profiler, Reporter
@@ -40,13 +38,6 @@ _ROW_KEYS = {
     "control": "control",  # module row
 }
 _READ_ROWS = ("cablc", "dswct", "sinwp_sc")  # sampled-phase conduction rows
-
-
-@pytest.fixture(autouse=True)
-def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
-    with torch._dynamo.config.patch(disable=True):
-        yield
 
 
 def _w_full(input_num: int = TINY_INPUT_NUM, output_num: int = TINY_OUTPUT_NUM) -> Tensor:
@@ -119,24 +110,22 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     sample__ns = cfg.t_sample__ns
     detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
 
-    phys_col_num = macro.array.cell.inst_shape[-2]
-
     planes = torch.stack(tuple((x_long >> k) & 1 for k in range(cfg.x_bit_num)), dim=-2)
     v_wl = planes * macro._v_wl_on__V
     leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
-    ref_shape = (*leading, phys_col_num)
+    ref_shape = (*leading, 1, macro.lane_num, macro.scan_num, 2, cfg.w_digit_num)
     v_blc = macro.cablc_vref.values()
     dcop = macro.array.solve_dc(
-        v_wl__V=v_wl,
-        wl_phase_dims=(-2,),
-        bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
+        v_wl__V=v_wl.unsqueeze(macro.array.col_dim),
+        wl_phase_dims=(-3,),
+        bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape).flatten_axes(-4, -1),
         sl_driver_snap=macro.sl_driver.snapshot(
             v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
             shape=ref_shape,
-        ),
+        ).flatten_axes(-4, -1),
     )
     phase_duration__ns = v_wl.new_tensor((*([sample__ns] * (cfg.x_bit_num - 1)), detect__ns))
-    energy__fJ = (vdd__V * dcop.i_bl_port__uA).sum(dim=-1) * phase_duration__ns
+    energy__fJ = (vdd__V * dcop.i_bl_port__uA).sum(dim=(macro.array.row_dim, macro.array.col_dim)) * phase_duration__ns
     return float(energy__fJ.sum())
 
 

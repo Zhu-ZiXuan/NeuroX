@@ -107,8 +107,8 @@ def test_settled_nodes_still_require_port_updates(device: torch.device, record_t
     is_active = torch.ones_like(bl, dtype=torch.bool)
 
     node_state, node_trace = port_solver.node_solver.solve(
-        bl.unsqueeze(-1).expand(shape).clone(),
-        sl.unsqueeze(-1).expand(shape).clone(),
+        bl.expand(shape).clone(),
+        sl.expand(shape).clone(),
         bl,
         sl,
         cell_snap=kwargs["cell_snap"],
@@ -163,7 +163,7 @@ class _AliasingCellDcop(DcopBase):
 
 
 class _AliasingCell:
-    inst_shape = (2, 4)
+    inst_shape = (4, 2)
 
     def solve_dc(
         self,
@@ -189,21 +189,21 @@ def _dense_kcl_solution(
     device = harness.v_wl_drive__V.device
     g_on = torch.tensor(cfg.g_cell_on_table__uS, device=device, dtype=dtype)[idx]
     g_off = torch.tensor(cfg.g_cell_off_table__uS, device=device, dtype=dtype)[idx]
-    g_cell = torch.where(harness.v_wl_drive__V[0] > cfg.v_wl_on_threshold__V, g_on, g_off)
+    g_cell = torch.where(harness.v_wl_drive__V[0].unsqueeze(-1) > cfg.v_wl_on_threshold__V, g_on, g_off)
     g_bl = 1.0 / harness.bl_segment_r__MOhm
     g_sl = 1.0 / harness.sl_segment_r__MOhm
     v_bl_ref = harness.bl_v_ref__V.to(device=device, dtype=dtype)
     v_sl_ref = harness.sl_v_ref__V.to(device=device, dtype=dtype)
 
-    col_num, row_num = g_cell.shape
+    row_num, col_num = g_cell.shape
     lhs = torch.zeros(col_num, 2 * row_num, 2 * row_num, device=device, dtype=dtype)
     rhs = torch.zeros(col_num, 2 * row_num, device=device, dtype=dtype)
     for row in range(row_num):
         g_right = 0.0 if row + 1 == row_num else 1.0
-        lhs[:, row, row] = g_bl * (1.0 + g_right) + g_cell[:, row]
-        lhs[:, row, row_num + row] = -g_cell[:, row]
-        lhs[:, row_num + row, row_num + row] = g_sl * (1.0 + g_right) + g_cell[:, row]
-        lhs[:, row_num + row, row] = -g_cell[:, row]
+        lhs[:, row, row] = g_bl * (1.0 + g_right) + g_cell[row, :]
+        lhs[:, row, row_num + row] = -g_cell[row, :]
+        lhs[:, row_num + row, row_num + row] = g_sl * (1.0 + g_right) + g_cell[row, :]
+        lhs[:, row_num + row, row] = -g_cell[row, :]
         if row > 0:
             lhs[:, row, row - 1] = -g_bl
             lhs[:, row_num + row, row_num + row - 1] = -g_sl
@@ -222,7 +222,7 @@ def _dense_kcl_solution(
     v_sl_node__V = solution[:, row_num:]
     i_bl_port__uA = (v_bl_ref - v_bl_node__V[:, 0]) * drive_bl_g
     i_sl_port__uA = (v_sl_ref - v_sl_node__V[:, 0]) * drive_sl_g
-    return v_bl_node__V, v_sl_node__V, i_bl_port__uA, i_sl_port__uA
+    return v_bl_node__V.T, v_sl_node__V.T, i_bl_port__uA, i_sl_port__uA
 
 
 def _nonideal_driver(
@@ -284,7 +284,7 @@ def test_dcop_matches_dense_kcl_oracle(device: torch.device, nonideal: bool) -> 
     sl_r = 3e-3 if nonideal else 0.0
     dcop, trace = _solve(kwargs, record_trace=True)
     expected = _dense_kcl_solution(harness, bl_r=bl_r, sl_r=sl_r)
-    actual = dcop.v_bl_node__V[0], dcop.v_sl_node__V[0], dcop.i_bl_port__uA[0], dcop.i_sl_port__uA[0]
+    actual = dcop.v_bl_node__V[0], dcop.v_sl_node__V[0], dcop.i_bl_port__uA[0, 0], dcop.i_sl_port__uA[0, 0]
     for value, reference in zip(actual, expected, strict=True):
         torch.testing.assert_close(value, reference, rtol=0.0, atol=1e-9)
     assert trace is not None
@@ -297,31 +297,31 @@ def test_terminal_electrical_state_and_trace_report_convergence(device: torch.de
     assert trace is not None
     f_bl = f_kcl__uA(
         dcop.v_bl_node__V,
-        dcop.v_bl_port__V.unsqueeze(-1),
+        dcop.v_bl_port__V,
         1.0 / kwargs["bl_segment_r__MOhm"],
         dcop.cell_dcop.i__uA,
-        dim=-1,
+        dim=-2,
     )
     f_sl = f_kcl__uA(
         dcop.v_sl_node__V,
-        dcop.v_sl_port__V.unsqueeze(-1),
+        dcop.v_sl_port__V,
         1.0 / kwargs["sl_segment_r__MOhm"],
         -dcop.cell_dcop.i__uA,
-        dim=-1,
+        dim=-2,
     )
     array_solver = _solver(kwargs)
     roundoff__uA = torch.maximum(
         f_kcl_roundoff__uA(
             dcop.v_bl_node__V,
-            dcop.v_bl_port__V.unsqueeze(-1),
+            dcop.v_bl_port__V,
             array_solver.bl_g__uS,
-            dim=-1,
+            dim=-2,
         ),
         f_kcl_roundoff__uA(
             dcop.v_sl_node__V,
-            dcop.v_sl_port__V.unsqueeze(-1),
+            dcop.v_sl_port__V,
             array_solver.sl_g__uS,
-            dim=-1,
+            dim=-2,
         ),
     )
     node_threshold__uA = (
@@ -333,8 +333,8 @@ def test_terminal_electrical_state_and_trace_report_convergence(device: torch.de
     sl = kwargs["sl_driver"].solve_dc(dcop.i_sl_port__uA, kwargs["sl_driver_snap"], v_port_init__V=dcop.v_sl_port__V)
     f_bl_port__V = bl.v_port__V - dcop.v_bl_port__V
     f_sl_port__V = sl.v_port__V - dcop.v_sl_port__V
-    v_bl_scale__V = torch.maximum(dcop.v_bl_port__V.abs(), dcop.v_bl_node__V[..., 0].abs())
-    v_sl_scale__V = torch.maximum(dcop.v_sl_port__V.abs(), dcop.v_sl_node__V[..., 0].abs())
+    v_bl_scale__V = torch.maximum(dcop.v_bl_port__V.abs(), dcop.v_bl_node__V[..., :1, :].abs())
+    v_sl_scale__V = torch.maximum(dcop.v_sl_port__V.abs(), dcop.v_sl_node__V[..., :1, :].abs())
     v_port_scale__V = torch.maximum(
         torch.maximum(v_bl_scale__V, v_sl_scale__V),
         torch.maximum(bl.v_port__V.abs(), sl.v_port__V.abs()),
@@ -355,7 +355,7 @@ def test_terminal_electrical_state_and_trace_report_convergence(device: torch.de
 @pytest.mark.parametrize(("col_num", "row_num"), [(1, 4), (3, 1), (1, 1)])
 def test_degenerate_array_axes_converge(device: torch.device, col_num: int, row_num: int) -> None:
     dcop, trace = _solve(_kwargs(device, col_num=col_num, row_num=row_num), record_trace=True)
-    assert dcop.v_bl_node__V.shape[-2:] == (col_num, row_num)
+    assert dcop.v_bl_node__V.shape[-2:] == (row_num, col_num)
     assert trace is not None
     _assert_converged(trace)
 
@@ -371,8 +371,9 @@ def test_complete_runtime_snap_leading_is_solved_as_one_population(device: torch
         dtype=torch.float64,
         device=device,
     )
+    control = control.movedim(-1, -2).contiguous()
     kwargs["cell_snap"] = cell.snapshot(control=control, shape=control.shape)
-    port_shape = tuple(control.shape[:-1])
+    port_shape = (*control.shape[:-2], 1, control.shape[-1])
     kwargs["bl_driver_snap"] = kwargs["bl_driver"].snapshot(
         v_ref__V=kwargs["bl_driver_snap"].v_ref__V.expand(port_shape),
         shape=port_shape,
@@ -386,7 +387,7 @@ def test_complete_runtime_snap_leading_is_solved_as_one_population(device: torch
     assert trace is not None
     initial_node_trace = trace.select(0).node_trace
     assert initial_node_trace is not None
-    assert (~initial_node_trace.residual__uA[..., 0].isnan()).any(dim=-1).sum() == 4
+    assert (~initial_node_trace.residual__uA[..., 0].isnan()).any(dim=-2).sum() == 4
     _assert_terminal_converged(initial_node_trace.residual__uA, initial_node_trace.threshold__uA)
     _assert_converged(trace)
 
@@ -432,7 +433,7 @@ def test_trace_switch_preserves_solution_and_records_only_executed_samples(devic
     for value in (trace.threshold__V, trace.dv_bl_port_abs__V, trace.dv_sl_port_abs__V):
         assert torch.equal(value.isnan(), ~port_valid)
     node_valid = ~node_trace.residual__uA.isnan()
-    assert not node_trace.limited[~node_valid.any(dim=-3)].any()
+    assert not node_trace.limited[~node_valid.any(dim=-4, keepdim=True)].any()
     for value in (node_trace.threshold__uA, node_trace.dv_bl_node_abs__V, node_trace.dv_sl_node_abs__V):
         assert torch.equal(value.isnan(), ~node_valid)
 
@@ -442,7 +443,7 @@ def test_trace_switch_preserves_solution_and_records_only_executed_samples(devic
 def test_aliasing_cell_is_public_caller_fullgraph_safe(device: torch.device, record_trace: bool, backend: str) -> None:
     kwargs = _kwargs(device, col_num=2, row_num=4)
     kwargs["cell"] = _AliasingCell()
-    kwargs["cell_snap"] = _AliasingCellInput(g_cell__uS=torch.full((1, 2, 4), 50.0, dtype=torch.float64, device=device))
+    kwargs["cell_snap"] = _AliasingCellInput(g_cell__uS=torch.full((1, 4, 2), 50.0, dtype=torch.float64, device=device))
     array_solver: solver.ColBlColSlArraySolver[_AliasingCellInput, _AliasingCellDcop, Any, Any] = _solver(kwargs)
 
     def solve() -> tuple[Tensor, ...]:
@@ -496,7 +497,7 @@ def test_fullgraph_reuses_graph_with_fresh_solver_snapshots(device: torch.device
         return dcop.cell_dcop.i__uA, dcop.v_bl_node__V
 
     snaps = [
-        _AliasingCellInput(g_cell__uS=torch.full((1, 2, 4), g_cell__uS, dtype=torch.float64, device=device))
+        _AliasingCellInput(g_cell__uS=torch.full((1, 4, 2), g_cell__uS, dtype=torch.float64, device=device))
         for g_cell__uS in (30.0, 50.0, 80.0, 30.0)
     ]
     expected = [solve(snap) for snap in snaps]
@@ -523,7 +524,7 @@ def test_capped_node_solve_aborts_the_regular_solve(device: torch.device) -> Non
     kwargs = _nonideal_kwargs(device)
     snap = kwargs["cell_snap"]
     conductance = snap.g_cell_on__uS.clone()
-    conductance[..., 0, :] = 10000.0
+    conductance[..., :, 0] = 10000.0
     kwargs["cell_snap"] = replace(snap, g_cell_on__uS=conductance)
 
     with (
@@ -537,7 +538,7 @@ def test_capped_node_solve_returns_the_requested_trace(device: torch.device) -> 
     kwargs = _nonideal_kwargs(device)
     snap = kwargs["cell_snap"]
     conductance = snap.g_cell_on__uS.clone()
-    conductance[..., 0, :] = 10000.0
+    conductance[..., :, 0] = 10000.0
     kwargs["cell_snap"] = replace(snap, g_cell_on__uS=conductance)
 
     with (
@@ -566,8 +567,8 @@ def test_wire_newton_correction_obeys_step_limit(device: torch.device) -> None:
     v_bl_port__V = kwargs["bl_driver_snap"].v_ref__V
     v_sl_port__V = kwargs["sl_driver_snap"].v_ref__V
     node_shape = kwargs["cell_snap"].v_wl__V.shape
-    v_bl_node__V = v_bl_port__V.unsqueeze(-1).expand(node_shape)
-    v_sl_node__V = v_sl_port__V.unsqueeze(-1).expand(node_shape)
+    v_bl_node__V = v_bl_port__V.expand(node_shape)
+    v_sl_node__V = v_sl_port__V.expand(node_shape)
     state, trace = node_solver._evaluate_node(
         v_bl_port__V,
         v_sl_port__V,
@@ -605,7 +606,7 @@ def test_internal_threshold_handles_wire_roundoff(device: torch.device, dtype: t
         torch.testing.assert_close(
             actual, expected, rtol=1e-5 if dtype == torch.float32 else 1e-10, atol=16 * eps, check_dtype=False
         )
-    for actual, expected in ((dcop.i_bl_port__uA[0], i_bl), (dcop.i_sl_port__uA[0], i_sl)):
+    for actual, expected in ((dcop.i_bl_port__uA[0, 0], i_bl), (dcop.i_sl_port__uA[0, 0], i_sl)):
         torch.testing.assert_close(
             actual, expected, rtol=1e-4 if dtype == torch.float32 else 1e-10, atol=4 * eps / wire_r, check_dtype=False
         )
@@ -615,12 +616,12 @@ def test_strong_cell_does_not_hide_another_nodes_kcl_error(device: torch.device)
     kwargs = build_solver_harness(device=device, dtype=torch.float32, col_num=1, row_num=5).solve_kwargs()
     # A unit far-end current and a tiny first-row current have an analytic
     # ladder equilibrium. Powers of two keep the seed voltages representable.
-    rows = torch.arange(1, 6, device=device, dtype=torch.float32).reshape(1, 1, 5)
+    rows = torch.arange(1, 6, device=device, dtype=torch.float32).reshape(1, 5, 1)
     v_bl = 16.0 - rows - 2**-18
     v_sl = rows + 2**-18
     current = torch.zeros_like(rows)
-    current[..., 0] = 2**-18
-    current[..., -1] = 1.0
+    current[..., 0, :] = 2**-18
+    current[..., -1, :] = 1.0
     kwargs.update(
         bl_segment_r__MOhm=1.0,
         sl_segment_r__MOhm=1.0,
@@ -628,8 +629,8 @@ def test_strong_cell_does_not_hide_another_nodes_kcl_error(device: torch.device)
         cell_snap=_AliasingCellInput(g_cell__uS=current / (v_bl - v_sl)),
     )
     node_solver = _solver(kwargs).node_solver
-    v_bl[..., 0] += 2**-17
-    v_bl_port = v_bl.new_full((1, 1), 16.0)
+    v_bl[..., :1, :] += 2**-17
+    v_bl_port = v_bl.new_full((1, 1, 1), 16.0)
     v_sl_port = torch.zeros_like(v_bl_port)
     state, trace = node_solver._evaluate_node(
         v_bl_port,
@@ -641,10 +642,10 @@ def test_strong_cell_does_not_hide_another_nodes_kcl_error(device: torch.device)
     )
     assert trace is not None
     cell_dcop = node_solver.cell.solve_dc(v_bl, v_sl, kwargs["cell_snap"])
-    f_bl = f_kcl__uA(v_bl, v_bl_port.unsqueeze(-1), node_solver.bl_g__uS, cell_dcop.i__uA, dim=-1)
-    f_sl = f_kcl__uA(v_sl, v_sl_port.unsqueeze(-1), node_solver.sl_g__uS, -cell_dcop.i__uA, dim=-1)
+    f_bl = f_kcl__uA(v_bl, v_bl_port, node_solver.bl_g__uS, cell_dcop.i__uA, dim=-2)
+    f_sl = f_kcl__uA(v_sl, v_sl_port, node_solver.sl_g__uS, -cell_dcop.i__uA, dim=-2)
     torch.testing.assert_close(trace.residual__uA, torch.maximum(f_bl.abs(), f_sl.abs()))
-    torch.testing.assert_close(state.is_active, (trace.residual__uA > trace.threshold__uA).any(dim=-1))
+    torch.testing.assert_close(state.is_active, (trace.residual__uA > trace.threshold__uA).any(dim=-2, keepdim=True))
     # Componentwise normalization catches the first-row violation even though
     # pooling residual and threshold maxima separately would accept the column.
     assert (trace.residual__uA / trace.threshold__uA).amax() > 1
@@ -673,7 +674,7 @@ def test_strong_cell_does_not_hide_another_nodes_kcl_error(device: torch.device)
 def test_nonfinite_derivative_with_finite_current_fails_fast(field: str, bad_value: float) -> None:
     kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
     node_solver = _solver(kwargs).node_solver
-    v_bl = torch.ones(1, 1, 2, dtype=torch.float64)
+    v_bl = torch.ones(1, 2, 1, dtype=torch.float64)
     v_sl = torch.zeros_like(v_bl)
     cell_dcop = kwargs["cell"].solve_dc(v_bl, v_sl, kwargs["cell_snap"])
     assert cell_dcop.i__uA.isfinite().all()
@@ -683,11 +684,11 @@ def test_nonfinite_derivative_with_finite_current_fails_fast(field: str, bad_val
         pytest.raises(RuntimeError, match="non-finite state"),
     ):
         node_solver._evaluate_node(
-            v_bl[..., 0],
-            v_sl[..., 0],
+            v_bl[..., :1, :],
+            v_sl[..., :1, :],
             v_bl,
             v_sl,
-            is_active=torch.ones_like(v_bl[..., 0], dtype=torch.bool),
+            is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
             cell_snap=kwargs["cell_snap"],
         )
 
@@ -697,9 +698,9 @@ def test_nonfinite_derivative_with_finite_current_fails_fast(field: str, bad_val
 def test_nonfinite_node_voltage_fails_through_kcl(rail: str, bad_value: float) -> None:
     kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
     node_solver = _solver(kwargs).node_solver
-    v_bl = torch.ones(1, 1, 2, dtype=torch.float64)
+    v_bl = torch.ones(1, 2, 1, dtype=torch.float64)
     v_sl = torch.zeros_like(v_bl)
-    (v_bl if rail == "bl" else v_sl)[..., -1] = bad_value
+    (v_bl if rail == "bl" else v_sl)[..., -1, :] = bad_value
     # Keep branch outputs finite to isolate propagation through the wire KCL.
     dcop = _AliasingCellDcop(
         i__uA=torch.zeros_like(v_bl), di_dvbl__uS=torch.ones_like(v_bl), di_dvsl__uS=-torch.ones_like(v_bl)
@@ -709,11 +710,11 @@ def test_nonfinite_node_voltage_fails_through_kcl(rail: str, bad_value: float) -
         pytest.raises(RuntimeError, match="non-finite state"),
     ):
         node_solver._evaluate_node(
-            v_bl[..., 0],
-            v_sl[..., 0],
+            v_bl[..., :1, :],
+            v_sl[..., :1, :],
             v_bl,
             v_sl,
-            is_active=torch.ones_like(v_bl[..., 0], dtype=torch.bool),
+            is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
             cell_snap=kwargs["cell_snap"],
         )
 
@@ -721,22 +722,22 @@ def test_nonfinite_node_voltage_fails_through_kcl(rail: str, bad_value: float) -
 def test_nonfinite_correction_is_rejected_before_step_clipping() -> None:
     kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
     node_solver = _solver(kwargs).node_solver
-    v_bl = torch.ones(1, 1, 2, dtype=torch.float64)
+    v_bl = torch.ones(1, 2, 1, dtype=torch.float64)
     v_sl = torch.zeros_like(v_bl)
     with (
         patch.object(
             solver,
             "solve_block_tridiagonal_2x2",
-            return_value=(v_bl.new_full(v_bl.shape, torch.inf), v_sl.new_full(v_sl.shape, torch.inf)),
+            return_value=(torch.full_like(v_bl, torch.inf), torch.full_like(v_sl, torch.inf)),
         ),
         pytest.raises(RuntimeError, match="non-finite state"),
     ):
         node_solver._evaluate_node(
-            v_bl[..., 0],
-            v_sl[..., 0],
+            v_bl[..., :1, :],
+            v_sl[..., :1, :],
             v_bl,
             v_sl,
-            is_active=torch.ones_like(v_bl[..., 0], dtype=torch.bool),
+            is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
             cell_snap=kwargs["cell_snap"],
         )
 
@@ -798,3 +799,27 @@ def test_solver_graph_size_is_independent_of_iteration_caps(device: torch.device
                 compiled()
     assert len(graph_sizes) == 3
     assert len(set(graph_sizes)) == 1
+
+
+def test_column_trace_mask_preserves_row_grid_and_solution(device: torch.device) -> None:
+    kwargs = _nonideal_kwargs(device)
+    array_solver = _solver(kwargs)
+    expected, _ = _solve(kwargs, record_trace=True)
+    selected = torch.tensor([[[True, False, True]]], device=device)
+    actual, trace = solve_dcop(
+        array_solver,
+        cell_snap=kwargs["cell_snap"],
+        bl_driver_snap=kwargs["bl_driver_snap"],
+        sl_driver_snap=kwargs["sl_driver_snap"],
+        record_trace=True,
+        trace_mask=selected,
+    )
+    torch.testing.assert_close(actual.v_bl_node__V, expected.v_bl_node__V)
+    torch.testing.assert_close(actual.v_sl_node__V, expected.v_sl_node__V)
+    assert trace is not None
+    assert trace.node_trace is not None
+    assert trace.residual__V[..., 1, :].isnan().all()
+    assert trace.node_trace.residual__uA[..., 1, :, :].isnan().all()
+    assert not trace.node_trace.limited[..., 1, :, :].any()
+    assert trace.node_trace.residual__uA.shape[:3] == (1, 4, 3)
+    assert trace.node_trace.residual__uA[..., 0, 0, 0].isfinite().all()

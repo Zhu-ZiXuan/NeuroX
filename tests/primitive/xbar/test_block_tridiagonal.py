@@ -100,12 +100,13 @@ def test_uniform_boundary_inverse_matches_dense_reference(
     actual_00, actual_01, actual_10, actual_11 = boundary_inverse_block_tridiagonal_2x2(
         diag=(diag[..., 0, 0].clone(), diag[..., 0, 1].clone(), diag[..., 1, 0].clone(), diag[..., 1, 1].clone()),
         off_diag=off_diag,
+        dim=-1,
     )
 
-    torch.testing.assert_close(actual_00, dense_inverse_boundary[..., 0, 0])
-    torch.testing.assert_close(actual_01, dense_inverse_boundary[..., 0, 1])
-    torch.testing.assert_close(actual_10, dense_inverse_boundary[..., 1, 0])
-    torch.testing.assert_close(actual_11, dense_inverse_boundary[..., 1, 1])
+    torch.testing.assert_close(actual_00, dense_inverse_boundary[..., 0, 0].unsqueeze(-1))
+    torch.testing.assert_close(actual_01, dense_inverse_boundary[..., 0, 1].unsqueeze(-1))
+    torch.testing.assert_close(actual_10, dense_inverse_boundary[..., 1, 0].unsqueeze(-1))
+    torch.testing.assert_close(actual_11, dense_inverse_boundary[..., 1, 1].unsqueeze(-1))
 
 
 @pytest.mark.parametrize("block_num", [1, 2, 3, 9])
@@ -121,6 +122,7 @@ def test_uniform_block_tridiagonal_matches_dense_reference(
         diag=(diag[..., 0, 0].clone(), diag[..., 0, 1].clone(), diag[..., 1, 0].clone(), diag[..., 1, 1].clone()),
         rhs=(rhs[..., 0].clone(), rhs[..., 1].clone()),
         off_diag=off_diag,
+        dim=-1,
     )
     actual = torch.stack((x_0, x_1), dim=-1)
 
@@ -149,6 +151,7 @@ def test_block_scans_compile_with_strided_inputs(
             diag=(diag[..., 0, 0], diag[..., 0, 1], diag[..., 1, 0], diag[..., 1, 1]),
             rhs=(rhs[..., 0], rhs[..., 1]),
             off_diag=off_diag,
+            dim=-1,
         )
 
     with torch.no_grad():
@@ -175,13 +178,13 @@ def test_boundary_scan_compiles_with_strided_inputs(
     def solve(
         components: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        return boundary_inverse_block_tridiagonal_2x2(diag=components, off_diag=off_diag)
+        return boundary_inverse_block_tridiagonal_2x2(diag=components, off_diag=off_diag, dim=-1)
 
     with torch.no_grad():
         actual = torch.compile(solve, fullgraph=True, dynamic=False)(components)
     for component, (row, column) in zip(actual, ((0, 0), (0, 1), (1, 0), (1, 1)), strict=True):
         torch.testing.assert_close(
-            component, expected[..., row, column], rtol=3e-5 if dtype == torch.float32 else 1e-10, atol=0
+            component, expected[..., row, column].unsqueeze(-1), rtol=3e-5 if dtype == torch.float32 else 1e-10, atol=0
         )
 
 
@@ -192,5 +195,32 @@ def test_block_scans_accept_shared_coefficient_and_rhs_tensors(device: torch.dev
     rhs = torch.arange(18, dtype=torch.float64, device=device).reshape(2, 9)
     diag = torch.diag_embed(torch.stack((diagonal, diagonal), dim=-1))
     expected = _dense_reference(diag, torch.stack((rhs, rhs), dim=-1), (-0.5, -0.5))
-    x_0, x_1 = solve_block_tridiagonal_2x2(diag=(diagonal, zero, zero, diagonal), rhs=(rhs, rhs), off_diag=(-0.5, -0.5))
+    x_0, x_1 = solve_block_tridiagonal_2x2(
+        diag=(diagonal, zero, zero, diagonal), rhs=(rhs, rhs), off_diag=(-0.5, -0.5), dim=-1
+    )
     torch.testing.assert_close(torch.stack((x_0, x_1), dim=-1), expected, rtol=1e-10, atol=0)
+
+
+@pytest.mark.parametrize("dim", [-3, -2, -1, 0, 1, 2])
+@pytest.mark.parametrize("block_num", [1, 7])
+def test_block_scans_compile_along_selected_axis(block_num: int, dim: int, device: torch.device) -> None:
+    """Both recurrences accept either axis spelling and preserve the input axis order."""
+    diag, rhs, off_diag = _uniform_case(block_num, device=device, seed=43)
+    expected_solution = _dense_reference(diag, rhs, off_diag)
+    expected_boundary = torch.linalg.inv(_dense_matrix(diag, off_diag))[..., :2, :2]
+    components = tuple(
+        diag[..., row, col].movedim(-1, dim).contiguous() for row, col in ((0, 0), (0, 1), (1, 0), (1, 1))
+    )
+    rhs_components = tuple(rhs[..., component].movedim(-1, dim).contiguous() for component in (0, 1))
+
+    def solve(components, rhs_components):
+        solution = solve_block_tridiagonal_2x2(components, rhs_components, off_diag=off_diag, dim=dim)
+        boundary = boundary_inverse_block_tridiagonal_2x2(components, off_diag=off_diag, dim=dim)
+        return solution, boundary
+
+    with torch.no_grad():
+        solution, boundary = torch.compile(solve, fullgraph=True, dynamic=False)(components, rhs_components)
+    for component, value in enumerate(solution):
+        torch.testing.assert_close(value, expected_solution[..., component].movedim(-1, dim), rtol=1e-10, atol=0)
+    for value, (row, col) in zip(boundary, ((0, 0), (0, 1), (1, 0), (1, 1)), strict=True):
+        torch.testing.assert_close(value, expected_boundary[..., row, col].unsqueeze(dim), rtol=1e-10, atol=0)

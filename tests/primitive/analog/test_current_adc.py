@@ -214,3 +214,24 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     assert torch.equal(record.input_value(), i_in)
     assert not hasattr(record, "code")
     assert not hasattr(record, "bits")
+
+
+@pytest.mark.parametrize("record_energy", [False, True])
+def test_conversion_kernel_supports_standalone_and_caller_compilation(
+    record_energy: bool, device: torch.device
+) -> None:
+    adc = _build(_config(), device)
+    refs = _refs(_LADDER_A, device)
+    i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
+
+    def convert(i_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+        return adc._convert_impl(i_in, refs, active_bits=3, record_energy=record_energy)
+
+    with torch.no_grad():
+        expected = adc._convert_impl.__wrapped__(adc, i_in, refs, active_bits=3, record_energy=record_energy)
+        standalone = convert(i_in)
+        composed = torch.compile(convert, fullgraph=True)(i_in)
+
+    torch.testing.assert_close(standalone, expected)
+    torch.testing.assert_close(composed, expected)
+    assert standalone[1] is None

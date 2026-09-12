@@ -30,12 +30,12 @@ class WeightSliceStagePolicy(PolicyBase, ABC):
     pass
 
 
-class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStagePolicy](
-    ModuleBase[ConfigT, PolicyT],
+class WeightSliceStage(
+    ModuleBase,
     RegistryMixin[
         "WeightSliceStageConfig",
         "WeightSliceStagePolicy",
-        "WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]",
+        "WeightSliceStage",
     ],
     ABC,
 ):
@@ -43,14 +43,17 @@ class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStag
 
     is_profile_target: ClassVar[bool] = False
 
+    config: WeightSliceStageConfig
+    policy: WeightSliceStagePolicy
+
     shift_adder: ShiftAdder | None
     """Sw-axis reconstruction block; `None` where the single structural plane already is the result."""
 
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: WeightSliceStageConfig,
+        policy: WeightSliceStagePolicy,
         macro_w_value_range: tuple[int, int],
         output_num: int,
         macro_group_num: int,
@@ -69,9 +72,9 @@ class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStag
         macro_w_value_range: tuple[int, int],
         output_num: int,
         macro_group_num: int,
-    ) -> WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]:
+    ) -> WeightSliceStage:
         """Build the weight-slice layout selected by config and policy types."""
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -123,12 +126,32 @@ class DirectWeightSliceStagePolicy(WeightSliceStagePolicy):
     pass
 
 
-@WeightSliceStage.register_neurox_module(
+@WeightSliceStage.register_impl(
     config_type=DirectWeightSliceStageConfig,
     policy_type=DirectWeightSliceStagePolicy,
 )
-class DirectWeightSliceStage(WeightSliceStage[DirectWeightSliceStageConfig, DirectWeightSliceStagePolicy]):
+class DirectWeightSliceStage(WeightSliceStage):
     """Identity weight layout with one structural Sw plane."""
+
+    config: DirectWeightSliceStageConfig
+    policy: DirectWeightSliceStagePolicy
+
+    def __init__(
+        self,
+        *,
+        config: DirectWeightSliceStageConfig,
+        policy: DirectWeightSliceStagePolicy,
+        macro_w_value_range: tuple[int, int],
+        output_num: int,
+        macro_group_num: int,
+    ) -> None:
+        super().__init__(
+            config=config,
+            policy=policy,
+            macro_w_value_range=macro_w_value_range,
+            output_num=output_num,
+            macro_group_num=macro_group_num,
+        )
 
     def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:
         return DirectSlicer(value_range=macro_w_value_range)
@@ -161,12 +184,15 @@ class InterWeightSliceStagePolicy(WeightSliceStagePolicy):
     pass
 
 
-@WeightSliceStage.register_neurox_module(
+@WeightSliceStage.register_impl(
     config_type=InterWeightSliceStageConfig,
     policy_type=InterWeightSliceStagePolicy,
 )
-class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterWeightSliceStagePolicy]):
+class InterWeightSliceStage(WeightSliceStage):
     """Place Sw slices on separate Macro planes."""
+
+    config: InterWeightSliceStageConfig
+    policy: InterWeightSliceStagePolicy
 
     shift_adder: ShiftAdder
     """Sw-axis reconstruction block, always present in this layout."""
@@ -190,6 +216,7 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
+            # Shape: [G]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,
@@ -232,12 +259,15 @@ class IntraWeightSliceStagePolicy(WeightSliceStagePolicy):
     pass
 
 
-@WeightSliceStage.register_neurox_module(
+@WeightSliceStage.register_impl(
     config_type=IntraWeightSliceStageConfig,
     policy_type=IntraWeightSliceStagePolicy,
 )
-class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraWeightSliceStagePolicy]):
+class IntraWeightSliceStage(WeightSliceStage):
     """Place Sw slices on adjacent output ports of one Macro."""
+
+    config: IntraWeightSliceStageConfig
+    policy: IntraWeightSliceStagePolicy
 
     shift_adder: ShiftAdder
     """Sw-axis reconstruction block, always present in this layout."""
@@ -263,6 +293,7 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
+            # Shape: [G]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,

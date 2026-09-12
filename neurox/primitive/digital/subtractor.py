@@ -34,14 +34,21 @@ class SubtractorConfig(DigitalConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Subtractor(DigitalBase[SubtractorConfig]):
+_Config = SubtractorConfig
+_Policy = DigitalPolicy
+
+
+class Subtractor(DigitalBase):
     """Element-wise integer subtractor without saturation or wrapping."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: SubtractorConfig,
-        policy: DigitalPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
@@ -58,6 +65,7 @@ class Subtractor(DigitalBase[SubtractorConfig]):
         """Combinational latency of one subtract."""
         return self.config.latency_per_op__ns
 
+    @torch.no_grad()
     def subtract(self, a: Tensor, b: Tensor) -> Tensor:
         """Subtract one integer tensor from another element-wise.
 

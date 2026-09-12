@@ -48,12 +48,17 @@ class DiffVadcPolicy(PolicyBase, ABC):
     pass
 
 
-class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
-    ModuleBase[ConfigT, PolicyT],
+_Record = DiffVadcRecord
+_Config = DiffVadcConfig
+_Policy = DiffVadcPolicy
+
+
+class DiffVadc(
+    ModuleBase,
     RegistryMixin[
-        "DiffVadcConfig",
-        "DiffVadcPolicy",
-        "DiffVadc[DiffVadcConfig, DiffVadcPolicy]",
+        "_Config",
+        "_Policy",
+        "DiffVadc",
     ],
     ABC,
 ):
@@ -70,11 +75,14 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
 
     """
 
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -96,18 +104,18 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     def from_config(
         cls,
         *,
-        config: DiffVadcConfig,
-        policy: DiffVadcPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> DiffVadc[DiffVadcConfig, DiffVadcPolicy]:
+    ) -> DiffVadc:
         """Build the implementation registered for the config-policy pair.
 
         Returns:
             Registered voltage-ADC implementation.
         """
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -136,6 +144,7 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         """
         raise NotImplementedError
 
+    @torch.no_grad()
     def convert(
         self,
         v_pos__V: Tensor,
@@ -164,20 +173,22 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
             `rescale_factor`.
         """
         self._check_active_bits(active_bits)
-        code = self._convert_impl(
+        self._validate_runtime_args(v_refs__V)
+        code, energy__fJ = self._convert_impl(
             v_pos__V,
             v_neg__V,
             v_refs__V=v_refs__V,
             active_bits=active_bits,
+            record_energy=self._is_dynamic_energy_profile_active(),
         )
+        if energy__fJ is not None:
+            self._record_dynamic_energy(energy__fJ)
         if AdcProber.active():
-            AdcProber.submit(
-                DiffVadcRecord(
-                    v_pos__V=v_pos__V,
-                    v_neg__V=v_neg__V,
-                ),
-            )
+            AdcProber.submit(_Record(v_pos__V=v_pos__V, v_neg__V=v_neg__V))
         return code
+
+    def _validate_runtime_args(self, v_refs__V: Tensor) -> None:
+        """Validate implementation-specific reference requirements before conversion."""
 
     @abstractmethod
     def _convert_impl(
@@ -187,8 +198,18 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
         *,
         v_refs__V: Tensor,
         active_bits: int,
-    ) -> Tensor:
-        """Convert inputs according to the `convert` contract."""
+        record_energy: bool,
+    ) -> tuple[Tensor, Tensor | None]:
+        """Compute conversion outputs according to the `convert` contract.
+
+        Args:
+            record_energy: Whether to compute dynamic energy.
+
+        Returns:
+            Output codes and per-output dynamic energy [fJ]. Energy is `None`
+            when not requested or when the implementation owns no energy.
+            The caller submits the energy and observation records.
+        """
         raise NotImplementedError
 
     @final

@@ -6,6 +6,8 @@ See Also:
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import torch
 from torch import Tensor
 
@@ -85,14 +87,14 @@ class XbarArray1t1rPolicy(PolicyBase):
 class XbarArray1t1rDcop(DcopBase, PyTreeDataClassMixin):
     i_bl_port__uA: Tensor
     """Current sourced from the BL driver into the array.
-    Shape: `[..., col]`."""
+    Shape: `[..., row=1, col]`."""
     v_bl_port__V: Tensor
-    """Shape: `[..., col]`."""
+    """Shape: `[..., row=1, col]`."""
     i_sl_port__uA: Tensor
     """Current sourced from the SL driver into the array.
-    Shape: `[..., col]`."""
+    Shape: `[..., row=1, col]`."""
     v_sl_port__V: Tensor
-    """Shape: `[..., col]`."""
+    """Shape: `[..., row=1, col]`."""
 
 
 _Config = XbarArray1t1rConfig
@@ -116,13 +118,12 @@ class _Outputs(TensorDataClassMixin, PyTreeDataClassMixin):
     trace: _Trace | None
 
 
-class XbarArray1t1r[
-    ConfigT: _Config,
-    PolicyT: _Policy,
-    BLSnapT: ClampSnap,
-    SLSnapT: ClampSnap,
-](ModuleBase[ConfigT, PolicyT]):
+class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
+
+    The final two grid axes follow the solver's `row_dim` and `col_dim`,
+    in row, column order. Boundary snaps and DCOPs retain the row axis at
+    extent one. Chunking applies only to the leading positions.
 
     Args:
         vdd__V: Core analog supply behind every array-node capacitance.
@@ -132,11 +133,17 @@ class XbarArray1t1r[
         sl_driver: Externally owned SL clamp, with the same ownership contract.
     """
 
+    row_dim: ClassVar[int] = ColBlColSlArraySolver.row_dim
+    col_dim: ClassVar[int] = ColBlColSlArraySolver.col_dim
+
+    config: _Config
+    policy: _Policy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         row_num: int,
         col_num: int,
@@ -150,6 +157,11 @@ class XbarArray1t1r[
         self._row_num = row_num
         self._col_num = col_num
         self._vdd__V = vdd__V
+
+        grid_shape = [0, 0]
+        grid_shape[self.row_dim] = row_num
+        grid_shape[self.col_dim] = col_num
+        self._grid_shape = tuple(grid_shape)
 
         self._bl_estab_total_c__fF = row_num * (config.bl_node_c__fF + config.x_node_c__fF)
         self._sl_estab_total_c__fF = row_num * config.sl_node_c__fF
@@ -179,7 +191,8 @@ class XbarArray1t1r[
         self.cell = XbarCell1t1r.from_config(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
-            inst_shape=(*self.inst_shape, self._col_num, self._row_num),
+            # Shape: [*inst_shape, row, col]
+            inst_shape=(*self.inst_shape, *self._grid_shape),
             dtype=dtype,
             T__K=T__K,
         )
@@ -189,20 +202,22 @@ class XbarArray1t1r[
         """Number of programmable states exposed by each cell."""
         return self.cell.w_state_num
 
+    @torch.no_grad()
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
-        Entry `(col, row)` programs the cell at that physical intersection.
+        Entry `(row, col)` programs the cell at that physical intersection.
 
         Args:
             w_state_idx: State-index tensor in `[0, w_state_num - 1]`.
-                Shape: `[*inst_shape, col, row]`.
+                Shape: `[*inst_shape, row, col]`.
         """
         expected_shape = self.cell.inst_shape
         if tuple(w_state_idx.shape) != expected_shape:
             raise ValueError(f"program() expects w_state_idx.shape {expected_shape}; got {tuple(w_state_idx.shape)}")
         self.cell.program(w_state_idx)
 
+    @torch.no_grad()
     def solve_dc(
         self,
         *,
@@ -215,25 +230,27 @@ class XbarArray1t1r[
 
         The WL lines declare the call's complete leading shape. One or more
         leading axes group the WL phases that share a held BL/SL rest
-        boundary. The array distributes each row drive across its columns before
-        snapshotting the cells; both boundary snaps already carry the same
+        boundary. The caller supplies both grid axes in the array's axis order,
+        with a singleton column axis for WL. The array broadcasts each row drive
+        across its columns before snapshotting the cells; both boundary snaps carry the same
         leading and repeat their nominal references along the phase axes.
 
         Args:
             v_wl__V: Analog drive, one value per word line.
-                Shape: `[..., row]`.
+                Shape: `[..., row, col=1]`.
             wl_phase_dims: Axes of `v_wl__V` whose Cartesian product contains
                 the WL phases under one held rest boundary. Every axis must be
-                leading rather than the final `row_num` axis.
+                leading rather than either of the final two grid axes.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call
-                shape; its `v_ref__V` is also the ideal BL rest level.
+                shape `[..., row=1, col]`; its `v_ref__V` is also the ideal BL rest level.
             sl_driver_snap: Per-solve SL clamp snap at the full per-call
-                shape; its `v_ref__V` is also the ideal SL rest level.
+                shape `[..., row=1, col]`; its `v_ref__V` is also the ideal SL rest level.
 
         Returns:
             The array's converged DC operating point at both boundaries.
 
         Raises:
+            ValueError: The WL grid shape or phase axes violate the input contract.
             RuntimeError: A numerical state is invalid, or an internal update
                 cap is reached while a position remains unconverged.
         """
@@ -246,6 +263,7 @@ class XbarArray1t1r[
         )
         return dcop
 
+    @torch.no_grad()
     def solve_dc_trace(
         self,
         *,
@@ -256,6 +274,7 @@ class XbarArray1t1r[
     ) -> tuple[_Dcop, _Trace]:
         """Settle the array while retaining raw convergence traces.
 
+        Input shapes and phase axes follow `solve_dc`.
         The returned DC operating point may be computed from a capped
         unconverged solver state; the trace reports its convergence status.
         """
@@ -270,7 +289,6 @@ class XbarArray1t1r[
             raise RuntimeError("A traced array solve returned no trace")
         return dcop, trace
 
-    @torch.no_grad()
     def _solve_dc_impl(
         self,
         *,
@@ -281,27 +299,30 @@ class XbarArray1t1r[
         record_trace: bool,
     ) -> tuple[_Dcop, _Trace | None]:
         record_energy = self._is_dynamic_energy_profile_active()
-        col_num = self._col_num
         row_num = self._row_num
+        row_dim = self.row_dim
+        col_dim = self.col_dim
 
         # --- 1: read the canonical leading from the word-line drive ---
 
         if not wl_phase_dims:
             raise ValueError("wl_phase_dims must name at least one leading axis")
         wl_phase_dims = tuple(dim + v_wl__V.ndim if dim < 0 else dim for dim in wl_phase_dims)
-        if any(dim < 0 or dim >= v_wl__V.ndim - 1 for dim in wl_phase_dims):
-            raise ValueError("wl_phase_dims must contain only leading axes, not the final row_num axis")
+        if any(dim < 0 or dim >= v_wl__V.ndim - 2 for dim in wl_phase_dims):
+            raise ValueError("wl_phase_dims must contain only leading axes, not the final two grid axes")
         if len(set(wl_phase_dims)) != len(wl_phase_dims):
             raise ValueError("wl_phase_dims must not contain duplicate axes")
         wl_phase_dims = tuple(sorted(wl_phase_dims))
-        leading_shape = tuple(v_wl__V.shape[:-1])
-        if v_wl__V.shape[-1] != row_num:
-            raise ValueError(f"v_wl__V final axis must be row_num {row_num}; got {v_wl__V.shape[-1]}")
+        leading_shape = tuple(v_wl__V.shape[:-2])
+        if v_wl__V.shape[row_dim] != row_num:
+            raise ValueError(f"v_wl__V row axis must be row_num {row_num}; got {v_wl__V.shape[row_dim]}")
+        if v_wl__V.shape[col_dim] != 1:
+            raise ValueError("v_wl__V must carry a singleton column axis")
 
         # --- 2: prepare full-call snapshots ---
 
-        cell_shape = (*leading_shape, col_num, row_num)
-        v_wl_grid__V = v_wl__V.unsqueeze(-2).expand(cell_shape)
+        cell_shape = (*leading_shape, *self._grid_shape)
+        v_wl_grid__V = v_wl__V.expand(cell_shape)
         cell_snap = self.cell.snapshot(control=v_wl_grid__V, shape=cell_shape)
 
         # --- 3: execute the numerical graph and submit its energy ---
@@ -322,7 +343,6 @@ class XbarArray1t1r[
         return dcop, trace
 
     @torch.compile(dynamic=False, fullgraph=True)
-    @torch.no_grad()
     def _solve_dc_chunking(
         self,
         *,
@@ -378,7 +398,11 @@ class XbarArray1t1r[
                 dcop=self._dcop_template(like=cell_snap.v_wl__V),
                 energy__fJ=cell_snap.v_wl__V.new_empty(0) if record_energy else None,
                 trace=_Trace.empty(
-                    (0, 0), node_capacity=0, dtype=cell_snap.v_wl__V.dtype, device=cell_snap.v_wl__V.device
+                    (0, 0),
+                    port_shape=(0, 0),
+                    node_capacity=0,
+                    dtype=cell_snap.v_wl__V.dtype,
+                    device=cell_snap.v_wl__V.device,
                 )
                 if record_trace
                 else None,
@@ -437,13 +461,15 @@ class XbarArray1t1r[
         may supply a capped unconverged state. Overrides return their own Dcop
         and remain pure compiled tensor calculations.
         """
+        row_dim = self.row_dim
+
         v_bl_node__V = state.v_bl_node__V
         v_sl_node__V = state.v_sl_node__V
         v_bl_port__V = state.v_bl_port__V
         v_sl_port__V = state.v_sl_port__V
 
-        i_bl_port__uA = (v_bl_port__V - v_bl_node__V[..., 0]) * self.solver.bl_g__uS
-        i_sl_port__uA = (v_sl_port__V - v_sl_node__V[..., 0]) * self.solver.sl_g__uS
+        i_bl_port__uA = (v_bl_port__V - v_bl_node__V.narrow(row_dim, 0, 1)) * self.solver.bl_g__uS
+        i_sl_port__uA = (v_sl_port__V - v_sl_node__V.narrow(row_dim, 0, 1)) * self.solver.sl_g__uS
 
         return _Dcop(
             i_bl_port__uA=i_bl_port__uA,
@@ -475,37 +501,39 @@ class XbarArray1t1r[
         """
         config = self.config
         vdd__V = self._vdd__V
+        array_dims = (self.row_dim, self.col_dim)
 
-        # Shape: [..., col] -> [..., col, row=1]
-        v_bl_rest__V = bl_driver_snap.v_ref__V.unsqueeze(-1)
-        # Shape: [..., col] -> [..., col, row=1]
-        v_sl_rest__V = sl_driver_snap.v_ref__V.unsqueeze(-1)
+        # Shape: [..., row=1, col]
+        v_bl_rest__V = bl_driver_snap.v_ref__V
+        # Shape: [..., row=1, col]
+        v_sl_rest__V = sl_driver_snap.v_ref__V
 
-        # Shape: [..., col, row] -> [...]
+        # Shape: [..., row, col] -> [...]
         bl_node_e__fJ = e_cap_excursion__fJ(
             vdd__V, config.bl_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=state.v_bl_node__V
-        ).sum(dim=(-2, -1))
+        ).sum(dim=array_dims)
         x_node_e__fJ = e_cap_excursion__fJ(
             vdd__V, config.x_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=cell_dcop.v_x__V
-        ).sum(dim=(-2, -1))
+        ).sum(dim=array_dims)
         sl_node_e__fJ = e_cap_excursion__fJ(
             vdd__V, config.sl_node_c__fF, v_rest__V=v_sl_rest__V, v_work__V=state.v_sl_node__V
-        ).sum(dim=(-2, -1))
+        ).sum(dim=array_dims)
         wl_node_e__fJ = e_cap_excursion__fJ(
             vdd__V, config.wl_node_c__fF, v_rest__V=0.0, v_work__V=cell_snap.v_wl__V
-        ).sum(dim=(-2, -1))
+        ).sum(dim=array_dims)
         # Shape: [...]
         return bl_node_e__fJ + x_node_e__fJ + sl_node_e__fJ + wl_node_e__fJ
 
     def _rest_cap_energy__fJ(self, *, v_bl_rest__V: Tensor, v_sl_rest__V: Tensor) -> Tensor:
         vdd__V = self._vdd__V
+        array_dims = (self.row_dim, self.col_dim)
 
-        # Shape: [..., col] -> [...]
+        # Shape: [..., row=1, col] -> [...]
         bl_estab_e__fJ = e_cap_excursion__fJ(
             vdd__V, self._bl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_bl_rest__V
-        ).sum(dim=-1)
+        ).sum(dim=array_dims)
         sl_estab_e__fJ = e_cap_excursion__fJ(
             vdd__V, self._sl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_sl_rest__V
-        ).sum(dim=-1)
+        ).sum(dim=array_dims)
         # Shape: [...]
         return bl_estab_e__fJ + sl_estab_e__fJ

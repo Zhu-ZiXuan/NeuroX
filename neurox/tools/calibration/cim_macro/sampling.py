@@ -16,7 +16,7 @@ from torch import Tensor
 
 from neurox.common.serialize import dict_from_file
 from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.macro.cim import CimMacro
 
 __all__ = [
     "AxisDistribution",
@@ -58,7 +58,7 @@ class Distribution(TensorDataClassMixin):
     """Human-readable provenance — `uniform` or the TOML path."""
 
 
-def load_distribution(path: Path | None, macro: CimMacro[CimMacroConfig, CimMacroPolicy]) -> Distribution:
+def load_distribution(path: Path | None, macro: CimMacro) -> Distribution:
     """Load a synthetic-workload distribution TOML.
 
     A `None` path means fully uniform; a present file may omit `[w]` or `[x]`
@@ -160,7 +160,7 @@ def _load_axis(
 
 def sample_w(
     distribution: Distribution,
-    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
+    macro: CimMacro,
     *,
     input_num: int,
     output_num: int,
@@ -215,7 +215,7 @@ def sample_w(
 
 def sample_x_batches(
     distribution: Distribution,
-    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
+    macro: CimMacro,
     *,
     input_num: int,
     n_total: int,

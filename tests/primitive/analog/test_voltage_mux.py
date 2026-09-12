@@ -27,11 +27,13 @@ def test_transport_applies_gain_elementwise_and_accounts_output() -> None:
     )
     mux.fabricate()
     stamp_names(mux)
-    v__V = torch.arange(16, dtype=torch.float64).reshape(2, 4, 2)
+    v__V = torch.arange(16, dtype=torch.float64).reshape(2, 4, 2).requires_grad_()
 
     with Profiler() as profiler:
         actual__V = mux.transport(v__V)
 
     assert actual__V.shape == v__V.shape
+    assert not actual__V.requires_grad
+    assert torch.is_grad_enabled()
     torch.testing.assert_close(actual__V, 2.0 * v__V)
     assert Reporter(mux).total_dynamic_energy__fJ(profiler) == 48.0

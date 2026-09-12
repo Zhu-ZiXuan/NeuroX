@@ -35,13 +35,20 @@ class ShiftAdderConfig(DigitalConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class ShiftAdder(DigitalBase[ShiftAdderConfig]):
+_Config = ShiftAdderConfig
+_Policy = DigitalPolicy
+
+
+class ShiftAdder(DigitalBase):
     """Weighted positional-sum unit for digit recombination.
 
     Args:
         scale: Positional radix; at least 2.
         digit_count: Number of positional digits reduced per operation.
     """
+
+    config: _Config
+    policy: _Policy
 
     # === Functional buffers ===
 
@@ -50,8 +57,8 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
     def __init__(
         self,
         *,
-        config: ShiftAdderConfig,
-        policy: DigitalPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         scale: int,
         digit_count: int,
@@ -78,6 +85,7 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         """Latency of one positional-sum evaluation."""
         return self.config.latency_per_op__ns
 
+    @torch.no_grad()
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to `bit_width` bits.
 

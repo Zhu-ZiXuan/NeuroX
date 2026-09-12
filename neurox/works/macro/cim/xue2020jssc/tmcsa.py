@@ -35,14 +35,21 @@ class TmcsaPolicy(SarIadcPolicy):
     pass
 
 
-class Tmcsa(SarIadc[TmcsaConfig, TmcsaPolicy]):
+_Config = TmcsaConfig
+_Policy = TmcsaPolicy
+
+
+class Tmcsa(SarIadc):
     """TMCSA with PH2/PH3 energy accounting."""
+
+    config: _Config
+    policy: _Policy
 
     def __init__(
         self,
         *,
-        config: TmcsaConfig,
-        policy: TmcsaPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         vdd__V: float,
         dtype: torch.dtype,

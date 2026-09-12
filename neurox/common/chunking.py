@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 
 from .loop import run_scan_without_carry
 from .tensor_dataclass_mixin import (
-    walk_paired_tensor_fields,
-    walk_single_tensor_fields,
+    map_paired_tensor_fields,
+    map_single_tensor_fields,
 )
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance as _Dataclass
 
 __all__ = ["run_chunked"]
 
 
-def run_chunked[InputsT, OutputsT](
+def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
     *,
     expected_chunk_size: int,
     leading_shape: tuple[int, ...],
@@ -114,12 +118,12 @@ def run_chunked[InputsT, OutputsT](
             output_template=output_template,
             body_fn=body_fn,
         )
-        result = walk_paired_tensor_fields(lambda left, right: torch.cat((left, right), dim=0), result, smaller_result)
+        result = map_paired_tensor_fields(lambda left, right: torch.cat((left, right), dim=0), result, smaller_result)
 
     return _restore_result(result, leading_shape=leading_shape)
 
 
-def _run_uniform_group[InputsT, OutputsT](
+def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
     *,
     group_chunk_size: int,
     group_chunk_num: int,
@@ -153,19 +157,23 @@ def _run_uniform_group[InputsT, OutputsT](
         return evaluate_chunk(offsets + start)
 
     stacked = run_scan_without_carry(xs=starts, body_fn=scan_body, output_template=output_template, device=device)
-    return walk_single_tensor_fields(lambda tensor: tensor.flatten(0, 1), stacked)
+    return map_single_tensor_fields(lambda tensor: tensor.flatten(0, 1), stacked)
 
 
-def _restore_result[OutputsT](result: OutputsT, *, leading_shape: tuple[int, ...]) -> OutputsT:
+def _restore_result[OutputsT: _Dataclass](
+    result: OutputsT,
+    *,
+    leading_shape: tuple[int, ...],
+) -> OutputsT:
     """Restore a flat result to its complete semantic leading shape."""
 
     def fn(tensor: Tensor) -> Tensor:
         return tensor.reshape((*leading_shape, *tensor.shape[1:]))
 
-    return walk_single_tensor_fields(fn, result)
+    return map_single_tensor_fields(fn, result)
 
 
-def _slice_operands[InputsT](
+def _slice_operands[InputsT: _Dataclass](
     operands: InputsT,
     *,
     coords: tuple[Tensor, ...],
@@ -188,4 +196,4 @@ def _slice_operands[InputsT](
             sliced = sliced.unsqueeze(0)
         return sliced.expand(chunk_size, *trailing_shape)
 
-    return walk_single_tensor_fields(fn, operands)
+    return map_single_tensor_fields(fn, operands)

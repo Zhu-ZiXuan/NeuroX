@@ -91,7 +91,13 @@ class RramSnap(SnapBase):
     """Sampled per-cell conductance, read noise included."""
 
 
-class Rram(ModuleBase[RramConfig, RramPolicy]):
+_Config = RramConfig
+_Policy = RramPolicy
+_Dcop = RramDcop
+_Snap = RramSnap
+
+
+class Rram(ModuleBase):
     """Stateful programmable-conductance RRAM model.
 
     Programming variation is applied by `program()` and read variation by
@@ -104,6 +110,9 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
+    config: _Config
+    policy: _Policy
+
     # === Programmed state ===
 
     _g__uS: Tensor  # Shape: [*inst_shape]
@@ -111,8 +120,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     def __init__(
         self,
         *,
-        config: RramConfig,
-        policy: RramPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -132,6 +141,7 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
         self._g_max__uS = g_max__uS
 
+    @torch.no_grad()
     def program(self, target_g__uS: Tensor) -> None:
         """Program the stored conductance with elapsed time fixed to zero.
 
@@ -158,11 +168,12 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
         self._g__uS = g__uS
 
+    @torch.no_grad()
     def snapshot(
         self,
         *,
         shape: tuple[int, ...],
-    ) -> RramSnap:
+    ) -> _Snap:
         """Sample one per-call read conductance, applying read nonidealities.
 
         Args:
@@ -175,9 +186,10 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g = g.clamp(self.config.g_min__uS, self._g_max__uS)
-        return RramSnap(g__uS=g)
+        return _Snap(g__uS=g)
 
-    def solve_dc(self, v__V: Tensor, snap: RramSnap) -> RramDcop:
+    @torch.no_grad()
+    def solve_dc(self, v__V: Tensor, snap: _Snap) -> _Dcop:
         """Evaluate current and differential conductance at the device voltage `v__V`."""
         g__uS = snap.g__uS
         alpha = self.config.nonlinearity_alpha
@@ -190,4 +202,4 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
             ax = alpha * v__V
             i__uA = g__uS * torch.sinh(ax) / alpha
             di_dv__uS = g__uS * torch.cosh(ax)
-        return RramDcop(i__uA=i__uA, di_dv__uS=di_dv__uS)
+        return _Dcop(i__uA=i__uA, di_dv__uS=di_dv__uS)

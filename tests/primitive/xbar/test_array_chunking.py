@@ -28,7 +28,7 @@ _BL_V_REF__V = 0.3
 _SL_V_REF__V = 0.1
 _VDD__V = 0.9
 _DTYPE = torch.float64
-type _Array = XbarArray1t1r[XbarArray1t1rConfig, XbarArray1t1rPolicy, VoltageDriverSnap, VoltageDriverSnap]
+type _Array = XbarArray1t1r[VoltageDriverSnap, VoltageDriverSnap]
 
 
 def _array(*, row_num: int, expected_chunk_size: int, device: torch.device, wire_r__MOhm: float = 1e-4) -> _Array:
@@ -68,7 +68,7 @@ def _array(*, row_num: int, expected_chunk_size: int, device: torch.device, wire
     array.to(device)
     array.eval()
     array.fabricate()
-    array.program((torch.arange(_ARRAY_COL * row_num, device=device) % 2).reshape(_ARRAY_COL, row_num))
+    array.program((torch.arange(_ARRAY_COL * row_num, device=device) % 2).reshape(row_num, _ARRAY_COL))
     stamp_names(array)
     return array
 
@@ -85,7 +85,7 @@ def _ideal_driver(device: torch.device) -> VoltageDriver:
             leakage_per_inst__uW=0.0,
         ),
         policy=VoltageDriverPolicy(offset=False, thermal=False),
-        inst_shape=(_ARRAY_COL,),
+        inst_shape=(1, _ARRAY_COL),
         dtype=_DTYPE,
         T__K=300.0,
     )
@@ -101,11 +101,11 @@ def _solve_array(array: _Array, v_wl: Tensor) -> XbarArray1t1rDcop:
     leading = tuple(v_wl.shape[:-1])
     bl_driver = array.solver.bl_driver
     sl_driver = array.solver.sl_driver
-    bl_ref = torch.full((*leading, _ARRAY_COL), _BL_V_REF__V, dtype=_DTYPE, device=v_wl.device)
-    sl_ref = torch.full((*leading, _ARRAY_COL), _SL_V_REF__V, dtype=_DTYPE, device=v_wl.device)
+    bl_ref = torch.full((*leading, 1, _ARRAY_COL), _BL_V_REF__V, dtype=_DTYPE, device=v_wl.device)
+    sl_ref = torch.full((*leading, 1, _ARRAY_COL), _SL_V_REF__V, dtype=_DTYPE, device=v_wl.device)
     state = array.solve_dc(
-        v_wl__V=v_wl,
-        wl_phase_dims=(-2,),
+        v_wl__V=v_wl.unsqueeze(array.col_dim),
+        wl_phase_dims=(-3,),
         bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref, shape=bl_ref.shape),
         sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref, shape=sl_ref.shape),
     )

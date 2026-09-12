@@ -49,8 +49,15 @@ class VmuxPolicy(PolicyBase):
     """Apply `mux_noise_sigma__V` per call."""
 
 
-class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
+_Config = VmuxConfig
+_Policy = VmuxPolicy
+
+
+class Vmux(ModuleBase):
     """Single-ended N:1 voltage transport with gain, noise, and PPA."""
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -63,8 +70,8 @@ class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
     def __init__(
         self,
         *,
-        config: VmuxConfig,
-        policy: VmuxPolicy,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -90,6 +97,7 @@ class Vmux(ModuleBase[VmuxConfig, VmuxPolicy]):
             enabled=self.policy.mux_gain_mismatch,
         )
 
+    @torch.no_grad()
     def transport(
         self,
         v__V: Tensor,

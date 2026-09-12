@@ -132,7 +132,7 @@ class SolverHarness:
         """
         shape = (*self.v_wl_drive__V.shape[:-1], *self.cell.inst_shape)
         return self.cell.snapshot(
-            control=self.v_wl_drive__V.unsqueeze(-2).expand(shape),
+            control=self.v_wl_drive__V.unsqueeze(-1).expand(shape),
             shape=shape,
         )
 
@@ -160,7 +160,7 @@ def build_solver_harness(
 ) -> SolverHarness:
     """Construct the standalone linear solver harness.
 
-    The cell grid is `(col_num, row_num)` with a leading x-batch of
+    The cell grid is `(row_num, col_num)` with a leading x-batch of
     `X_BATCH`; the programmed state indices alternate over the two
     table states so both table entries are exercised. Both rail clamps
     are ideal `VoltageDriver` instances (`r_out = 0`) whose snaps
@@ -178,7 +178,7 @@ def build_solver_harness(
             `1` is a legitimate array.
     """
     cell_config = _linear_cell_config()
-    grid_shape = (col_num, row_num)
+    grid_shape = (row_num, col_num)
 
     # --- Cell + ideal boundary drivers (all policies empty / all-off) ---
 
@@ -194,14 +194,14 @@ def build_solver_harness(
     bl_driver = VoltageDriver(
         config=driver_config,
         policy=driver_policy,
-        inst_shape=(col_num,),
+        inst_shape=(1, col_num),
         dtype=dtype,
         T__K=300.0,
     )
     sl_driver = VoltageDriver(
         config=driver_config,
         policy=driver_policy,
-        inst_shape=(col_num,),
+        inst_shape=(1, col_num),
         dtype=dtype,
         T__K=300.0,
     )
@@ -224,8 +224,8 @@ def build_solver_harness(
 
     # --- Clamp references (one dedicated source per clamp) + boundary-driver snaps ---
 
-    bl_ref_full = bl_ref.values().expand(X_BATCH, col_num)
-    sl_ref_full = sl_ref.values().expand(X_BATCH, col_num)
+    bl_ref_full = bl_ref.values().expand(X_BATCH, 1, col_num)
+    sl_ref_full = sl_ref.values().expand(X_BATCH, 1, col_num)
     bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_ref_full, shape=bl_ref_full.shape)
     sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_ref_full, shape=sl_ref_full.shape)
 
@@ -234,8 +234,8 @@ def build_solver_harness(
     # The tap is uniform over the clamp bank: the dense oracle takes it
     # as one scalar Dirichlet boundary value.
     # Shape: [batch, col] -> []
-    bl_v_ref = bl_ref_full[0, 0]
-    sl_v_ref = sl_ref_full[0, 0]
+    bl_v_ref = bl_ref_full[0, 0, 0]
+    sl_v_ref = sl_ref_full[0, 0, 0]
 
     return SolverHarness(
         cell=cell,
@@ -267,8 +267,10 @@ def solve_dcop(
     def final_fn(state: ColBlColSlArrayState) -> SolverDcop:
         return SolverDcop(
             cell_dcop=array_solver.cell.solve_dc(state.v_bl_node__V, state.v_sl_node__V, cell_snap),
-            i_bl_port__uA=(state.v_bl_port__V - state.v_bl_node__V[..., 0]) * array_solver.bl_g__uS,
-            i_sl_port__uA=(state.v_sl_port__V - state.v_sl_node__V[..., 0]) * array_solver.sl_g__uS,
+            i_bl_port__uA=(state.v_bl_port__V - state.v_bl_node__V.narrow(array_solver.row_dim, 0, 1))
+            * array_solver.bl_g__uS,
+            i_sl_port__uA=(state.v_sl_port__V - state.v_sl_node__V.narrow(array_solver.row_dim, 0, 1))
+            * array_solver.sl_g__uS,
             v_bl_node__V=state.v_bl_node__V,
             v_sl_node__V=state.v_sl_node__V,
             v_bl_port__V=state.v_bl_port__V,

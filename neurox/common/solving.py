@@ -10,22 +10,32 @@ from torch import Tensor
 
 from .loop import run_scan_without_inputs, run_while_loop_with_counter
 from .pytree_dataclass_mixin import PyTreeDataClassMixin
-from .tensor_dataclass_mixin import TensorDataClassMixin, walk_single_tensor_fields
+from .tensor_dataclass_mixin import TensorDataClassMixin, map_single_tensor_fields, visit_tensor_fields
 from .torch_compat import torch_assert_async, torch_cond
 
-__all__ = ["SolvingState", "SolvingTrace", "run_solving_loop", "run_solving_trace_scan"]
+__all__ = [
+    "SolvingState",
+    "SolvingTrace",
+    "run_solving_loop",
+    "run_solving_trace_scan",
+]
 
 
 class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin):
     """Registered numerical state whose positions report whether they remain active.
 
     Excluded positions are inactive. Numerical failures raise rather than
-    become inactive. Tensor leaves share a device.
+    become inactive. Tensor leaves share a device. Construction raises
+    `TypeError` if `is_active` has a non-boolean dtype.
     """
 
     is_active: Tensor
     """Boolean mask of positions requiring evaluation in this invocation.
     Shape: `[...]`."""
+
+    def __post_init__(self) -> None:
+        if self.is_active.dtype != torch.bool:
+            raise TypeError("is_active must be a boolean mask")
 
     @property
     def device(self) -> torch.device:
@@ -46,12 +56,24 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
     Floating observations use NaN for unselected or inactive positions and
     unused steps; boolean flags use false and signed integers use `-1` for
     unused steps. Optional fields remain fixed throughout an invocation.
+    Construction rejects tensor fields outside these dtype families with
+    `TypeError`, including fields in nested dataclasses.
     """
+
+    def __post_init__(self) -> None:
+        def validate_tensor(tensor: Tensor) -> None:
+            if not (
+                tensor.is_floating_point()
+                or tensor.dtype in (torch.bool, torch.int8, torch.int16, torch.int32, torch.int64)
+            ):
+                raise TypeError("Trace fields must be floating, boolean, or signed integer tensors")
+
+        visit_tensor_fields(validate_tensor, self)
 
     @final
     def select(self, index: int) -> Self:
         """Remove the last iteration axis to retrieve one complete observation."""
-        return walk_single_tensor_fields(lambda tensor: tensor.select(-1, index), self)
+        return map_single_tensor_fields(lambda tensor: tensor.select(-1, index), self)
 
     @final
     def mask_invalid(self, valid: Tensor) -> Self:
@@ -65,9 +87,6 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
         Returns:
             Trace with invalid floating values replaced by NaN, booleans by
             false, and signed integers by `-1`. Optional fields are preserved.
-
-        Raises:
-            TypeError: A field cannot represent its unused value.
         """
 
         def mask_tensor(tensor: Tensor) -> Tensor:
@@ -75,7 +94,7 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
             unused = False if tensor.dtype == torch.bool else torch.nan if tensor.is_floating_point() else -1
             return torch.where(broadcast_valid, tensor, unused)
 
-        return walk_single_tensor_fields(mask_tensor, self)
+        return map_single_tensor_fields(mask_tensor, self)
 
 
 def run_solving_loop[StateT: SolvingState](
@@ -111,14 +130,11 @@ def run_solving_loop[StateT: SolvingState](
         An initially inactive state is returned without invoking `body_fn`.
 
     Raises:
-        TypeError: The initial activity mask is not boolean.
         ValueError: `max_iter` is not positive.
         RuntimeError: The terminal state remains active with `strict=True`.
     """
     if max_iter <= 0:
         raise ValueError(f"max_iter must be positive; got {max_iter}")
-    if init_state.is_active.dtype != torch.bool:
-        raise TypeError("is_active must be a boolean mask")
 
     def solving_cond_fn(step: Tensor, current: StateT) -> Tensor:
         return (step < max_iter) & current.any_active
@@ -193,25 +209,24 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
         Unconverged positions are retained when `strict=False`.
 
     Raises:
-        TypeError: The activity mask is not boolean, or an observation field
-            cannot represent its unused value.
+        ValueError: `max_iter` is not positive.
         RuntimeError: The terminal state remains active with `strict=True`.
     """
-    if init_state.is_active.dtype != torch.bool:
-        raise TypeError("is_active must be a boolean mask")
+    if max_iter <= 0:
+        raise ValueError("max_iter must be positive")
 
     def active_body_fn(current: StateT) -> tuple[StateT, TraceT]:
         next_state, trace = body_fn(current)
         valid = current.is_active if trace_mask is None else current.is_active & trace_mask
         trace = trace.mask_invalid(valid)
         # Explicit format also fixes size-one strides across cond branches.
-        trace = walk_single_tensor_fields(lambda tensor: tensor.clone(memory_format=torch.contiguous_format), trace)
+        trace = map_single_tensor_fields(lambda t: t.clone(memory_format=torch.contiguous_format), trace)
         return next_state, trace
 
     def inactive_body_fn(current: StateT) -> tuple[StateT, TraceT]:
         return (
-            walk_single_tensor_fields(torch.clone, current),
-            walk_single_tensor_fields(torch.clone, default_trace),
+            map_single_tensor_fields(torch.clone, current),
+            map_single_tensor_fields(torch.clone, default_trace),
         )
 
     def solving_body_fn(current: StateT) -> tuple[StateT, TraceT]:
@@ -230,7 +245,7 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
         output_template=default_trace,
         device=init_state.device,
     )
-    trace = walk_single_tensor_fields(lambda tensor: tensor.movedim(0, -1), trace)
+    trace = map_single_tensor_fields(lambda t: t.movedim(0, -1), trace)
 
     if strict:
         torch_assert_async(~state.any_active, f"Solving did not converge within {max_iter} iterations")

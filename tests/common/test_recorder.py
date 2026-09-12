@@ -76,12 +76,16 @@ def test_a_record_declaring_its_own_init_is_refused_at_definition() -> None:
                 pass
 
 
-def test_a_record_declaring_a_post_init_is_refused_at_definition() -> None:
-    with pytest.raises(TypeError, match=r"declares fields, not __post_init__\(\)"):
+def test_a_record_validates_metadata_in_post_init() -> None:
+    class _ValidatedRecord(_Record):
+        def __post_init__(self) -> None:
+            if self.value.ndim != 0:
+                raise ValueError("value must be scalar")
 
-        class _InvalidRecord(RecordBase):
-            def __post_init__(self) -> None:
-                pass
+    record = _ValidatedRecord(value=torch.ones(()))
+    assert record.value.ndim == 0
+    with pytest.raises(ValueError, match="scalar"):
+        _ValidatedRecord(value=torch.ones(2))
 
 
 def test_a_field_only_record_is_a_keyword_only_dataclass() -> None:

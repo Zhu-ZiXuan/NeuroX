@@ -25,14 +25,17 @@ class XSliceStagePolicy(PolicyBase, ABC):
     pass
 
 
-class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["XSliceStageConfig", "XSliceStagePolicy", "XSliceStage[XSliceStageConfig, XSliceStagePolicy]"],
+class XSliceStage(
+    ModuleBase,
+    RegistryMixin["XSliceStageConfig", "XSliceStagePolicy", "XSliceStage"],
     ABC,
 ):
     """Pair input slicing with Sx-axis digital reconstruction."""
 
     is_profile_target: ClassVar[bool] = False
+
+    config: XSliceStageConfig
+    policy: XSliceStagePolicy
 
     shift_adder: ShiftAdder | None
     """Sx-axis reconstruction block; `None` where the single structural cycle already is the result."""
@@ -40,8 +43,8 @@ class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: XSliceStageConfig,
+        policy: XSliceStagePolicy,
         macro_x_value_range: tuple[int, int],
         macro_group_num: int,
     ) -> None:
@@ -57,9 +60,9 @@ class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
         policy: XSliceStagePolicy,
         macro_x_value_range: tuple[int, int],
         macro_group_num: int,
-    ) -> XSliceStage[XSliceStageConfig, XSliceStagePolicy]:
+    ) -> XSliceStage:
         """Build the input-slice stage selected by config and policy types."""
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -100,12 +103,30 @@ class DirectXSliceStagePolicy(XSliceStagePolicy):
     pass
 
 
-@XSliceStage.register_neurox_module(
+@XSliceStage.register_impl(
     config_type=DirectXSliceStageConfig,
     policy_type=DirectXSliceStagePolicy,
 )
-class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePolicy]):
+class DirectXSliceStage(XSliceStage):
     """Identity input serialization with one structural Sx step."""
+
+    config: DirectXSliceStageConfig
+    policy: DirectXSliceStagePolicy
+
+    def __init__(
+        self,
+        *,
+        config: DirectXSliceStageConfig,
+        policy: DirectXSliceStagePolicy,
+        macro_x_value_range: tuple[int, int],
+        macro_group_num: int,
+    ) -> None:
+        super().__init__(
+            config=config,
+            policy=policy,
+            macro_x_value_range=macro_x_value_range,
+            macro_group_num=macro_group_num,
+        )
 
     def _build_slicer(self, macro_x_value_range: tuple[int, int]) -> Slicer:
         return DirectSlicer(value_range=macro_x_value_range)
@@ -133,12 +154,15 @@ class SerialXSliceStagePolicy(XSliceStagePolicy):
     pass
 
 
-@XSliceStage.register_neurox_module(
+@XSliceStage.register_impl(
     config_type=SerialXSliceStageConfig,
     policy_type=SerialXSliceStagePolicy,
 )
-class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePolicy]):
+class SerialXSliceStage(XSliceStage):
     """Serialize logical inputs into radix-weighted Macro input cycles."""
+
+    config: SerialXSliceStageConfig
+    policy: SerialXSliceStagePolicy
 
     shift_adder: ShiftAdder
     """Sx-axis reconstruction block, always present in this layout."""
@@ -160,6 +184,7 @@ class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePo
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
+            # Shape: [G]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.x_slice_num,

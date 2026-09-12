@@ -39,8 +39,12 @@ class SarIadcPolicy(IadcPolicy):
     """Inject `comparator_offset_sigma__uA` at fabricate time."""
 
 
-@Iadc.register_neurox_module(config_type=SarIadcConfig, policy_type=SarIadcPolicy)
-class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, PolicyT]):
+_Config = SarIadcConfig
+_Policy = SarIadcPolicy
+
+
+@Iadc.register_impl(config_type=_Config, policy_type=_Policy)
+class SarIadc(Iadc):
     """Current ADC using a binary search over injected references.
 
     The search tree is wired for `config.bits`, so this converter reads exactly
@@ -51,6 +55,9 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
     Args:
         inst_shape: Fabricated ADC-instance shape.
     """
+
+    config: _Config
+    policy: _Policy
 
     # === Nominal buffers ===
 
@@ -63,8 +70,8 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: _Config,
+        policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -97,13 +104,15 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
             enabled=self.policy.comparator_offset,
         )
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _convert_impl(
         self,
         i_in__uA: Tensor,
         i_refs__uA: Tensor,
         *,
         active_bits: int,
-    ) -> Tensor:
+        record_energy: bool,
+    ) -> tuple[Tensor, Tensor | None]:
         """Quantize `i_in` with a truncated binary search.
 
         The search tree is always the configured `bits`-level one over the
@@ -119,12 +128,13 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
                 this converter takes `2 ** bits - 1` ascending taps.
                 Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
+            record_energy: Whether to compute dynamic energy.
 
         Returns:
-            Unsigned magnitude code [long] in `[0, 2 ** active_bits - 1]`.
+            Unsigned magnitude codes [long] in `[0, 2 ** active_bits - 1]`
+            and optional per-output dynamic energy [fJ].
         """
         code = torch.zeros_like(i_in__uA, dtype=torch.long)
-        record_energy = self._is_dynamic_energy_profile_active()
         e_dyn__fJ: Tensor | None = None
 
         for bit_position in range(self.bits - 1, self.bits - active_bits - 1, -1):
@@ -143,10 +153,7 @@ class SarIadc[ConfigT: SarIadcConfig, PolicyT: SarIadcPolicy](Iadc[ConfigT, Poli
                 if e_bit__fJ is not None:
                     e_dyn__fJ = e_bit__fJ if e_dyn__fJ is None else e_dyn__fJ + e_bit__fJ
 
-        if e_dyn__fJ is not None:
-            self._record_dynamic_energy(e_dyn__fJ)
-
-        return code >> (self.bits - active_bits)
+        return code >> (self.bits - active_bits), e_dyn__fJ
 
     def _select_reference(self, i_refs__uA: Tensor, trial_code: Tensor) -> Tensor:
         """Select the decision reference for `trial_code`."""

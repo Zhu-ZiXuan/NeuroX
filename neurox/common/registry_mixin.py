@@ -8,7 +8,7 @@ from typing import final
 from .module import ConfigBase, ModuleBase, PolicyBase
 
 
-class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBase[ConfigBase, PolicyBase]]:
+class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBase]:
     """Dispatch a module family from concrete config and policy types.
 
     The class that first mixes this in owns one registry table keyed by
@@ -19,9 +19,9 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     Mix this in on the family base class, parameterized with the family's
     abstract config, policy, and module types, and decorate each concrete
-    implementation with `register_neurox_module` for the pair it serves. The
+    implementation with `register_impl` for the pair it serves. The
     family base must expose a public classmethod that builds what
-    `_lookup_neurox_module` returns, since callers of the family never reach the
+    `_lookup_impl` returns, since callers of the family never reach the
     registry themselves.
     """
 
@@ -36,7 +36,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     @classmethod
     @final
-    def register_neurox_module(
+    def register_impl(
         cls,
         *,
         config_type: type[ConfigT],
@@ -70,7 +70,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     @classmethod
     @final
-    def _lookup_neurox_module(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
+    def _lookup_impl(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
         """Return the module class selected by concrete config and policy types.
 
         Only the types select; the instances are never read.

@@ -34,9 +34,9 @@ class CimUnitPolicy(PolicyBase, ABC):
     pass
 
 
-class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit[CimUnitConfig, CimUnitPolicy]"],
+class CimUnit(
+    ModuleBase,
+    RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit"],
     UnitBase,
     ABC,
 ):
@@ -51,11 +51,14 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
         ideal_macro: Whether to replace the configured CIM macro with its ideal model.
     """
 
+    config: CimUnitConfig
+    policy: CimUnitPolicy
+
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: CimUnitConfig,
+        policy: CimUnitPolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -76,9 +79,9 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
-    ) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
+    ) -> CimUnit:
         """Build the concrete implementation registered for the config-policy pair."""
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
+        impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -98,16 +101,17 @@ class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
     """Engine policy matching `config.engine`."""
 
 
-class EngineBackedCimUnit[ConfigT: EngineBackedCimUnitConfig, PolicyT: EngineBackedCimUnitPolicy](
-    CimUnit[ConfigT, PolicyT], ABC
-):
+class EngineBackedCimUnit(CimUnit, ABC):
     """CIM unit backed by the engine selected by `config.engine`."""
+
+    config: EngineBackedCimUnitConfig
+    policy: EngineBackedCimUnitPolicy
 
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: EngineBackedCimUnitConfig,
+        policy: EngineBackedCimUnitPolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

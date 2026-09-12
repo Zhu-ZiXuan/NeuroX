@@ -23,20 +23,20 @@ def test_ye_array_chunked_trace_preserves_dcop_and_projection(device: torch.devi
     results = []
     for macro in (unchunked, chunked):
         macro.program(weight)
-        port_shape = (3, macro.scan_num, macro.col_num)
-        v_bl__V = (torch.arange(3 * macro.col_num, device=device) % 2).reshape(3, 1, macro.col_num) * macro._v_bl__V
-        v_wl__V = macro._v_wl_scan__V.expand(3, macro.scan_num, macro.row_num)
+        port_shape = (3, macro.scan_num, 1, macro.col_num)
+        v_bl__V = (torch.arange(3 * macro.col_num, device=device) % 2).reshape(3, 1, 1, macro.col_num) * macro._v_bl__V
+        v_wl__V = macro._v_wl_scan__V.expand(3, macro.scan_num, macro.row_num, 1)
         bl_snap = macro.bl_driver.snapshot(v_ref__V=v_bl__V, shape=port_shape)
         sl_snap = macro.sl_driver.snapshot(v_ref__V=torch.zeros_like(v_bl__V), shape=port_shape)
         dcop, trace = macro.array.solve_dc_trace(
             v_wl__V=v_wl__V,
-            wl_phase_dims=(-2,),
+            wl_phase_dims=(-3,),
             bl_driver_snap=bl_snap,
             sl_driver_snap=sl_snap,
         )
         plain_dcop = macro.array.solve_dc(
             v_wl__V=v_wl__V,
-            wl_phase_dims=(-2,),
+            wl_phase_dims=(-3,),
             bl_driver_snap=bl_snap,
             sl_driver_snap=sl_snap,
         )
@@ -78,7 +78,7 @@ def test_terminal_outputs_share_one_cell_evaluation(
     array.program(torch.zeros(array.cell.inst_shape, dtype=torch.long, device=device))
     grid = torch.full((1, *array.cell.inst_shape), 0.2, dtype=torch.float64, device=device)
     cell_snap = array.cell.snapshot(control=torch.full_like(grid, 0.9), shape=tuple(grid.shape))
-    port = grid[..., 0]
+    port = grid[..., :1, :]
     state = ColBlColSlArrayState(
         is_active=torch.zeros_like(port, dtype=torch.bool),
         v_bl_node__V=grid,

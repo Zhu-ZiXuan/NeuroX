@@ -42,7 +42,6 @@ from neurox.architecture.unit.cim.engine import (
     WeightSliceStageConfig,
     WeightSliceStagePolicy,
     XSliceStage,
-    XSliceStageConfig,
     XSliceStagePolicy,
 )
 from neurox.architecture.unit.cim.engine.placement import _chunk_pad_along
@@ -66,9 +65,9 @@ _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 _TEST_ADC_BITS = None
 _TEST_QUANTIZATION_MODE = 0
 _TEST_ADC_MAX_BITS = 8
-type _CimUnitType = type[CimUnit[CimUnitConfig, CimUnitPolicy]]
-type _WeightSliceStageType = type[WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]]
-type _XSliceStageType = type[XSliceStage[XSliceStageConfig, XSliceStagePolicy]]
+type _CimUnitType = type[CimUnit]
+type _WeightSliceStageType = type[WeightSliceStage]
+type _XSliceStageType = type[XSliceStage]
 _TEST_RESCALE_FACTORS: tuple[float, ...] = (1.0,)
 
 
