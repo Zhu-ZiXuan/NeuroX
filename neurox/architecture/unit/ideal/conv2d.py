@@ -65,7 +65,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         super().__init__(
@@ -73,7 +72,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
         if len(self._w_logical_shape) != 4:
@@ -130,7 +128,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
         # Shape: [C_out, C_in, kh, kw] -> [C_out, C_in*kh*kw]
-        return weight.flatten(start_dim=1).to(torch.int64)
+        return weight.flatten(start_dim=1)
 
     @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
@@ -153,7 +151,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
 
         device = x.device
         # Index-grid gather rather than `F.unfold`: pure data movement, so the
-        # oracle's window planes stay exact in int64.
+        # oracle's window planes preserve the input integer dtype.
         rows = (torch.arange(h_out, device=device) * s_h).view(h_out, 1, 1, 1) + (
             torch.arange(kh, device=device) * d_h
         ).view(1, 1, kh, 1)
@@ -178,7 +176,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
     ) -> Tensor:
         del quantization_mode, adc_active_bits
         # Shape: [B, L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [B, L, C_out]
-        return planes.to(torch.int64) @ self._weight.transpose(-2, -1)
+        return planes.long() @ self._weight.long().transpose(-2, -1)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
         # Shape: [B, L, C_out] -> [B, C_out, H_out, W_out]

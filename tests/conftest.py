@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for device placement and compiler isolation."""
+"""Shared pytest fixture for caller-selected device placement."""
 
 import contextlib
 
@@ -28,9 +28,3 @@ def device(request: pytest.FixtureRequest) -> torch.device:
         pytest.skip(f"Device {device_name} is not available: {exc}")
 
     return target
-
-
-@pytest.fixture(autouse=True)
-def _reset_compiler_state() -> None:
-    # Keep cached frames and recompilation limits local to each test.
-    torch.compiler.reset()

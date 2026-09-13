@@ -84,9 +84,7 @@ class Reference(ModuleBase):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        del T__K
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._register_nonpersistent_buffer("_nominal_values", torch.tensor(config.values, dtype=dtype))
 

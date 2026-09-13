@@ -30,7 +30,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
+from neurox.common.dataclass_mixin import TensorDataClassMixin
 
 # --- LeNet quantization grid ---
 X_QMIN = 0
@@ -419,7 +419,7 @@ def _fold_for_macro(
     float `round((s_x · s_w · ideal_dot + bias) / s_y) + zp_y`.
     """
     k_axes = tuple(range(1, weight_int.ndim))
-    w_sum = weight_int.to(torch.int64).sum(dim=k_axes) if k_axes else weight_int.to(torch.int64)
+    w_sum = weight_int.long().sum(dim=k_axes) if k_axes else weight_int.long()
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)
     sw = s_w.to(torch.float64)

@@ -14,6 +14,7 @@ from torch import Tensor
 
 from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
+from neurox.common.torch_compat import torch_assert_async
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 
 
@@ -39,7 +40,7 @@ class DiffVadcConfig(ConfigBase, ABC):
     """Static leakage power per ADC instance."""
 
     def validate(self) -> None:
-        self._require_pos(self.bits, "bits")
+        self._require_in_closed_interval(self.bits, "bits", 1, 31)
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -85,9 +86,8 @@ class DiffVadc(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        del dtype, T__K
+        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @property
@@ -108,7 +108,6 @@ class DiffVadc(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> DiffVadc:
         """Build the implementation registered for the config-policy pair.
 
@@ -121,7 +120,6 @@ class DiffVadc(
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property
@@ -166,11 +164,15 @@ class DiffVadc(
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
-            Raw unsigned integer code tensor, one code per `v_pos__V` element,
+            Raw unsigned code values stored as `int32`, one per `v_pos__V` element,
             in the range `unsigned_range` reports for `active_bits`. For offset-binary
             codes, recover the signed value as
             `(code - zero_offset(active_bits)) · rescale_factor` with a positive
             `rescale_factor`.
+
+        Raises:
+            ValueError: The active bit count, reference arguments, or output shape is invalid.
+            RuntimeError: An output code lies outside the active-bit range.
         """
         self._check_active_bits(active_bits)
         self._validate_runtime_args(v_refs__V)
@@ -181,6 +183,11 @@ class DiffVadc(
             active_bits=active_bits,
             record_energy=self._is_dynamic_energy_profile_active(),
         )
+        code = code.int()
+        if code.shape != v_pos__V.shape:
+            raise ValueError("ADC implementation must return one code per input element")
+        min_code, max_code = self.unsigned_range(active_bits)
+        torch_assert_async(((code >= min_code) & (code <= max_code)).all(), "ADC output code outside active-bit range")
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
         if AdcProber.active():

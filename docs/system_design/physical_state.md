@@ -11,6 +11,12 @@ Physical state belongs to the hardware component whose behavior it describes. It
 
 A run establishes a hardware realization, programs the components that require stored values, and executes accesses against that state. Repeating fabrication selects a realization from the same nominal design; repeating programming replaces the stored value according to the programming model. Each owner determines how a logical programming operation maps onto its children.
 
+## Temperature and explicit lifecycle events
+
+Temperature belongs to the run environment. Setting it establishes the temperature that subsequent computations read, without sampling randomness. Fabrication and programming each use the environment established before that explicit event; their materialized results remain fixed until the corresponding event is triggered again. Each access computes its runtime coefficients from the current temperature and uses them with those retained results.
+
+The caller controls when to fabricate and supplies the input for each programming event. Temperature updates neither trigger these events nor retain programming inputs for replay. Snapshots and operating points already produced belong to their original access.
+
 ## Sampling and correlation
 
 Fabrication samples over physical instances. Access sampling additionally distinguishes events in time. Reusing one hardware instance preserves its fabricated mismatch while allowing fresh dynamic fluctuations on subsequent accesses.

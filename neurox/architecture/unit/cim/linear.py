@@ -41,7 +41,6 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit):
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         if len(w_logical_shape) != 2:
@@ -51,7 +50,6 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit):
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
 
@@ -73,7 +71,5 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit):
 
     @torch.no_grad()
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
-        if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:
-            raise TypeError(f"CIM execution requires an integer weight tensor; got dtype {weight.dtype}")
         self.engine.program(self._weight_to_matrix(weight))
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])

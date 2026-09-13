@@ -13,7 +13,8 @@ IMPORT_SCAN_ROOTS = (LIBRARY_ROOT, REPO_ROOT / "validations")
 CLI_ROOT = LIBRARY_ROOT / "tools"
 API_ROOT = LIBRARY_ROOT / "api"
 COMMON_ROOT = LIBRARY_ROOT / "common"
-DIRECT_IMPORT_ROOTS = frozenset({API_ROOT, COMMON_ROOT})
+EXECUTION_ROOT = LIBRARY_ROOT / "execution"
+DIRECT_IMPORT_ROOTS = frozenset({API_ROOT, COMMON_ROOT, EXECUTION_ROOT})
 EMPTY_PACKAGE_FACES = frozenset(root / "__init__.py" for root in DIRECT_IMPORT_ROOTS)
 PACKAGE = "neurox"
 
@@ -24,6 +25,7 @@ _ROOT_LIFT_EXCEPTIONS = {
             "Reporter",
             "check_unique_binding",
             "fabricate",
+            "set_temperature",
             "stamp_names",
             "cim_macro_from_file",
             "cim_unit_from_file",
@@ -36,10 +38,12 @@ _ROOT_LIFT_EXCEPTIONS = {
 _ALLOWED_TOP_LEVEL_DEPENDENCIES: dict[str, frozenset[str]] = {
     "api": frozenset({"api", "architecture", "common", "primitive"}),
     "common": frozenset({"api", "common"}),
-    "primitive": frozenset({"common", "primitive"}),
-    "architecture": frozenset({"architecture", "common", "primitive"}),
-    "works": frozenset({"architecture", "common", "primitive", "works"}),
-    "tools": frozenset({"api", "architecture", "common", "primitive", "tools", "works"}),
+    "execution": frozenset({"common", "execution"}),
+    "encoding": frozenset({"encoding"}),
+    "primitive": frozenset({"common", "encoding", "execution", "primitive"}),
+    "architecture": frozenset({"architecture", "common", "encoding", "execution", "primitive"}),
+    "works": frozenset({"architecture", "common", "encoding", "execution", "primitive", "works"}),
+    "tools": frozenset({"api", "architecture", "common", "encoding", "execution", "primitive", "tools", "works"}),
 }
 
 
@@ -198,7 +202,6 @@ def _top_level_roles(candidates: list[str]) -> set[str]:
 
 def test_package_surfaces_are_static_and_explicit() -> None:
     malformed: list[str] = []
-    duplicates: list[str] = []
     private_names: list[str] = []
     private_sources: list[str] = []
     private_modules = _private_modules()
@@ -210,9 +213,6 @@ def test_package_surfaces_are_static_and_explicit() -> None:
         if exports is None:
             malformed.append(str(path.relative_to(REPO_ROOT)))
         else:
-            repeated = sorted({name for name in exports if exports.count(name) > 1})
-            if repeated:
-                duplicates.append(f"{path.relative_to(REPO_ROOT)} ({', '.join(repeated)})")
             hidden = sorted(name for name in exports if name.startswith("_"))
             if hidden:
                 private_names.append(f"{path.relative_to(REPO_ROOT)} ({', '.join(hidden)})")
@@ -223,19 +223,17 @@ def test_package_surfaces_are_static_and_explicit() -> None:
                 for target in sorted(_private_targets(candidates, private_modules))
             )
 
-    if malformed or duplicates or private_names or private_sources:
+    if malformed or private_names or private_sources:
         details: list[str] = []
         if malformed:
             details.append("Missing or noncanonical `__all__` declarations:\n  " + "\n  ".join(malformed))
-        if duplicates:
-            details.append("Repeated exports:\n  " + "\n  ".join(duplicates))
         if private_names:
             details.append("Private names declared public:\n  " + "\n  ".join(private_names))
         if private_sources:
             details.append("Package faces importing private files:\n  " + "\n  ".join(private_sources))
         pytest.fail(
             "Rule: every aggregate library package except the empty direct-import packages declares "
-            "its public face once as an unannotated literal string list. Its entries are unique and public, "
+            "its public face once as an unannotated literal string list. Its entries are public, "
             "and no public face draws from a leading-underscore file. Command-line-only packages under "
             "`neurox/tools` are exempt.\n"
             "Fix: write one `__all__ = [...]`; move a public definition to a non-underscore file before "

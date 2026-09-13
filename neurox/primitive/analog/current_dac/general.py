@@ -58,14 +58,12 @@ class GeneralIdac(Idac):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
         self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
@@ -84,7 +82,7 @@ class GeneralIdac(Idac):
 
     def _convert_impl(self, code: Tensor) -> Tensor:
         signal = apply_gaussian(
-            self._code_to_signal[code],
+            self._code_to_signal[code.long()],
             self.config.drive_thermal__uA,
             enabled=self.policy.drive_thermal,
         )

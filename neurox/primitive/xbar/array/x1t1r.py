@@ -11,10 +11,9 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common.chunking import run_chunked
+from neurox.common.dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin
 from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase
-from neurox.common.pytree_dataclass_mixin import PyTreeDataClassMixin
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
+from neurox.execution.chunking import run_chunked
 from neurox.primitive.physics import e_cap_excursion__fJ
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
@@ -151,7 +150,6 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         bl_driver: ClampDriver[BLSnapT, ClampDcop],
         sl_driver: ClampDriver[SLSnapT, ClampDcop],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._row_num = row_num
@@ -166,7 +164,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         self._bl_estab_total_c__fF = row_num * (config.bl_node_c__fF + config.x_node_c__fF)
         self._sl_estab_total_c__fF = row_num * config.sl_node_c__fF
 
-        self._init_children(dtype=dtype, T__K=T__K)
+        self._init_children(dtype=dtype)
         self.solver = ColBlColSlArraySolver(
             bl_segment_r__MOhm=config.bl_segment_r__MOhm,
             sl_segment_r__MOhm=config.sl_segment_r__MOhm,
@@ -187,14 +185,13 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         # static conduction path between operations.
         return 0.0
 
-    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+    def _init_children(self, *, dtype: torch.dtype) -> None:
         self.cell = XbarCell1t1r.from_config(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
             # Shape: [*inst_shape, row, col]
             inst_shape=(*self.inst_shape, *self._grid_shape),
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property

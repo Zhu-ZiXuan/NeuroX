@@ -8,8 +8,8 @@ from pathlib import Path
 import torch
 
 from neurox.api.module_from_file import cim_macro_from_file
+from neurox.common.module import DEFAULT_T__K
 from neurox.primitive.macro.cim import CimMacro
-from neurox.primitive.physics import T_ROOM__K
 from neurox.tools.module import prepare_module
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ def build_macro(
     inst_shape: tuple[int, ...],
     device: torch.device,
     dtype: torch.dtype = torch.float32,
-    T__K: float = T_ROOM__K,
+    T__K: float = DEFAULT_T__K,
 ) -> CimMacro:
     """Load, build, fabricate, and name one validation macro."""
     macro = cim_macro_from_file(
@@ -32,8 +32,8 @@ def build_macro(
         policy_section="policy",
         inst_shape=inst_shape,
         dtype=dtype,
-        T__K=T__K,
     )
+    macro.set_temperature(T__K)
     macro = prepare_module(macro, device=device)
     logger.info("built %s from %s + %s", type(macro).__name__, config_path, policy_path)
     return macro

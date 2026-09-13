@@ -144,7 +144,6 @@ def build_macro(
         policy=build_policy(solve_chunk_size=solve_chunk_size),
         inst_shape=inst_shape,
         dtype=torch.float64,
-        T__K=300.0,
     )
     assert isinstance(macro, Ye2023JsscCimMacro)
     macro.to(device)

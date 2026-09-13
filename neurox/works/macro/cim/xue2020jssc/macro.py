@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.encoding import Encoding
+from neurox.encoding import Encoding
 from neurox.primitive.analog import (
     Reference,
     ReferenceConfig,
@@ -191,25 +191,23 @@ class Xue2020JsscCimMacro(CimMacro):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         self.row_num = self.input_num
         self.col_num = self.output_num * config.w_digit_num * _POLARITY_NUM
-        self._init_children(dtype=dtype, T__K=T__K)
+        self._init_children(dtype=dtype)
         if self.array.w_state_num < self._w_digit_radix:
             raise ValueError(
                 f"require: array.w_state_num ({self.array.w_state_num}) >= w_digit_r ({self._w_digit_radix})"
             )
         self._register_functional_buffers(dtype=dtype)
 
-    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+    def _init_children(self, *, dtype: torch.dtype) -> None:
         config = self.config
         policy = self.policy
         lane_num = self.lane_num
@@ -220,14 +218,12 @@ class Xue2020JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
             inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
-            T__K=T__K,
         )
         self.cablc_vref = Reference(
             config=config.cablc_vref_config,
             policy=policy.cablc_vref_policy,
             inst_shape=self.inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
         self.sl_driver = VoltageDriver(
@@ -236,7 +232,6 @@ class Xue2020JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
             inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
-            T__K=T__K,
         )
 
         # Scan is a macro timing axis; the array contains every physical column.
@@ -251,7 +246,6 @@ class Xue2020JsscCimMacro(CimMacro):
             bl_driver=self.cablc,
             sl_driver=self.sl_driver,
             dtype=dtype,
-            T__K=T__K,
         )
 
         self.tmcsa = Tmcsa(
@@ -261,14 +255,12 @@ class Xue2020JsscCimMacro(CimMacro):
             inst_shape=(*self.inst_shape, lane_num, 1),
             vdd__V=config.vdd__V,
             dtype=dtype,
-            T__K=T__K,
         )
         self.tmcsa_iref = Reference(
             config=config.tmcsa_iref_config,
             policy=policy.tmcsa_iref_policy,
             inst_shape=self.inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
         self.control = UnmodeledBlock(
@@ -277,7 +269,6 @@ class Xue2020JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
-            T__K=T__K,
         )
 
     def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
@@ -320,17 +311,17 @@ class Xue2020JsscCimMacro(CimMacro):
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
-        # Shape: [..., input, output] -> [..., row, col, w_digit]
+        # Shape: [*inst, input, output] -> [*inst, row, col, w_digit]
         digits = self._w_transcoder.encode(w, dim=-1)
 
         # Positive digits occupy PWG; negative digits occupy NWG.
-        # Shape: [..., row, col, w_digit] -> [..., row, col, polarity, w_digit]
+        # Shape: [*inst, row, col, w_digit] -> [*inst, row, col, polarity, w_digit]
         state_idx = torch.stack((digits.clamp_min(0), (-digits).clamp_min(0)), dim=-2)
 
         # col = lane * scan_num + scan
-        # Shape: [..., row, col, polarity, w_digit] -> [..., row, lane, scan, polarity, w_digit]
+        # Shape: [*inst, row, col, polarity, w_digit] -> [*inst, row, lane, scan, polarity, w_digit]
         state_idx = state_idx.unflatten(-3, (self.lane_num, self.scan_num))
-        # Shape: [..., row, lane, scan, polarity, w_digit] -> [..., x_bit=1, row, phys_col]
+        # Shape: [*inst, row, lane, scan, polarity, w_digit] -> [*inst, x_bit=1, row, phys_col]
         state_idx = state_idx.flatten(-4, -1).unsqueeze(-3)
         self.array.program(state_idx.contiguous())
 
@@ -393,6 +384,7 @@ class Xue2020JsscCimMacro(CimMacro):
         e__fJ = e_charge__fJ(self.config.vdd__V, q__fC) + self.config.pn_isub_energy_per_op__fJ
         self._record_dynamic_energy(e__fJ, channel="pn_isub")
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,
@@ -411,7 +403,7 @@ class Xue2020JsscCimMacro(CimMacro):
         # --- 1: Bit-expand x into K binary WL-drive phases (LSB first) ---
 
         # Shape: [..., row] -> [..., x_bit, row]
-        v_wl__V = self._x_transcoder.encode(x.long(), dim=-2) * self._v_wl_on__V
+        v_wl__V = self._x_transcoder.encode(x, dim=-2) * self._v_wl_on__V
         # Shape: [..., x_bit, row] -> [..., x_bit, row, col=1]
         v_wl__V = v_wl__V.unsqueeze(self.array.col_dim)
 

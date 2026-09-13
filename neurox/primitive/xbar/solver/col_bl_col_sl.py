@@ -20,10 +20,9 @@ from typing import ClassVar
 
 import torch
 from torch import Tensor
-from torch._dynamo.decorators import patch_dynamo_config
 
-from neurox.common.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
 from neurox.common.torch_compat import torch_assert_async
+from neurox.execution.solving import SolvingState, SolvingTrace, run_solving
 
 from ._linalg import (
     boundary_inverse_block_tridiagonal_2x2,
@@ -69,6 +68,7 @@ class _NodeTrace(SolvingTrace):
 
     Boolean fields have shape `[..., row=1, col, *history]`; residuals, thresholds,
     and updates have shape `[..., row, col, *history]`.
+    Construction rejects a non-boolean `limited` field.
     """
 
     limited: Tensor
@@ -76,6 +76,11 @@ class _NodeTrace(SolvingTrace):
     threshold__uA: Tensor
     dv_bl_node_abs__V: Tensor
     dv_sl_node_abs__V: Tensor
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.limited.dtype != torch.bool:
+            raise TypeError("Node trace limited must be a boolean mask")
 
     @classmethod
     def empty(
@@ -210,27 +215,19 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
                 cell_snap=cell_snap,
             )
 
-        if record_trace:
-            return run_solving_trace_scan(
-                init_state=init_state,
-                body_fn=body_fn,
-                default_trace=_NodeTrace.empty(
-                    tuple(v_bl_node__V.shape),
-                    port_shape=tuple(v_bl_port__V.shape),
-                    dtype=v_bl_node__V.dtype,
-                    device=v_bl_node__V.device,
-                ),
-                max_iter=self.MAX_ITER,
-                strict=False,
-                trace_mask=trace_mask,
-            )
-
-        def solve_body(current: _NodeState) -> _NodeState:
-            next_state, _ = body_fn(current)
-            return next_state
-
-        final_state = run_solving_loop(init_state=init_state, body_fn=solve_body, max_iter=self.MAX_ITER, strict=True)
-        return final_state, None
+        return run_solving(
+            init_state=init_state,
+            body_fn=body_fn,
+            record_trace=record_trace,
+            default_trace_fn=lambda: _NodeTrace.empty(
+                tuple(v_bl_node__V.shape),
+                port_shape=tuple(v_bl_port__V.shape),
+                dtype=v_bl_node__V.dtype,
+                device=v_bl_node__V.device,
+            ),
+            max_iter=self.MAX_ITER,
+            trace_mask=trace_mask,
+        )
 
     def _evaluate_node(
         self,
@@ -347,6 +344,7 @@ class _PortTrace(SolvingTrace):
     Port fields have shape `[..., row=1, col, *history]`. Nested node fields
     expand the row extent and append a node-iteration axis before port history.
     `node_trace` is present throughout a traced solve, including unused steps.
+    Construction rejects a non-boolean `limited` field.
     """
 
     limited: Tensor
@@ -355,6 +353,11 @@ class _PortTrace(SolvingTrace):
     dv_bl_port_abs__V: Tensor
     dv_sl_port_abs__V: Tensor
     node_trace: _NodeTrace | None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.limited.dtype != torch.bool:
+            raise TypeError("Port trace limited must be a boolean mask")
 
     @classmethod
     def empty(
@@ -556,28 +559,20 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
                 sl_driver_snap=sl_driver_snap,
             )
 
-        if record_trace:
-            return run_solving_trace_scan(
-                init_state=init_state,
-                body_fn=body_fn,
-                default_trace=_PortTrace.empty(
-                    tuple(v_bl_node__V.shape),
-                    port_shape=tuple(v_bl_port__V.shape),
-                    node_capacity=self.node_solver.MAX_ITER,
-                    dtype=v_bl_node__V.dtype,
-                    device=v_bl_node__V.device,
-                ),
-                max_iter=self.MAX_ITER,
-                strict=False,
-                trace_mask=trace_mask,
-            )
-
-        def solve_body(current: _PortState) -> _PortState:
-            next_state, _ = body_fn(current)
-            return next_state
-
-        final_state = run_solving_loop(init_state=init_state, body_fn=solve_body, max_iter=self.MAX_ITER, strict=True)
-        return final_state, None
+        return run_solving(
+            init_state=init_state,
+            body_fn=body_fn,
+            record_trace=record_trace,
+            default_trace_fn=lambda: _PortTrace.empty(
+                tuple(v_bl_node__V.shape),
+                port_shape=tuple(v_bl_port__V.shape),
+                node_capacity=self.node_solver.MAX_ITER,
+                dtype=v_bl_node__V.dtype,
+                device=v_bl_node__V.device,
+            ),
+            max_iter=self.MAX_ITER,
+            trace_mask=trace_mask,
+        )
 
     def _evaluate_port(
         self,

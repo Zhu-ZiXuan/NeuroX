@@ -14,6 +14,7 @@ from torch import Tensor
 
 from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
+from neurox.common.torch_compat import torch_assert_async
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
 
 
@@ -30,14 +31,14 @@ class IadcRecord(AdcRecord):
 
 class IadcConfig(ConfigBase, ABC):
     bits: int
-    """Physical maximum conversion resolution."""
+    """Physical maximum conversion resolution, from 1 to 31 bits."""
     area_per_inst__um2: float
     """Physical area per ADC instance."""
     leakage_per_inst__uW: float
     """Static leakage power per ADC instance."""
 
     def validate(self) -> None:
-        self._require_pos(self.bits, "bits")
+        self._require_in_closed_interval(self.bits, "bits", 1, 31)
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -74,9 +75,8 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        del dtype, T__K
+        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @classmethod
@@ -87,7 +87,6 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> Iadc:
         """Build the implementation registered for the config-policy pair.
 
@@ -100,7 +99,6 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property
@@ -161,14 +159,15 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
-            Unsigned integer code tensor, one code per `i_in__uA` element, in
+            Unsigned code values stored as `int32`, one per `i_in__uA` element, in
             the range `unsigned_range` reports for `active_bits`. For a deterministic
             converter the code at `active_bits` is the full-width code
             right-shifted by `bits - active_bits`. Dynamic energy is emitted
             through the profiler side channel.
 
         Raises:
-            ValueError: `active_bits` is outside `[1, bits]`.
+            ValueError: The active bit count or output shape is invalid.
+            RuntimeError: An output code lies outside the active-bit range.
         """
         self._check_active_bits(active_bits)
         code, energy__fJ = self._convert_impl(
@@ -177,6 +176,11 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             active_bits=active_bits,
             record_energy=self._is_dynamic_energy_profile_active(),
         )
+        code = code.int()
+        if code.shape != i_in__uA.shape:
+            raise ValueError("ADC implementation must return one code per input element")
+        min_code, max_code = self.unsigned_range(active_bits)
+        torch_assert_async(((code >= min_code) & (code <= max_code)).all(), "ADC output code outside active-bit range")
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
         if AdcProber.active():

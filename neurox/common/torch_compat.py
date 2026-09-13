@@ -7,6 +7,7 @@ from typing import Protocol, cast, overload
 
 import torch
 from torch import Tensor
+from torch._higher_order_ops.map import map as _map
 from torch._higher_order_ops.scan import scan
 from torch.utils import _pytree as pytree
 
@@ -14,6 +15,7 @@ __all__ = [
     "torch_assert_async",
     "torch_compiler_disable",
     "torch_cond",
+    "torch_map",
     "torch_scan",
     "torch_while_loop",
 ]
@@ -234,3 +236,67 @@ def torch_scan[CarryT, InputT, OutputT](
     )
 
     return _unflatten_carry(flat_carry), _unflatten_output(stacked_flat_output)
+
+
+def torch_map[InputT, OutputT](
+    fn: Callable[[InputT], OutputT],
+    xs: InputT,
+    *,
+    output_template: OutputT,
+) -> OutputT:
+    """Map leading-axis input slices to structured outputs independently.
+
+    `xs` must be a nonempty Tensor PyTree whose leaves have the same positive
+    size on axis 0. Each call receives one slice; invariant values are captured
+    by `fn`. Registered dataclasses are supported as both inputs and outputs,
+    including optional fields recorded as absent by PyTree registration.
+
+    The body must be capturable by `torch.compile`, with no input mutation
+    or output aliasing. Input and output PyTree leaves must be Tensors.
+
+    Args:
+        output_template: Output PyTree structure, including optional fields;
+            tensor values and metadata are unused.
+
+    Returns:
+        Outputs stacked on axis 0, with the template's PyTree structure.
+    """
+    # --- 1. Flatten pytree and check params ---
+
+    def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[Tensor, ...], pytree.TreeSpec]:
+        leaves, spec = pytree.tree_flatten(tree)
+        if not all(isinstance(leaf, Tensor) for leaf in leaves):
+            raise TypeError(f"{name} must contain only Tensor leaves")
+        return tuple(leaves), spec
+
+    flat_xs, xs_spec = _flatten_pytree(xs, name="xs")
+    _, output_spec = _flatten_pytree(output_template, name="output_template")
+    if not flat_xs:
+        raise ValueError("xs must contain at least one Tensor leaf")
+    if any(leaf.ndim == 0 for leaf in flat_xs):
+        raise ValueError("all xs Tensor leaves must have a leading dimension")
+
+    # --- 2. Define unflatten functions ---
+
+    def _unflatten_input(flat_input: tuple[Tensor, ...]) -> InputT:
+        return cast(InputT, pytree.tree_unflatten(flat_input, xs_spec))
+
+    def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
+        return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
+
+    # --- 3. Define wrapper function ---
+
+    def flat_fn(flat_input: tuple[Tensor, ...], *_: tuple[Tensor, ...]) -> tuple[Tensor, ...]:
+        output = fn(_unflatten_input(flat_input))
+        flat_output, new_output_spec = _flatten_pytree(output, name="map output")
+        if new_output_spec != output_spec:
+            raise TypeError("map output must match the output_template PyTree structure")
+        return flat_output
+
+    # --- 4. Run pytorch map ---
+
+    flat_output = _map(flat_fn, flat_xs)
+
+    # --- 5. Unflatten pytree ---
+
+    return _unflatten_output(flat_output)

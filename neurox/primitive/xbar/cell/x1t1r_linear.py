@@ -116,9 +116,8 @@ class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype)
 
         self._register_nonpersistent_buffer(
             "_g_cell_off_table__uS",
@@ -151,14 +150,13 @@ class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
         """
         if tuple(w_state_idx.shape) != self.inst_shape:
             raise ValueError(f"program() expects w_state_idx.shape {self.inst_shape}; got {tuple(w_state_idx.shape)}")
-        idx = w_state_idx.long()
-        if bool((idx < 0).any()) or bool((idx >= self.w_state_num).any()):
+        if bool((w_state_idx < 0).any()) or bool((w_state_idx >= self.w_state_num).any()):
             raise ValueError(f"program() expects state indices in [0, {self.w_state_num}); got out-of-range entries")
         # Gather every table here so the branch solve holds no index lookup.
-        self._g_cell_off__uS = self._g_cell_off_table__uS[idx]
-        self._g_cell_on__uS = self._g_cell_on_table__uS[idx]
-        self._vx_ratio_off = self._vx_ratio_off_table[idx]
-        self._vx_ratio_on = self._vx_ratio_on_table[idx]
+        self._g_cell_off__uS = self._g_cell_off_table__uS[w_state_idx.long()]
+        self._g_cell_on__uS = self._g_cell_on_table__uS[w_state_idx.long()]
+        self._vx_ratio_off = self._vx_ratio_off_table[w_state_idx.long()]
+        self._vx_ratio_on = self._vx_ratio_on_table[w_state_idx.long()]
 
     def is_wl_on(self, snap: XbarCell1t1rSnap) -> Tensor:
         """Return whether the linear model selects its WL-on tables."""

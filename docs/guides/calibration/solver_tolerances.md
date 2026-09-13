@@ -29,4 +29,4 @@ The extracted chord conductance is valid for the declared bias points and device
 
 ## Validation
 
-Unit tests reconstruct the detailed-cell KCL, array wire KCL, and boundary residuals from returned electrical states. Separate trace tests verify observation masks and history layout, while compiled-loop tests verify graph compatibility. See the [adaptive solve validation procedure](../../validation/structured_while_solve.md).
+Unit tests reconstruct the detailed-cell KCL, array wire KCL, and boundary residuals from returned electrical states. Separate trace tests verify observation masks and history layout. Compilation output is inspected during development, not asserted by tests. See the [adaptive solve validation procedure](../../validation/structured_while_solve.md).

@@ -151,12 +151,12 @@ A module that conducts only briefly within a long cycle is therefore charged lea
 
 ## Physical constants
 
-The canonical constants live in one place so device and analog modules pull them from a single source. The elementary charge $q$ and Boltzmann constant $k_B$ are exact by SI definition (zero uncertainty); the vacuum permittivity $\varepsilon_0$ is a measured / derived quantity carrying a relative uncertainty of $\sim 1.6 \times 10^{-10}$, listed at its CODATA-2018 value. $T_{\mathrm{room}}$ is the default operating temperature used whenever no explicit $T$ (`T__K`) is supplied. The thermal voltage $V_T = k_B T / q$ is derived from the first two constants at the given temperature.
+The canonical constants live in one place so device and analog modules pull them from a single source. The elementary charge $q$ and Boltzmann constant $k_B$ are exact by SI definition (zero uncertainty); the vacuum permittivity $\varepsilon_0$ is a measured / derived quantity carrying a relative uncertainty of $\sim 1.6 \times 10^{-10}$, listed at its CODATA-2018 value. $T_{\mathrm{room}}$ is the initial operating temperature; the caller sets $T$ (`T__K`) for the run. The thermal voltage $V_T = k_B T / q$ is derived from the first two constants at the given temperature.
 
 | Quantity | Symbol | Code | Value | Unit | Source |
 | --- | --- | --- | --- | --- | --- |
-| elementary charge | $q$ | `ELEM_CHARGE__C` | $1.602176634 \times 10^{-19}$ | C | Constant |
-| Boltzmann constant | $k_B$ | `K_BOLTZMANN__J_per_K` | $1.380649 \times 10^{-23}$ | J/K | Constant |
-| vacuum permittivity | $\varepsilon_0$ | `EPS_0__F_per_m` | $8.8541878128 \times 10^{-12}$ | F/m | CODATA-2018 |
-| room temperature | $T_{\mathrm{room}}$ | `T_ROOM__K` | $300.0$ | K | Default |
+| elementary charge | $q$ | `ELEM_CHARGE__fC` | $1.602176634 \times 10^{-4}$ | fC | Constant |
+| Boltzmann constant | $k_B$ | `K_BOLTZMANN__fJ_per_K` | $1.380649 \times 10^{-8}$ | fJ/K | Constant |
+| vacuum permittivity | $\varepsilon_0$ | `EPS_0__fF_per_um` | $8.8541878128 \times 10^{-3}$ | fF/um | CODATA-2018 |
+| room temperature | $T_{\mathrm{room}}$ | `DEFAULT_T__K` | $300.0$ | K | Default |
 | thermal voltage | $V_T$ | `thermal_voltage__V(T__K)` | $k_B T / q$ | V | Constant-derived |

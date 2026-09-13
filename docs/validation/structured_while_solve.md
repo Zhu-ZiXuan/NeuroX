@@ -17,12 +17,12 @@ Solver tests compare traced and untraced electrical results for convergent workl
 The focused CPU regression command is:
 
 ```bash
-uv run pytest tests/primitive/xbar tests/works/macro/cim/test_solver_diagnostics.py --device cpu
+uv run pytest tests/primitive/xbar --device cpu
 ```
 
-## Compiled execution checks
+## Execution diagnostics
 
-The solver suite captures a full graph with snapshot-aliasing cell derivatives and checks that changing iteration caps leaves recursive graph-node counts unchanged. This checks bounded graph structure at a fixed geometry.
+Inspect compilation output and graph structure during development; optimization-dependent graph-node counts are not test assertions.
 
 Run the solver suite on a selected CUDA device to exercise compiled numerical loops:
 

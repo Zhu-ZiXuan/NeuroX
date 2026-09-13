@@ -12,16 +12,8 @@ Every core change starts here:
 4. Apply content-placement, dependency, and single-source rules through [organizing_principles](../conventions/organizing_principles.md), code rules through [code_style](../conventions/code_style.md), and documentation text and format rules through [prose_style](../conventions/prose_style.md) and [markdown_style](../conventions/markdown_style.md).
 5. Implement through the relevant base-class or mixin contract. Do not re-state that contract in the leaf implementation.
 6. Update package exports and public API documentation when the import surface changes, and keep the new module inside the package imports dispatch depends on — see [construction](../system_design/construction.md).
-7. Add or update focused tests and validation evidence.
+7. Add or update focused tests and validation evidence following [writing_tests](writing_tests.md). Every recipe's test checklist applies within that guide's ownership boundary.
 8. Run the relevant [workflow](workflow.md) quality gates.
-
-## Writing tests
-
-These hold for every test the checklist adds:
-
-- Write each test's config and policy by hand, stating in the test the values its assertions depend on; do not reach for a preset or a production TOML to obtain them.
-- Assert laws, not numbers — invariants, monotonicity, scaling and limiting relations, and boundary behavior — so that recalibrating a physical parameter does not rewrite the suite. A literal number belongs in an assertion only when it is itself the specification, such as an analytic closed form or an exact-integer result.
-- Keep one test file per module under test, so the guard for a symbol is found from that symbol's module path.
 
 ## Introduce a simulation primitive
 
@@ -79,7 +71,7 @@ Use the common checklist, then:
 - Implement only the behavior owned by the concrete member.
 - Do not repeat base-class contracts in the concrete docs; document concrete model and implementation differences.
 - Export the public class and role dataclasses from the family package.
-- Test dispatch from config, primary behavior, validation, and any concrete non-idealities.
+- Test this member's registration through config dispatch and the behavior, validation, and non-idealities it introduces or changes.
 
 ## Add a composite owned-construction block
 
@@ -103,7 +95,7 @@ Use the common checklist, then:
 - State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
 - Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
 - Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the [compile-safety rules](../conventions/code_style.md#compile-safety).
-- Test residuals, convergence / fixed-iteration behavior, shape edge cases, dtype behavior, and chunk reassembly.
+- Test numerical equations against independent oracles, iteration-control semantics, shape edge cases, dtype behavior, and chunk reassembly within the boundaries in [writing_tests](writing_tests.md).
 
 ## Add a value-domain primitive
 
@@ -140,4 +132,4 @@ Use the common checklist, then:
 
 - Identify all callers and downstream contracts before implementation.
 - Update the owning docstrings. Update System Design only when the top-level mechanism or behavior changes.
-- Add tests at the shared contract level and at least one representative downstream use.
+- Add tests at the shared contract level and retain a representative downstream integration check under [writing_tests](writing_tests.md).

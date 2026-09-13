@@ -16,6 +16,8 @@ Each mapping has a corresponding aggregation: digit slices require positional we
 
 Engine-side transformations use exact integer arithmetic. Padding represents zero, and trimming removes padded positions. The physical macro access introduces the modeled analog and conversion effects. An ideal access therefore provides a control for the same mapping and aggregation.
 
+Input generation and requantization select int32 for quantized inputs and weights. Intermediate interfaces require integer values rather than a particular storage width; each operation states only its own numerical and representation requirements. Lookup operations convert their index expressions locally. ADCs and physical macro accesses produce int32 codes; ideal macro accesses produce int64 results. The engine widens macro results to int64 before digital aggregation. Digital blocks use their operands' integer dtype without imposing an independent int64 input requirement. Ideal integer multiply-accumulate paths widen operands before arithmetic. The caller-selected storage width must represent the values and intermediates required by each operation, independently of modeled digital register widths.
+
 ## One physical access
 
 A macro establishes the electrical boundaries and schedules the phases that use them. It owns peripheral sampling and the distinction between a boundary held across phases and a fresh boundary event. The array determines the electrical response of its cells and interconnect to those supplied conditions.

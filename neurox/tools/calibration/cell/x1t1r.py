@@ -68,7 +68,6 @@ def _build_cell(
         policy=_detail_policy(),
         inst_shape=(1,),
         dtype=dtype,
-        T__K=300.0,
     )
     return prepare_module(cell, device=device)
 
@@ -107,7 +106,7 @@ def _solve_linear_point(
     dtype: torch.dtype,
 ) -> tuple[float, float]:
     """Solve one deterministic Detail operating point."""
-    cell.program(torch.full((1,), state, dtype=torch.long, device=device))
+    cell.program(torch.full((1,), state, dtype=torch.int32, device=device))
     v_bl__V = torch.full((1, 1), v_bl_op__V, dtype=dtype, device=device)
     v_sl__V = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
     v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)

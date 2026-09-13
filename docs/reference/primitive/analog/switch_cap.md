@@ -63,7 +63,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $\sigma_k$ | per-cap kT/C noise sigma, $\sqrt{k_B T / C_k}$ | V | `sigma__V` |
 | $\sigma_u$ | per-unit-cell relative mismatch sigma | — | `cap_mismatch_sigma_relative` |
 | $T$ | operating temperature | K | `T__K` |
-| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
+| $k_B$ | Boltzmann constant | fJ/K | `K_BOLTZMANN__fJ_per_K` |
 | $E_{\mathrm{caps}}$ | sampled-charge energy per sample, $\tfrac{1}{2}\sum_k C_k V_k^2$ | fJ | `e_caps__fJ` |
 | $E_{\mathrm{overhead}}$ | per-sample switching-energy overhead | fJ | `energy_per_sample_overhead__fJ` |
 | $E$ | per-sample dynamic energy, $E_{\mathrm{caps}} + E_{\mathrm{overhead}}$ | fJ | `dynamic_energy__fJ` |

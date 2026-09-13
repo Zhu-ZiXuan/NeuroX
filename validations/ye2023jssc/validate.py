@@ -361,7 +361,7 @@ def validate(args: ValidationArgs) -> None:
                 input_num=macro.input_num,
             )
             for input_sparsity in input_sparsities:
-                x = (input_uniform >= input_sparsity).to(torch.long)
+                x = (input_uniform >= input_sparsity).long()
                 profiled = profile_vmm(
                     macro,
                     reporter,

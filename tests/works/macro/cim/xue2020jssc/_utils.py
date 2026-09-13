@@ -200,7 +200,6 @@ def build_macro(
         policy=build_all_off_policy(),
         inst_shape=inst_shape,
         dtype=_DTYPE,
-        T__K=300.0,
     )
     assert isinstance(macro, Xue2020JsscCimMacro)
     if device is not None:
@@ -234,11 +233,11 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     input_num = macro.input_num
     x_max = (1 << cfg.x_bit_num) - 1
 
-    w_signed = torch.zeros((*macro.inst_shape, macro.input_num, macro.output_num), dtype=torch.long, device=device)
+    w_signed = torch.zeros((*macro.inst_shape, macro.input_num, macro.output_num), dtype=torch.int32, device=device)
     w_signed[:, 0] = 1
     macro.program(w_signed)
 
-    x = torch.zeros((m_max + 1, input_num), dtype=torch.long, device=device)
+    x = torch.zeros((m_max + 1, input_num), dtype=torch.int32, device=device)
     for m in range(m_max + 1):
         remaining = m
         for r in range(input_num):

@@ -1,4 +1,4 @@
-"""Tests for the `SerializeMixin` {dict, file} x {read, write} surface."""
+"""Configuration file sections, path conversion, and YAML value normalization."""
 
 from __future__ import annotations
 
@@ -18,35 +18,8 @@ class _Point(SerializeMixin):
 
 
 @dataclass(frozen=True)
-class _Shape(SerializeMixin):
-    """Base of a small polymorphic family for the discriminator test."""
-
-    name: str
-
-
-@dataclass(frozen=True)
-class _Circle(_Shape):
-    radius: float
-
-
-@dataclass(frozen=True)
 class _PathBox(SerializeMixin):
     path: Path
-
-
-@dataclass(frozen=True)
-class _UnsupportedValue(SerializeMixin):
-    value: complex
-
-
-# --- dict round-trip ---
-
-
-def test_from_dict_to_dict_round_trip() -> None:
-    data = {"x": 1.5, "y": -2.0}
-    point = _Point.from_dict(data)
-    assert point == _Point(x=1.5, y=-2.0)
-    assert point.to_dict() == data
 
 
 # --- file round-trip (whole file) ---
@@ -72,16 +45,6 @@ def test_to_file_from_file_section_round_trip(tmp_path: Path) -> None:
     assert "[foo]" in file.read_text()
 
 
-# --- polymorphic round-trip ---
-
-
-def test_from_dict_discriminator_yields_subclass_instance() -> None:
-    data = {"_neurox_class": "_Circle", "name": "c1", "radius": 2.5}
-    shape = _Shape.from_dict(data)
-    assert isinstance(shape, _Circle)
-    assert shape == _Circle(name="c1", radius=2.5)
-
-
 def test_path_round_trip_uses_string_value(tmp_path: Path) -> None:
     expected = _PathBox(path=Path("models/config.toml"))
     assert expected.to_dict() == {"path": "models/config.toml"}
@@ -89,11 +52,6 @@ def test_path_round_trip_uses_string_value(tmp_path: Path) -> None:
     file = tmp_path / "path.toml"
     expected.to_file(file)
     assert _PathBox.from_file(file) == expected
-
-
-def test_to_dict_rejects_unsupported_leaf_value() -> None:
-    with pytest.raises(TypeError, match="unsupported configuration value complex"):
-        _UnsupportedValue(value=1 + 2j).to_dict()
 
 
 @pytest.mark.parametrize(

@@ -68,17 +68,17 @@ class Accumulator(DigitalBase):
 
     @torch.no_grad()
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
-        """Sum `x` along `dim` and wrap into the signed `bit_width` range.
+        """Sum integer `x` along `dim` and wrap into the signed `bit_width` range.
 
         One operation is one adder evaluation per operand element folded in.
 
         Returns:
-            Modular-wrapped sum with `dim` reduced.
+            Modular-wrapped sum with `dim` reduced, preserving the input dtype.
         """
         bw = self.config.bit_width
         half = 1 << (bw - 1)
         full = 1 << bw
-        y = (x.sum(dim) + half) % full - half
+        y = (x.sum(dim, dtype=x.dtype) + half) % full - half
 
         if self._is_dynamic_energy_profile_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)

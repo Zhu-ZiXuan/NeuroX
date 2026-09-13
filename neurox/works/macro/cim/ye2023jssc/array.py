@@ -89,7 +89,6 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         bl_driver: ClampDriver[BLSnapT, ClampDcop],
         sl_driver: ClampDriver[SLSnapT, ClampDcop],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         if len(t2_multipliers) != col_num:
             raise ValueError(f"require: len(t2_multipliers) ({len(t2_multipliers)}) == col_num ({col_num})")
@@ -104,7 +103,6 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
             bl_driver=bl_driver,
             sl_driver=sl_driver,
             dtype=dtype,
-            T__K=T__K,
         )
         self._i_tbl_leak__uA = self.cell.i_t2_leak__uA * total_t2_multiplier
         self._cap_energy_per_active_tbl__fJ = e_cap_excursion__fJ(
@@ -116,14 +114,13 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         self._register_nonpersistent_buffer("_t2_multipliers", torch.tensor(t2_multipliers, dtype=dtype))
         self._register_nonpersistent_buffer("_t2_gate_c_by_col__fF", config.t2_gate_unit_c__fF * self._t2_multipliers)
 
-    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+    def _init_children(self, *, dtype: torch.dtype) -> None:
         self.cell = Ye2023Jssc2t1rCell(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
             # Shape: [*inst_shape, row, col]
             inst_shape=(*self.inst_shape, *self._grid_shape),
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property

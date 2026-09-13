@@ -71,7 +71,7 @@ def sample_sparse_inputs(
         device=values.device,
         generator=generator,
     )
-    x = torch.zeros((batch_size, input_num), dtype=torch.int64, device=values.device)
+    x = torch.zeros((batch_size, input_num), dtype=torch.int32, device=values.device)
     return x.scatter(1, positions, selected_values)
 
 
@@ -138,8 +138,8 @@ class TargetStimulusSampler:
         device: torch.device,
         generator: torch.Generator,
     ) -> None:
-        self._input_values = torch.tensor(input_values, dtype=torch.int64, device=device)
-        self._weight_values = torch.tensor(weight_values, dtype=torch.int64, device=device)
+        self._input_values = torch.tensor(input_values, dtype=torch.int32, device=device)
+        self._weight_values = torch.tensor(weight_values, dtype=torch.int32, device=device)
         self._active_num = active_num
         self._input_num = input_num
         self._output_num = output_num
@@ -150,7 +150,7 @@ class TargetStimulusSampler:
         pair_inputs = tuple(input_ for input_ in input_values for _ in weight_values)
         pair_weights = tuple(weight for _ in input_values for weight in weight_values)
         pair_contributions = tuple(input_ * weight for input_, weight in zip(pair_inputs, pair_weights, strict=True))
-        self._pair_inputs = torch.tensor(pair_inputs, dtype=torch.int64, device=device)
+        self._pair_inputs = torch.tensor(pair_inputs, dtype=torch.int32, device=device)
         self._pair_contributions = torch.tensor(pair_contributions, dtype=torch.int64, device=device)
 
         min_contribution = min(pair_contributions)
@@ -175,7 +175,7 @@ class TargetStimulusSampler:
 
     def _sample_input_values(self, target: int, batch_size: int) -> Tensor:
         remainder = torch.full((batch_size,), target, dtype=torch.int64, device=self._device)
-        selected = torch.empty((batch_size, self._active_num), dtype=torch.int64, device=self._device)
+        selected = torch.empty((batch_size, self._active_num), dtype=torch.int32, device=self._device)
         for index in range(self._active_num):
             remaining_num = self._active_num - index - 1
             suffix_sums = remainder.unsqueeze(1) - self._pair_contributions.unsqueeze(0)
@@ -203,7 +203,7 @@ class TargetStimulusSampler:
                 _add_row_shifts(
                     suffix[index],
                     suffix[index + 1],
-                    selected_inputs[:, index] * weight,
+                    selected_inputs[:, index].long() * weight,
                 )
             suffix[index] /= self._weight_values.numel()
         return suffix
@@ -219,7 +219,7 @@ class TargetStimulusSampler:
         )
         selected = torch.empty(
             (batch_size, self._active_num, self._output_num),
-            dtype=torch.int64,
+            dtype=torch.int32,
             device=self._device,
         )
         for index in range(self._active_num):
@@ -227,7 +227,7 @@ class TargetStimulusSampler:
                 [
                     _lookup_probability(
                         suffix[index + 1],
-                        remainder - selected_inputs[:, index].unsqueeze(1) * weight,
+                        remainder - selected_inputs[:, index].long().unsqueeze(1) * weight,
                         offset=self._offset,
                     )
                     for weight in self._weight_values
@@ -241,7 +241,7 @@ class TargetStimulusSampler:
             ).reshape(batch_size, self._output_num)
             weight = self._weight_values[choice]
             selected[:, index] = weight
-            remainder -= selected_inputs[:, index].unsqueeze(1) * weight
+            remainder -= selected_inputs[:, index].long().unsqueeze(1) * weight
         return selected
 
     def sample(self, target: int, batch_size: int) -> tuple[Tensor, Tensor]:
@@ -255,7 +255,7 @@ class TargetStimulusSampler:
             device=self._device,
             generator=self._generator,
         )
-        x = torch.zeros((batch_size, self._input_num), dtype=torch.int64, device=self._device)
+        x = torch.zeros((batch_size, self._input_num), dtype=torch.int32, device=self._device)
         x.scatter_(1, positions, selected_inputs)
 
         selected_weights = self._sample_active_weights(selected_inputs, target)

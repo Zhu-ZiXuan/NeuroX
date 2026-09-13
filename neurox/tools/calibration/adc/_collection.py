@@ -76,7 +76,7 @@ def _run_paired(
         raise ValueError(f"one probe run emitted multiple ADC input quantities: {sorted(names)}")
     input_parts = [adc_record.input_value().flatten().to("cpu", torch.float32) for adc_record in prober.records]
     input_value = torch.cat(input_parts)
-    ideal_value = ideal_value.flatten().to("cpu", torch.int64)
+    ideal_value = ideal_value.flatten().cpu().long()
     if input_value.numel() != ideal_value.numel():
         raise ValueError(
             f"paired sample counts differ (ADC input {input_value.numel()} vs ideal {ideal_value.numel()})"
@@ -94,8 +94,8 @@ def _collect_random(
 ) -> tuple[str, list[Tensor], list[Tensor]]:
     stimulus = config.stimulus
     random = stimulus.random
-    weight_values = torch.tensor(_integer_values(physical.w_value_range), dtype=torch.int64, device=device)
-    input_values = torch.tensor(_integer_values(physical.x_value_range), dtype=torch.int64, device=device)
+    weight_values = torch.tensor(_integer_values(physical.w_value_range), dtype=torch.int32, device=device)
+    input_values = torch.tensor(_integer_values(physical.x_value_range), dtype=torch.int32, device=device)
     signal_name: str | None = None
     signal_parts: list[Tensor] = []
     ideal_parts: list[Tensor] = []

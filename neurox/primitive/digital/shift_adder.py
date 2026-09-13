@@ -70,7 +70,7 @@ class ShiftAdder(DigitalBase):
             raise ValueError(f"require: digit_count ({digit_count}) >= 1")
         self._register_nonpersistent_buffer(
             "_scales",
-            torch.tensor([scale**i for i in range(digit_count)], dtype=torch.int64),
+            torch.tensor([scale**i for i in range(digit_count)]),
         )
 
     @property
@@ -96,11 +96,11 @@ class ShiftAdder(DigitalBase):
             x: Integer digit tensor.
                 Shape: `[..., digit, ...]`.
             dim: Axis indexing the digit positions.
-            init_val: Optional partial sum added after the modular wrap,
-                broadcastable to the reduced output shape.
+            init_val: Optional integer partial sum added after the modular wrap,
+                matching `x.dtype` and broadcastable to the reduced output shape.
 
         Returns:
-            Recombined sum with `dim` reduced.
+            Recombined sum with `dim` reduced, preserving the input dtype.
         """
         bw = self.config.bit_width
         half = 1 << (bw - 1)
@@ -109,8 +109,8 @@ class ShiftAdder(DigitalBase):
         axis = dim % x.ndim
         # Shape: [digit] -> [..., digit]
         scale_shape = (*(1,) * axis, self._scales.shape[0], *(1,) * (x.ndim - axis - 1))
-        scales = self._scales.view(scale_shape)
-        y = ((x * scales).sum(dim=dim) + half) % full - half
+        scales = self._scales.to(dtype=x.dtype).view(scale_shape)
+        y = ((x * scales).sum(dim=dim, dtype=x.dtype) + half) % full - half
 
         if init_val is not None:
             # Added after the wrap so a chained running total survives past one call's

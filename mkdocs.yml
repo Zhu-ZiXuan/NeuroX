@@ -161,6 +161,7 @@ nav:
   - Writing family docs: contributing/writing_family_docs.md
   - Writing module docs: contributing/writing_module_docs.md
   - Writing system design: contributing/writing_system_design.md
+  - Writing tests: contributing/writing_tests.md
 - About:
   - Overview: about/README.md
   - Citation: about/citation.md

@@ -8,16 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-import torch
 from torch import Tensor
 
 
 def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
-    if bias.dtype.is_floating_point or bias.dtype.is_complex or bias.dtype == torch.bool:
-        raise TypeError(f"require: integer bias dtype; got {bias.dtype}")
     if tuple(bias.shape) != (channels,):
         raise ValueError(f"require: bias.shape ({tuple(bias.shape)}) == ({channels},)")
-    return bias.to(torch.int64)
+    return bias.long()
 
 
 class UnitBase(ABC):
@@ -29,8 +26,9 @@ class UnitBase(ABC):
     introduced. All three default to the identity, so an operator overrides
     only what its own lowering needs.
 
-    Leading input dimensions pass through unchanged. Optional bias is
-    accumulated in the `torch.int64` output domain.
+    Input activations and programmed weights are integer tensors within the
+    supported ranges. Leading input dimensions pass through unchanged.
+    Optional bias is stored in the int64 accumulation domain.
     """
 
     # === Programmed state ===

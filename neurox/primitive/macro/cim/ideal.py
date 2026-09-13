@@ -9,8 +9,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.encoding import Encoding
 from neurox.common.quantization import stochastic_round
+from neurox.encoding import Encoding
 
 from .base import (
     CimMacro,
@@ -82,7 +82,7 @@ class IdealCimMacroConfig(CimMacroConfig):
 
         # --- Quantization ---
 
-        self._require_ge(self.adc_bits, "adc_bits", 1)
+        self._require_in_closed_interval(self.adc_bits, "adc_bits", 1, 31)
 
 
 class IdealCimMacroPolicy(CimMacroPolicy):
@@ -109,14 +109,12 @@ class IdealCimMacro(CimMacro):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         w_lo, w_hi = self.w_value_range
         max_w_abs = max(abs(w_lo), abs(w_hi))
@@ -177,16 +175,16 @@ class IdealCimMacro(CimMacro):
         adc_active_bits: int | None,
     ) -> Tensor:
         factor = self.config.rescale_factors[quantization_mode]
-        w = self._w.to(torch.int64)
+        w = self._w
 
         if self._fp32_exact:
             # Shape: [..., input] -> [..., output]
-            plane_dot = torch.einsum("...io,...i->...o", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
+            plane_dot = torch.einsum("...io,...i->...o", w.float(), x.float())
         else:
-            # Shape: [..., input] -> [..., input, output=1]
-            x = x.to(torch.int64).unsqueeze(-1)
             # Shape: [..., input, output] -> [..., output]
-            plane_dot = (w * x).sum(dim=-2)
+            plane_dot = (w.long() * x.long().unsqueeze(-1)).sum(dim=-2)
+
+        plane_dot = plane_dot.long()
 
         if adc_active_bits is None:
             code = plane_dot
@@ -198,7 +196,7 @@ class IdealCimMacro(CimMacro):
 
     def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
         code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)
-        return code.to(torch.int32).clamp(min_code, max_code) >> drop_bits
+        return code.long().clamp(min_code, max_code) >> drop_bits
 
     def _convert_zero_point(
         self,

@@ -67,7 +67,6 @@ class CimEngine(ModuleBase):
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
@@ -88,7 +87,6 @@ class CimEngine(ModuleBase):
             plan=plan,
             macro_plane_num=macro_plane_num,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
 
@@ -157,7 +155,6 @@ class CimEngine(ModuleBase):
         plan: MatmulPlacementPlan,
         macro_plane_num: int,
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         input_tile_num = plan.contraction_partition_num
@@ -175,7 +172,6 @@ class CimEngine(ModuleBase):
             # Shape: [M=1, Sx=1, Sw, Tc, G]
             inst_shape=macro_inst_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
         self.placement = PlacementStage(
@@ -218,7 +214,6 @@ class CimEngine(ModuleBase):
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> CimEngine:
         """Build an engine from its complete configuration and policy."""
@@ -227,7 +222,6 @@ class CimEngine(ModuleBase):
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
 
@@ -287,7 +281,7 @@ class CimEngine(ModuleBase):
         """Program one integer logical weight tensor.
 
         Args:
-            weight: Weight tensor matching the shape bound at construction.
+            weight: Integer weight tensor matching the shape bound at construction.
                 Shape: `[N, K]`.
         """
         if tuple(weight.shape) != self._w_logical_shape:
@@ -326,7 +320,7 @@ class CimEngine(ModuleBase):
             code,
             quantization_mode=quantization_mode,
             adc_active_bits=adc_active_bits,
-        ).to(torch.int64)
+        ).long()
         # Shape: [..., D, P, M, Sx, Sw, Tc, G, output] -> [..., D, M, Sx, Sw, Tc, G, output]
         code = self.input_activation.accumulate_phases(code)
         # Shape: [..., D, M, Sx, Sw, Tc, G, output] -> [..., D, M, Sx, Sw, G, output]
@@ -352,7 +346,6 @@ class CimEngine(ModuleBase):
         cim_macro_policy: CimMacroPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> CimMacro:
         cim_macro = CimMacro.from_config(
@@ -361,6 +354,5 @@ class CimEngine(ModuleBase):
             # Shape: [*inst_shape]
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         return cim_macro.to_ideal() if ideal_macro else cim_macro

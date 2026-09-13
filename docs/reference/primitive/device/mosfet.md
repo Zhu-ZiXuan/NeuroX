@@ -2,6 +2,8 @@
 
 A continuous EKV-softplus current-voltage model of a three-terminal MOSFET: from the gate, drain, and source voltages it returns the drain-source current $I_{\mathrm{ds}}$ and its three node partials $\partial I_{\mathrm{ds}}/\partial\{V_g,V_d,V_s\}$ in closed form, with one model core serving both n-channel ($p=+1$) and p-channel ($p=-1$) devices. The threshold voltage and transconductance factor scale with temperature and carry Pelgrom fabrication mismatch.
 
+Fixed reference values are defined at `T_nom__K`; fabrication applies the current temperature scaling before sampling mismatch. The smoothing scale uses the current operating temperature; the per-instance transconductance and threshold retain their fabricated values under the [temperature lifecycle contract](../../../system_design/physical_state.md#temperature-and-explicit-lifecycle-events).
+
 ## Physical model
 
 The transistor is modeled as a smooth, single-piece I-V surface valid across subthreshold and above-threshold operation, parameterized by a signed threshold voltage $V_{\mathrm{th}}$, a positive transconductance magnitude $\beta$, and a channel polarity $p$ that selects n- versus p-channel. The surface is an EKV-style symmetric formulation in the polarity-scaled source- and drain-referred overdrive voltages, with the hard square-law corner replaced by a softplus so the law and its three node partials $\partial I_{\mathrm{ds}}/\partial\{V_g,V_d,V_s\}$ are continuous everywhere. The softplus / sigmoid smoothing scale is set by the subthreshold-swing factor $n$ and the thermal voltage $V_T = k_B T / q$, so the smoothing tracks temperature.
@@ -80,8 +82,8 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 | $\sigma_s, \sigma_d$ | sigmoid derivatives of the softplus | — | `sigma_s`, `sigma_d` |
 | $\beta$ | per-cell transconductance-factor magnitude | uA/V^2 | `MosfetSnap.beta__uA_per_V2` |
 | $V_{\mathrm{th}}$ | per-cell signed threshold voltage | V | `MosfetSnap.vth__V` |
-| $\beta_{\mathrm{nom}}, V_{\mathrm{th,nom}}$ | temperature-scaled internal nominals | uA/V^2, V | `_nominal_beta__uA_per_V2`, `_nominal_vth__V` |
-| $\lambda$ | softplus / sigmoid smoothing scale | 1/V | `_inv_smooth_scale__per_V` |
+| $\beta_{\mathrm{nom}}, V_{\mathrm{th,nom}}$ | temperature-scaled fabrication means | uA/V^2, V | — |
+| $\lambda$ | softplus / sigmoid smoothing scale | 1/V | `inv_smooth_scale__per_V` |
 | $\mu_0$ | low-field mobility at $T_{\mathrm{ref}}$ | cm^2/V/s | `mu0__cm2_per_V_s` |
 | $C_{\mathrm{ox}}$ | gate-oxide capacitance per area | fF/um^2 | `c_ox__fF_per_um2` |
 | $n$ | subthreshold-swing factor | — | `n_factor` |

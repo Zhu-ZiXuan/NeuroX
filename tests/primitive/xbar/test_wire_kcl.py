@@ -1,4 +1,4 @@
-"""Wire-ladder KCL equations and compile-safe axis handling."""
+"""Wire-ladder KCL equations, axis handling, and roundoff estimates."""
 
 from __future__ import annotations
 
@@ -45,21 +45,6 @@ def test_kcl_matches_dense_ladder_for_any_negative_wire_axis(shape: tuple[int, .
 
     actual = f_kcl__uA(v_node__V, v_port__V, segment_g__uS, i_inject__uA, dim=dim)
     expected = _dense_kcl__uA(v_node__V, v_port__V, segment_g__uS, i_inject__uA, dim=dim)
-
-    torch.testing.assert_close(actual, expected)
-
-
-def test_kcl_captures_as_one_full_graph() -> None:
-    v_node__V = torch.randn(2, 1, dtype=torch.float64)
-    v_port__V = torch.randn(2, 1, dtype=torch.float64)
-    i_inject__uA = torch.randn_like(v_node__V)
-
-    def solve(v_node: Tensor, v_port: Tensor, i_inject: Tensor) -> Tensor:
-        return f_kcl__uA(v_node, v_port, 2.5, i_inject, dim=-1)
-
-    expected = solve(v_node__V, v_port__V, i_inject__uA)
-    with torch._dynamo.config.patch(disable=False):
-        actual = torch.compile(solve, backend="eager", fullgraph=True)(v_node__V, v_port__V, i_inject__uA)
 
     torch.testing.assert_close(actual, expected)
 

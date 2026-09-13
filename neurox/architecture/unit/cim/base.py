@@ -61,7 +61,6 @@ class CimUnit(
         policy: CimUnitPolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         ModuleBase.__init__(self, config=config, policy=policy, inst_shape=())
@@ -77,7 +76,6 @@ class CimUnit(
         policy: CimUnitPolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> CimUnit:
         """Build the concrete implementation registered for the config-policy pair."""
@@ -87,7 +85,6 @@ class CimUnit(
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
 
@@ -114,7 +111,6 @@ class EngineBackedCimUnit(CimUnit, ABC):
         policy: EngineBackedCimUnitPolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         super().__init__(
@@ -122,10 +118,9 @@ class EngineBackedCimUnit(CimUnit, ABC):
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        self._init_engine_child(dtype=dtype, T__K=T__K, ideal_macro=ideal_macro)
+        self._init_engine_child(dtype=dtype, ideal_macro=ideal_macro)
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -135,13 +130,12 @@ class EngineBackedCimUnit(CimUnit, ABC):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
-    def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_macro: bool) -> None:
+    def _init_engine_child(self, *, dtype: torch.dtype, ideal_macro: bool) -> None:
         self.engine = CimEngine.from_config(
             config=self.config.engine,
             policy=self.policy.engine,
             w_logical_shape=self._engine_w_logical_shape(),
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
 
@@ -176,6 +170,4 @@ class EngineBackedCimUnit(CimUnit, ABC):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> Tensor:
-        if input.dtype.is_floating_point or input.dtype.is_complex or input.dtype == torch.bool:
-            raise TypeError(f"CIM execution requires an integer input tensor; got dtype {input.dtype}")
         return self.engine.matmul(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)

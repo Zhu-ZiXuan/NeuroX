@@ -57,9 +57,8 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype)
 
     @property
     def i_t2_leak__uA(self) -> float:

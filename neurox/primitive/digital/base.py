@@ -29,6 +29,10 @@ _Policy = DigitalPolicy
 class DigitalBase(ModuleBase, ABC):
     """Base for digital, integer-exact circuit blocks.
 
+    Operands share a caller-selected integer dtype, which arithmetic and
+    results preserve. Callers choose a dtype that represents the operands,
+    positional weights, wrap constants, and arithmetic intermediates.
+
     A block bills dynamic energy as a flat per-op lump: the config's per-op
     energy in a 0-dim constant, expanded rather than materialized onto the
     layout its operation evaluates once per element — the pre-reduction operand

@@ -11,15 +11,15 @@ from typing import overload
 from torch import Tensor
 
 __all__ = [
-    "ELEM_CHARGE__C",
-    "EPS_0__F_per_m",
-    "K_BOLTZMANN__J_per_K",
-    "T_ROOM__K",
+    "ELEM_CHARGE__fC",
+    "EPS_0__fF_per_um",
+    "K_BOLTZMANN__fJ_per_K",
     "delta_q_cap__fC",
     "e_cap__fJ",
     "e_cap_excursion__fJ",
     "e_charge__fJ",
     "q_conduction__fC",
+    "thermal_fluctuation_energy__fJ",
     "thermal_voltage__V",
 ]
 
@@ -28,30 +28,26 @@ __all__ = [
 
 
 # Boltzmann constant (exact by SI definition).
-K_BOLTZMANN__J_per_K: float = 1.380649e-23
+K_BOLTZMANN__fJ_per_K: float = 1.380649e-8
 
 # Elementary charge (exact by SI definition).
-ELEM_CHARGE__C: float = 1.602176634e-19
+ELEM_CHARGE__fC: float = 1.602176634e-4
 
 # Vacuum permittivity (CODATA 2018).
-EPS_0__F_per_m: float = 8.8541878128e-12
-
-# Standard reference temperature (room temperature).
-T_ROOM__K: float = 300.0
+EPS_0__fF_per_um: float = 8.8541878128e-3
 
 
-# ### Thermal voltage ###
+# ### Thermal ###
+
+
+def thermal_fluctuation_energy__fJ(T__K: float) -> float:
+    """Thermal energy `E_T = k_B · T`."""
+    return K_BOLTZMANN__fJ_per_K * T__K
 
 
 def thermal_voltage__V(T__K: float) -> float:
-    """Thermal voltage `V_T = k_B · T / q`.
-
-    Raises:
-        ValueError: Temperature is not positive.
-    """
-    if T__K <= 0.0:
-        raise ValueError(f"T__K ({T__K}) must be > 0")
-    return K_BOLTZMANN__J_per_K * T__K / ELEM_CHARGE__C
+    """Thermal voltage `V_T = k_B · T / q`."""
+    return thermal_fluctuation_energy__fJ(T__K) / ELEM_CHARGE__fC
 
 
 # ### Charge ###

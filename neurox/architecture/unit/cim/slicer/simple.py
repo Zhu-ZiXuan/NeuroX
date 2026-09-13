@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torch import Tensor
 
-from neurox.common.encoding import Encoding, Transcoder
+from neurox.encoding import Encoding, Transcoder
 
 from .base import Slicer
 

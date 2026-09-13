@@ -130,7 +130,6 @@ class Mosfet(ModuleBase, ABC):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         W__um: float,
         L__um: float,
     ) -> None:
@@ -138,49 +137,17 @@ class Mosfet(ModuleBase, ABC):
 
         if self.polarity not in (1, -1):
             raise ValueError(f"require: polarity ({self.polarity}) in (1, -1)")
-        if not (math.isfinite(T__K) and T__K > 0.0):
-            raise ValueError(f"require: T__K ({T__K}) finite and > 0.0")
         if not (math.isfinite(W__um) and W__um > 0.0):
             raise ValueError(f"require: W__um ({W__um}) > 0.0")
         if not (math.isfinite(L__um) and L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
         if not dtype.is_floating_point:
             raise TypeError(f"Mosfet requires a floating-point dtype; got {dtype}")
-        dtype_info = torch.finfo(dtype)
 
-        temperature_ratio = T__K / config.T_nom__K
-        mu_scale = math.pow(temperature_ratio, -config.ute)
-        vth_shift__V = config.kt1__V * (temperature_ratio - 1.0)
-
-        # Smoothing scale used by softplus and sigmoid.
-        self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))
-
-        # β stays a positive magnitude; the polarity sign is applied in the
-        # I-V law, not baked into β.
-        nominal_mu__cm2_per_V_s = config.mu0__cm2_per_V_s * mu_scale
-        # 0.1 reconciles the mixed unit systems of the product: mobility is in
-        # cm^2 while c_ox and W/L are per um^2, and β must come out in uA/V^2 —
-        # 1e8 (cm^2 -> um^2) · 1e-15 (fF -> F) · 1e6 (A -> uA) = 0.1.
-        nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
-        nominal_vth__V = config.vth0__V + vth_shift__V
-        if not (dtype_info.tiny <= nominal_beta__uA_per_V2 <= dtype_info.max):
-            raise ValueError(
-                f"nominal_beta__uA_per_V2 ({nominal_beta__uA_per_V2}) is not a positive normal value "
-                f"representable by {dtype}"
-            )
-
-        self._register_fabrication_buffers(
-            dtype=dtype,
-            nominal_beta__uA_per_V2=nominal_beta__uA_per_V2,
-            nominal_vth__V=nominal_vth__V,
-        )
-
-        # Pelgrom area-scaled sigma precomputed once.
-        nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
-        self._sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
-        if not (math.isfinite(self._sigma_beta__uA_per_V2) and self._sigma_beta__uA_per_V2 <= dtype_info.max):
-            raise ValueError(f"sigma_beta__uA_per_V2 ({self._sigma_beta__uA_per_V2}) is not representable by {dtype}")
+        self._w_l_ratio = W__um / L__um
+        self._isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
+        self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * self._isqrt_area__per_um
+        self._register_fabrication_buffers(dtype=dtype)
 
     @property
     @abstractmethod
@@ -192,37 +159,46 @@ class Mosfet(ModuleBase, ABC):
         """
         raise NotImplementedError
 
-    def _register_fabrication_buffers(
-        self,
-        *,
-        dtype: torch.dtype,
-        nominal_beta__uA_per_V2: float,
-        nominal_vth__V: float,
-    ) -> None:
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        config = self.config
+        # Reference values are fixed at config.T_nom__K.
+        # The 0.1 factor converts cm^2, fF, and um^2 to uA/V^2.
+        nominal_beta__uA_per_V2 = config.mu0__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * self._w_l_ratio
+        dtype_info = torch.finfo(dtype)
+        if not (dtype_info.tiny <= nominal_beta__uA_per_V2 <= dtype_info.max):
+            raise ValueError(
+                f"nominal_beta__uA_per_V2 ({nominal_beta__uA_per_V2}) is not a positive normal value "
+                f"representable by {dtype}"
+            )
         self._register_nonpersistent_buffer(
-            "_nominal_beta__uA_per_V2",
-            torch.tensor(nominal_beta__uA_per_V2, dtype=dtype),
+            "_nominal_beta__uA_per_V2", torch.tensor(nominal_beta__uA_per_V2, dtype=dtype)
         )
-        self._register_nonpersistent_buffer(
-            "_nominal_vth__V",
-            torch.tensor(nominal_vth__V, dtype=dtype),
-        )
+        self._register_nonpersistent_buffer("_nominal_vth__V", torch.tensor(config.vth0__V, dtype=dtype))
 
     def _sample_fabrication_variation(self) -> None:
+        config = self.config
+        policy = self.policy
+
+        # --- 1: apply temperature scaling to the compact reference values ---
+
+        temperature_ratio = self.T__K / config.T_nom__K
+        beta__uA_per_V2 = self._nominal_beta__uA_per_V2 * math.pow(temperature_ratio, -config.ute)
+        vth__V = self._nominal_vth__V + config.kt1__V * (temperature_ratio - 1.0)
+        sigma_beta__uA_per_V2 = beta__uA_per_V2 * config.A_beta_relative__um * self._isqrt_area__per_um
+
+        # --- 2: sample and retain one per-instance realization ---
+
         beta__uA_per_V2 = apply_gaussian(
-            self._nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
-            self._sigma_beta__uA_per_V2,
-            enabled=self.policy.A_beta_mismatch,
+            beta__uA_per_V2.expand(self.inst_shape),
+            sigma_beta__uA_per_V2,
+            enabled=policy.A_beta_mismatch,
         )
-        if self.policy.A_beta_mismatch:
+        if policy.A_beta_mismatch:
             dtype_info = torch.finfo(beta__uA_per_V2.dtype)
             beta__uA_per_V2 = beta__uA_per_V2.clamp(min=dtype_info.tiny, max=dtype_info.max)
+
         self._beta__uA_per_V2 = beta__uA_per_V2
-        self._vth__V = apply_gaussian(
-            self._nominal_vth__V.clone().expand(self.inst_shape),
-            self._sigma_vth__V,
-            enabled=self.policy.A_vt_mismatch,
-        )
+        self._vth__V = apply_gaussian(vth__V.expand(self.inst_shape), self._sigma_vth__V, enabled=policy.A_vt_mismatch)
 
     @torch.no_grad()
     def snapshot(
@@ -251,10 +227,12 @@ class Mosfet(ModuleBase, ABC):
         snap: _Snap,
     ) -> _Dcop:
         """Evaluate `I_ds` and its three node partials at one op point."""
+        config = self.config
+
         p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2
         vth__V = snap.vth__V
-        inv_smooth_scale__per_V = self._inv_smooth_scale__per_V
+        inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(self.T__K))
 
         # --- 1: evaluate source-side smoothed voltage ---
 

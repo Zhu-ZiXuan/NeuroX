@@ -48,7 +48,6 @@ class IdealLinearUnit(LinearUnit, CimUnit):
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         ideal_macro: bool,
     ) -> None:
         super().__init__(
@@ -56,7 +55,6 @@ class IdealLinearUnit(LinearUnit, CimUnit):
             policy=policy,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
-            T__K=T__K,
             ideal_macro=ideal_macro,
         )
         if len(self._w_logical_shape) != 2:
@@ -132,6 +130,6 @@ class IdealLinearUnit(LinearUnit, CimUnit):
         if self._fp32_exact:
             # Shape: [..., M, K] @ [K, N] -> [..., M, N]
             out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
-            return out.to(torch.int64)
+            return out.long()
         # Shape: [..., M, K] @ [K, N] -> [..., M, N]
-        return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))
+        return torch.matmul(input.long(), weight.long().transpose(-2, -1))

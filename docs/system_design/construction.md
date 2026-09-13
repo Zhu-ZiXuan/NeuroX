@@ -8,6 +8,8 @@ Configuration describes physical, design, and specification values reused across
 
 Both descriptions follow the system's composition. Each component receives the design and run choices relevant to its own responsibility. Alternative realizations of a component must satisfy the same role within the enclosing system.
 
+Construction initializes each component at the shared default temperature. The caller sets the run temperature on the assembled system before the lifecycle events it should affect, under the [temperature and explicit lifecycle contract](physical_state.md#temperature-and-explicit-lifecycle-events).
+
 ## Composition and ownership
 
 A composite determines which components it contains and how their capacities and physical multiplicities fit together. Each child interprets its own design parameters and exposes the behavior its parent needs. Derived quantities belong to the component that defines their meaning.

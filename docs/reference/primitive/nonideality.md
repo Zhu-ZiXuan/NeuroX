@@ -78,7 +78,7 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 | $C_k$ | element capacitance | fF | — |
 | $C_{\mathrm{unit}}$ | unit-cell capacitance | fF | — |
 | $\sigma_{\mathrm{rel}}$ | relative mismatch spread at the unit cell | — | `sigma_relative` |
-| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
+| $k_B$ | Boltzmann constant | fJ/K | `K_BOLTZMANN__fJ_per_K` |
 | $T$ | absolute temperature (runtime input) | K | `T__K` |
 | $C$ | sampling capacitance | fF | — |
 

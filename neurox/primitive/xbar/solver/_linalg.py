@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.loop import run_scan, run_scan_without_output
+from neurox.execution.loop import run_scan, run_scan_without_output
 
 type _TensorTuple2 = tuple[Tensor, Tensor]
 type _TensorTuple4 = tuple[Tensor, Tensor, Tensor, Tensor]

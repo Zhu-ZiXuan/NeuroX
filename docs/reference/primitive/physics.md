@@ -1,6 +1,10 @@
 # Physics
 
-The physical axioms beneath every model: the canonical SI constants (CODATA 2018), the thermal voltage $V_T = k_B T / q$, and the supply-draw laws for conduction and capacitance. The constants are fixed by definition and carry no modelling content of their own. Each subsystem applies the laws to the branches and nodes it owns.
+The physical axioms beneath every model: the canonical physical constants, thermal energy and voltage, and the supply-draw laws for conduction and capacitance. Constant values and units follow [notation conventions](../../conventions/notation_conventions.md#physical-constants). Each subsystem applies the laws to the branches and nodes it owns.
+
+## Thermal energy and voltage
+
+At absolute temperature $T$, the thermal energy scale is $E_T = k_B T$ and the thermal voltage is $V_T = E_T / q$, where $q$ is the elementary charge. The runtime units close directly: fJ/K times K gives fJ, and fJ divided by fC gives V.
 
 ## Conduction charge and energy
 
@@ -65,6 +69,7 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 | $\Delta V$ | signed displacement between rest and working level | V | `delta_v__V` |
 | $\lvert\Delta V\rvert$ | magnitude of the capacitive voltage change | V | `delta_v_abs__V` |
 | $V_T$ | thermal voltage $k_B T / q$ | V | `thermal_voltage__V` |
+| $E_T$ | thermal energy scale $k_B T$ | fJ | `thermal_fluctuation_energy__fJ` |
 
 ## Assumptions and validity
 

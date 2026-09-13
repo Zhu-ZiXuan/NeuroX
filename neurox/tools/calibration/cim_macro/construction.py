@@ -11,7 +11,6 @@ import torch
 from neurox.api.module_from_file import cim_macro_from_file
 from neurox.common.validate_mixin import ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, IdealCimMacro
-from neurox.primitive.physics import T_ROOM__K
 from neurox.tools.config import resolve_relative_path
 from neurox.tools.module import prepare_module
 
@@ -59,7 +58,6 @@ def build_physical_macro(
         policy_section=section.policy_section,
         inst_shape=inst_shape,
         dtype=torch.float32,
-        T__K=T_ROOM__K,
     )
     macro = prepare_module(macro, device=device)
     logger.info(

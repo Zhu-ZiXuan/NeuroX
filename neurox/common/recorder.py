@@ -18,8 +18,7 @@ from typing import Any, ClassVar, Self, cast, final
 import torch
 from torch import Tensor
 
-from .tensor_dataclass_mixin import TensorDataClassMixin, walk_single_tensor_fields
-from .torch_compat import torch_compiler_disable
+from .dataclass_mixin import TensorDataClassMixin, map_single_tensor_fields
 
 
 class RecordBase(TensorDataClassMixin):
@@ -61,7 +60,7 @@ class RecordBase(TensorDataClassMixin):
             changed = changed or result is not tensor
             return result
 
-        rebuilt = walk_single_tensor_fields(track, self)
+        rebuilt = map_single_tensor_fields(track, self)
         return rebuilt if changed else self
 
 
@@ -73,9 +72,14 @@ class RecorderBase[RecordT: RecordBase](ABC):
     and calls `_submit_record` to retain a detached record. Emitters use `active`
     or `current` to guard record construction, then call `submit`.
 
-    Context entry activates collection; clean exit moves retained records to
-    `sync_device`. Exceptional exit frees the active slot without moving records.
-    Re-entering an instance appends to its existing collection.
+    Each context collects into an empty batch. Exit appends that batch to the
+    instance's history and frees the active slot, including on exceptions.
+    Clean exit also moves retained records to `sync_device`.
+
+    Enter and exit contexts outside compiled functions. Compiled emitters
+    append only to the current batch; repeating the same call order and record
+    counts keeps its structure stable at each compiled entry. Read `records`
+    outside compiled functions so accumulated history stays outside tracing.
 
     Args:
         sync_device: Destination for records on clean exit. `None` leaves each
@@ -94,6 +98,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         self._root()  # a bare RecorderBase instance owns no slot to collect into
         self._sync_device = sync_device
         self.__records: list[RecordT] = []
+        self.__pending_records: list[RecordT] = []
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -104,14 +109,15 @@ class RecorderBase[RecordT: RecordBase](ABC):
     @property
     @final
     def records(self) -> tuple[RecordT, ...]:
-        """The book so far, in submission order; each access returns a snapshot."""
-        return tuple(self.__records)
+        """Snapshot of history and current-context records, in submission order."""
+        return (*self.__records, *self.__pending_records)
 
     @final
     def __enter__(self) -> Self:
         root = self._root()
         if root._active_recorder is not None:  # noqa: SLF001
             raise RuntimeError(f"only one {root.__name__} may be active at a time")
+        self.__pending_records = []
         root._active_recorder = self  # noqa: SLF001
         return self
 
@@ -123,6 +129,8 @@ class RecorderBase[RecordT: RecordBase](ABC):
         exc_tb: TracebackType | None,
     ) -> None:
         self._root()._active_recorder = None  # noqa: SLF001
+        self.__records.extend(self.__pending_records)
+        self.__pending_records = []
         if exc_type is None:
             self._finalize()
 
@@ -141,38 +149,25 @@ class RecorderBase[RecordT: RecordBase](ABC):
         return root
 
     @classmethod
-    @torch_compiler_disable
     @final
     def current(cls) -> Self | None:
-        """Return the family's active recorder, or `None` outside a context.
-
-        This access crosses a compiler boundary so every call reads the live
-        Python slot rather than a value captured during tracing.
-        """
+        """Return the family's active recorder, or `None` outside a context."""
         return cast(Self, cls._root()._active_recorder)  # noqa: SLF001
 
     @classmethod
-    @torch_compiler_disable
     @final
     def active(cls) -> bool:
-        """Return whether the family has an active recorder.
-
-        This access crosses a compiler boundary so emitters can gate record
-        construction on the live Python slot.
-        """
+        """Return whether the family has an active recorder."""
         return cls.current() is not None
 
     @classmethod
     @final
-    @torch_compiler_disable
     def submit(cls, record: RecordT) -> None:
-        """Hand one record across the graph boundary to its family hook.
+        """Pass one record to the family's admission hook.
 
-        Everything the emitter computes to build the record stays in the
-        caller's graph; only the hand-over leaves it. Under CUDA-graph capture
-        (`torch.compile(mode="reduce-overhead")`) a submitted tensor may live in
-        cudagraph-owned memory that a later replay overwrites, so an emitter
-        inside such a region clones before it submits.
+        Collection detaches tensors without copying their storage. When using
+        CUDA Graph replay, preserve retained tensor values outside compiled
+        calls before a later replay can overwrite them.
 
         Args:
             record: Record to collect; dropped when no recorder is active.
@@ -186,7 +181,6 @@ class RecorderBase[RecordT: RecordBase](ABC):
 
     @classmethod
     @final
-    @torch_compiler_disable
     def _submit_record(cls, record: RecordT) -> None:
         """Append one record to the family's active recorder, detached.
 
@@ -196,7 +190,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
         recorder = cls.current()
         if recorder is None:
             return
-        recorder.__records.append(record.detach())  # noqa: SLF001
+        recorder.__pending_records.append(record.detach())  # noqa: SLF001
 
     @final
     def _finalize(self) -> None:

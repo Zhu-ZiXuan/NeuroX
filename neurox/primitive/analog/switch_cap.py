@@ -11,7 +11,7 @@ from torch import Tensor
 
 from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
-from neurox.primitive.physics import K_BOLTZMANN__J_per_K
+from neurox.primitive.physics import thermal_fluctuation_energy__fJ
 
 
 class SwitchCapConfig(ConfigBase):
@@ -75,19 +75,15 @@ class SwitchCap(ModuleBase):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
         cap_weights: tuple[float, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        if not (T__K > 0.0):
-            raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
         if len(cap_weights) < 1:
             raise ValueError(f"require: len(cap_weights) ({len(cap_weights)}) >= 1")
         for k, w in enumerate(cap_weights):
             if not (w > 0.0):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
-        self._T__K = T__K
         self._cap_num = len(cap_weights)
         self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
 
@@ -136,8 +132,8 @@ class SwitchCap(ModuleBase):
             Shape: `[...]`.
         """
         c__fF = self._c__fF
-        # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.
-        kt__fJ = K_BOLTZMANN__J_per_K * self._T__K * 1e15
+        # kT/C settling noise: fJ / fF gives V^2.
+        kt__fJ = thermal_fluctuation_energy__fJ(self.T__K)
         sigma__V = torch.sqrt(kt__fJ / c__fF)
         v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
         c_total__fF = c__fF.sum(dim=-1)

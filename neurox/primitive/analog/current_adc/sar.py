@@ -74,14 +74,12 @@ class SarIadc(Iadc):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         self._register_fabrication_buffers(dtype=dtype)
 
@@ -134,7 +132,7 @@ class SarIadc(Iadc):
             Unsigned magnitude codes [long] in `[0, 2 ** active_bits - 1]`
             and optional per-output dynamic energy [fJ].
         """
-        code = torch.zeros_like(i_in__uA, dtype=torch.long)
+        code = torch.zeros_like(i_in__uA, dtype=torch.int)
         e_dyn__fJ: Tensor | None = None
 
         for bit_position in range(self.bits - 1, self.bits - active_bits - 1, -1):

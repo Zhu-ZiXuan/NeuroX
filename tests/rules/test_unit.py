@@ -15,24 +15,34 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = ("neurox", "validations")
 
-STANDARD_UNIT_ATOMS = ("V", "uA", "uS", "MOhm", "fF", "fC", "ns", "K", "fJ", "uW", "um")
+STANDARD_UNIT_ATOMS = (
+    "V",
+    "uA",
+    "uS",
+    "MOhm",
+    "fF",
+    "fC",
+    "ns",
+    "fJ",
+    "uW",
+    "K",
+    "um",
+)
 
 # Each entry groups one module's stable code bindings whose well-formed expressions contain
 # nonstandard atoms.
 NONSTANDARD_UNIT_GRANTS: dict[str, tuple[str, ...]] = {
     # SI constants retain their own SI units; consumers rescale them at the boundary where needed.
     "neurox/primitive/physics.py": (
-        "ELEM_CHARGE__C",
-        "K_BOLTZMANN__J_per_K",
-        "EPS_0__F_per_m",
+        "ELEM_CHARGE__fC",
+        "K_BOLTZMANN__fJ_per_K",
+        "EPS_0__fF_per_um",
     ),
-    "neurox/primitive/analog/switch_cap.py": ("K_BOLTZMANN__J_per_K",),
-    "neurox/primitive/analog/diff_voltage_adc/mcs_sar.py": ("K_BOLTZMANN__J_per_K",),
     # PDK configuration quotes the foundry units without converting its human-facing surface.
     "neurox/primitive/device/mosfet.py": (
         "MosfetConfig.mu0__cm2_per_V_s",
         "MosfetConfig.A_vt__mV_um",
-        "Mosfet.__init__.nominal_mu__cm2_per_V_s",
+        "Mosfet._on_temperature_changed.nominal_mu__cm2_per_V_s",
     ),
 }
 

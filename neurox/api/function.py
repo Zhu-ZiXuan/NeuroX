@@ -35,6 +35,23 @@ def fabricate(root: nn.Module) -> None:
         module.fabricate()
 
 
+def set_temperature(model: nn.Module, T__K: float) -> None:
+    """Set temperature across the NeuroX subtrees of a PyTorch model.
+
+    Each subtree uses `ModuleBase.set_temperature`; plain containers are
+    traversed without acquiring temperature state. Call between executions.
+    Fabrication and programming remain explicitly triggered by the caller.
+
+    Raises:
+        ValueError: A subtree rejects the temperature or a derived parameter.
+    """
+    if isinstance(model, ModuleBase):
+        model.set_temperature(T__K)
+        return
+    for _, module in neurox_children(model):
+        module.set_temperature(T__K)
+
+
 def stamp_names(model: nn.Module) -> None:
     """Stamp every NeuroX module of `model` with its hierarchical name.
 

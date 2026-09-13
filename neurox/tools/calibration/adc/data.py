@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
+from neurox.common.dataclass_mixin import TensorDataClassMixin
 from neurox.tools.output import atomic_output
 
 

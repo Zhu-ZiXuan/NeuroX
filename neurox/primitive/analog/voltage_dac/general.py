@@ -70,14 +70,12 @@ class GeneralVdac(Vdac):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
         self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
@@ -99,7 +97,7 @@ class GeneralVdac(Vdac):
         return len(self.config.code_to_signal) - 1
 
     def _convert_impl(self, code: Tensor) -> Tensor:
-        nominal__V = self._code_to_signal[code]
+        nominal__V = self._code_to_signal[code.long()]
         signal = apply_gaussian(
             nominal__V,
             self.config.drive_thermal__V,
@@ -109,6 +107,6 @@ class GeneralVdac(Vdac):
         if self._is_dynamic_energy_profile_active():
             # Each element costs what its own level costs, so the energy LUT
             # is gathered exactly as the signal LUT is.
-            self._record_dynamic_energy(self._code_to_per_op_energy__fJ[code])
+            self._record_dynamic_energy(self._code_to_per_op_energy__fJ[code.long()])
 
         return signal

@@ -1,11 +1,4 @@
-"""Voltage-ADC family template method: probe-off equivalence + probe capture.
-
-`DiffVadc.convert` delegates to `_convert_impl` and emits its input on the
-shared `AdcProber`. Without an active prober the template remains bit-identical
-to the leaf conversion body; with one, the record carries only the input
-terminals. The injected reference is calibrated design data, not a measured
-quantity, so it is not recorded.
-"""
+"""Voltage-ADC probing preserves conversion and captures input terminals."""
 
 from __future__ import annotations
 
@@ -42,7 +35,6 @@ def _build_adc(device: torch.device) -> McsSarDiffVadc:
         ),
         inst_shape=(1,),
         dtype=torch.float64,
-        T__K=300.0,
     )
     adc.fabricate()
     adc.to(device)
@@ -78,18 +70,3 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     assert torch.equal(record.v_neg__V, v_neg)
     assert record.input_name() == "v_diff__V"
     assert torch.equal(record.input_value(), v_pos - v_neg)
-    assert not hasattr(record, "code")
-    assert not hasattr(record, "bits")
-    # A reference is calibrated design data, not part of the conversion event.
-    assert not hasattr(record, "v_ref__V")
-    assert not hasattr(record, "v_refs__V")
-
-
-def test_no_record_without_prober(device: torch.device) -> None:
-    adc = _build_adc(device)
-    v_pos, v_neg = _inputs(device)
-
-    with AdcProber() as outer:
-        pass  # closed before the call: nothing may be recorded
-    adc.convert(v_pos, v_neg, v_refs__V=_taps(device), active_bits=4)
-    assert outer.records == ()

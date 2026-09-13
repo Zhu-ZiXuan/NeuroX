@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.encoding import Encoding
+from neurox.encoding import Encoding
 from neurox.primitive.analog import (
     Reference,
     ReferenceConfig,
@@ -156,14 +156,12 @@ class Ye2023JsscCimMacro(CimMacro):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         self.row_num = self.output_num
         self.col_num = self.input_num * (self._w_digit_num + 1)
@@ -172,7 +170,7 @@ class Ye2023JsscCimMacro(CimMacro):
                 f"require: max_active_num ({config.max_active_num}) == input_num ({self.input_num}) "
                 "(input-parallel design)"
             )
-        self._init_children(dtype=dtype, T__K=T__K)
+        self._init_children(dtype=dtype)
         if self.array.w_state_num < self._w_digit_radix:
             raise ValueError(
                 f"require: array.w_state_num ({self.array.w_state_num}) >= w_digit_r ({self._w_digit_radix})"
@@ -186,7 +184,7 @@ class Ye2023JsscCimMacro(CimMacro):
         access__ns = self.config.t_settle__ns + self.rscsa.latency__ns(active_bits=adc_active_bits)
         return self.scan_num * access__ns
 
-    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+    def _init_children(self, *, dtype: torch.dtype) -> None:
         config = self.config
         policy = self.policy
         w_pv = self._w_transcoder.place_values
@@ -201,7 +199,6 @@ class Ye2023JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, scan=1, row=1, col]
             inst_shape=(*self.inst_shape, 1, 1, self.col_num),
             dtype=dtype,
-            T__K=T__K,
         )
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
@@ -209,7 +206,6 @@ class Ye2023JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, scan=1, row=1, col]
             inst_shape=(*self.inst_shape, 1, 1, self.col_num),
             dtype=dtype,
-            T__K=T__K,
         )
 
         # --- Transposed array: physical rows are outputs ---
@@ -227,7 +223,6 @@ class Ye2023JsscCimMacro(CimMacro):
             bl_driver=self.bl_driver,
             sl_driver=self.sl_driver,
             dtype=dtype,
-            T__K=T__K,
         )
 
         # --- Time-shared readout and its independent reference source ---
@@ -238,7 +233,6 @@ class Ye2023JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, lane, scan=1]
             inst_shape=(*self.inst_shape, self.lane_num, 1),
             dtype=dtype,
-            T__K=T__K,
         )
 
         self.rscsa_reference = Reference(
@@ -246,7 +240,6 @@ class Ye2023JsscCimMacro(CimMacro):
             policy=policy.reference_policy,
             inst_shape=self.inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
         # --- Unmodeled peripheral blocks ---
@@ -257,7 +250,6 @@ class Ye2023JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
-            T__K=T__K,
         )
         self.timing_ctrl = UnmodeledBlock(
             config=config.timing_ctrl_config,
@@ -265,7 +257,6 @@ class Ye2023JsscCimMacro(CimMacro):
             # Shape: [*inst_shape, scan=1]
             inst_shape=(*self.inst_shape, 1),
             dtype=dtype,
-            T__K=T__K,
         )
 
     def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
@@ -306,7 +297,7 @@ class Ye2023JsscCimMacro(CimMacro):
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
         # Shape: [..., input, output] -> [..., w_digit, input, output]
-        digits = self._w_transcoder.encode(w.long(), dim=-3)
+        digits = self._w_transcoder.encode(w, dim=-3)
         # Shape: [..., w_digit, input, output] -> [..., w_digit+1, input, output]
         digits = self._append_disabled_rsm(digits, dim=-3)
         # Shape: [..., w_digit, input, row] -> [..., row, w_digit, input] -> [..., row, col]
@@ -315,6 +306,7 @@ class Ye2023JsscCimMacro(CimMacro):
         state_idx = state_idx.unsqueeze(-3)
         self.array.program(state_idx.contiguous())
 
+    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,

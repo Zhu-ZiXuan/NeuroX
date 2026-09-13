@@ -53,7 +53,6 @@ class Tmcsa(SarIadc):
         inst_shape: tuple[int, ...],
         vdd__V: float,
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         if not (vdd__V >= 0.0):
             raise ValueError(f"require: vdd__V ({vdd__V}) >= 0")
@@ -62,7 +61,6 @@ class Tmcsa(SarIadc):
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
         self._vdd__V = vdd__V
 

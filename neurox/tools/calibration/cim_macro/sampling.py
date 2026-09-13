@@ -14,8 +14,8 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from neurox.common.dataclass_mixin import TensorDataClassMixin
 from neurox.common.serialize import dict_from_file
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
 from neurox.primitive.macro.cim import CimMacro
 
 __all__ = [
@@ -36,7 +36,7 @@ class AxisDistribution(TensorDataClassMixin):
     """
 
     values: Tensor
-    """Allowed values, int64.
+    """Allowed values, int32.
     Shape: `[value]`."""
     probs: Tensor
     """Normalized probabilities matching `values`, float64.
@@ -153,7 +153,7 @@ def _load_axis(
             raise ValueError(f"distribution [{key}].values: value {v} outside macro legal range [{lo}, {hi}]")
 
     return AxisDistribution(
-        values=torch.tensor(values_raw, dtype=torch.int64),
+        values=torch.tensor(values_raw, dtype=torch.int32),
         probs=torch.tensor([p / total for p in probs], dtype=torch.float64),
     )
 
@@ -178,7 +178,7 @@ def sample_w(
     of `batch_w`.
 
     Yields:
-        Weight tensor.
+        Int32 weight tensor.
         Shape: `[weight_sample, input, output]`.
 
     Raises:
@@ -203,14 +203,14 @@ def sample_w(
                 hi + 1,
                 shape_per,
                 device=device,
-                dtype=torch.int64,
+                dtype=torch.int32,
                 generator=generator,
             )
         else:
             probs = distribution.w.probs.to(device)
             values = distribution.w.values.to(device)
             idx = torch.multinomial(probs, num_samples=n_per, replacement=True, generator=generator)
-            yield values[idx].view(shape_per).to(torch.int64)
+            yield values[idx].view(shape_per)
 
 
 def sample_x_batches(
@@ -226,7 +226,7 @@ def sample_x_batches(
     """Yield input batches summing to `n_total` vectors.
 
     Yields:
-        Int64 batch on `device`; the leading axis is `batch_size` except on the
+        Int32 batch on `device`; the leading axis is `batch_size` except on the
         last batch, which carries whatever remains of `n_total`.
         Shape: `[sample, input]`.
 
@@ -247,7 +247,7 @@ def sample_x_batches(
                 hi + 1,
                 (cur, input_num),
                 device=device,
-                dtype=torch.int64,
+                dtype=torch.int32,
                 generator=generator,
             )
         else:
@@ -259,7 +259,7 @@ def sample_x_batches(
                 replacement=True,
                 generator=generator,
             )
-            x = values[idx].view(cur, input_num).to(torch.int64)
+            x = values[idx].view(cur, input_num)
         yield x
         remaining -= cur
 

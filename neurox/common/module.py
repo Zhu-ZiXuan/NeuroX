@@ -11,11 +11,13 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from .dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin, map_single_tensor_fields
 from .profile_mixin import ProfileMixin
-from .pytree_dataclass_mixin import PyTreeDataClassMixin
 from .serialize_mixin import SerializeMixin
-from .tensor_dataclass_mixin import TensorDataClassMixin, map_single_tensor_fields
 from .validate_mixin import ValidateMixin
+
+DEFAULT_T__K: float = 300.0
+"""Initial temperature of every physical module."""
 
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)
@@ -41,6 +43,8 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
     @final
     def __post_init__(self) -> None:
         self.validate()
+
+    # === For subclass to implement or override ===
 
     def validate(self) -> None:
         """Check the local constraints on this configuration.
@@ -74,6 +78,8 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
     def __post_init__(self) -> None:
         self.validate()
 
+    # === For subclass to implement or override ===
+
     def validate(self) -> None:
         """Check the local constraints on this runtime policy.
 
@@ -84,6 +90,8 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
 
 class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
     """Registered snapshot PyTree with tensor transforms under one per-call layout."""
+
+    # === Public API ===
 
     @final
     def expand(self, shape: tuple[int, ...]) -> Self:
@@ -121,7 +129,7 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
     """Base for config- and policy-managed physical modules.
 
     Construct the owned module tree, place it on its device, then fabricate and
-    program before execution. Construction registers fixed tensor sources with
+    program before execution. Construction registers tensor sources with
     `_register_nonpersistent_buffer`. These buffers migrate with the module and
     are excluded from `state_dict`.
 
@@ -134,6 +142,11 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
     its registered NeuroX descendants, including those inside plain containers.
     Each hook rebuilds only its own state from nominal sources; it does not
     traverse children. Programming is dispatched explicitly by the owner.
+
+    Temperature starts at `DEFAULT_T__K`. Construction stores it without
+    invoking `_on_temperature_changed`. Temperature-dependent computations
+    read `T__K` at their lifecycle or execution point. Temperature updates
+    visit this node before its NeuroX descendants, including plain containers.
 
     Stamp names after assembling the tree and before profiling. Re-stamping
     updates the subtree names; rebuilding from configuration requires a new
@@ -159,15 +172,59 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
         self.config = config
         self.policy = policy
         self.inst_shape = inst_shape
+        self._T__K = DEFAULT_T__K
+
+    # === Public API ===
+
+    @property
+    @final
+    def T__K(self) -> float:
+        """Current temperature, changed through `set_temperature`."""
+        return self._T__K
+
+    @final
+    @torch.no_grad()
+    def set_temperature(self, T__K: float) -> None:
+        """Update temperature and its direct dependencies across this subtree.
+
+        Call between executions, outside compiled computations. Fabricated
+        and programmed state remains unchanged until its next explicit
+        lifecycle call. Newly attached children retain their own temperature
+        until the next subtree update.
+
+        Raises:
+            ValueError: Temperature is not finite and strictly positive, or
+                a subclass cannot represent a derived parameter.
+        """
+        if not (math.isfinite(T__K) and T__K > 0.0):
+            raise ValueError(f"require: T__K ({T__K}) finite and > 0.0")
+        self._T__K = T__K
+        self._on_temperature_changed()
+        for _, child in neurox_children(self):
+            child.set_temperature(T__K)
+
+    @final
+    def stamp_names(self, *, qualified_name: str = "") -> None:
+        """Stamp this module and its NeuroX subtree with hierarchical names."""
+        self.__qualified_name = qualified_name
+        for relative_name, child in neurox_children(self):
+            child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
+            child.stamp_names(qualified_name=child_name)
+
+    @final
+    @torch.no_grad()
+    def fabricate(self) -> None:
+        """Resample static manufacturing variation across this module subtree."""
+        self._sample_fabrication_variation()
+        for _, child in neurox_children(self):
+            child.fabricate()
+
+    # === Required by base class ===
 
     @property
     @final
     def inst_count(self) -> int:
         return math.prod(self.inst_shape)
-
-    @final
-    def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
-        nn.Module.register_buffer(self, name, tensor, persistent=False)
 
     @property
     @final
@@ -185,21 +242,23 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
                 "call neurox.stamp_names(model) once the model is assembled"
             ) from None
 
-    @final
-    def stamp_names(self, *, qualified_name: str = "") -> None:
-        """Stamp this module and its NeuroX subtree with hierarchical names."""
-        self.__qualified_name = qualified_name
-        for relative_name, child in neurox_children(self):
-            child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
-            child.stamp_names(qualified_name=child_name)
+    # === Tools for subclass ===
 
     @final
-    @torch.no_grad()
-    def fabricate(self) -> None:
-        """Resample static manufacturing variation across this module subtree."""
-        self._sample_fabrication_variation()
-        for _, child in neurox_children(self):
-            child.fabricate()
+    def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
+        nn.Module.register_buffer(self, name, tensor, persistent=False)
+
+    # === For subclass to implement or override ===
+
+    def _on_temperature_changed(self) -> None:
+        """Refresh this node's direct dependencies from its current `T__K`.
+
+        The default does nothing. Overrides update local scalar parameters
+        and registered sources while preserving buffer device and dtype.
+        They do not traverse children, sample randomness, or change fabricated
+        or programmed state. Overrides extending a parent's update call it
+        before updating their own dependencies.
+        """
 
     def _sample_fabrication_variation(self) -> None:
         pass

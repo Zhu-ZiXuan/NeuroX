@@ -49,7 +49,7 @@ def estimate_boundaries(
     tail_quantiles: tuple[float, ...] = _TAIL_QUANTILES,
 ) -> tuple[BoundaryEstimate, ...]:
     """Estimate the fixed magnitude references at every inspected tail quantile."""
-    ideal = ideal_value.detach().flatten().to(torch.int64).abs()
+    ideal = ideal_value.detach().flatten().long().abs()
     signal = input_value.detach().flatten()
     if ideal.numel() != signal.numel():
         raise ValueError(f"require: ideal_value numel ({ideal.numel()}) == input_value numel ({signal.numel()})")

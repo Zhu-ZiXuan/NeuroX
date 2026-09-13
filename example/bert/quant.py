@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
+from neurox.common.dataclass_mixin import TensorDataClassMixin
 
 X_QMIN = 0
 X_QMAX = 15
@@ -335,7 +335,7 @@ def _fold_for_macro(
     mac_per_code: float,
 ) -> _FoldedScales:
     """Fold the macro's MAC-units-per-code into `(mult, rshift, bias_int)`."""
-    w_sum = weight_int.to(torch.int64).sum(dim=tuple(range(1, weight_int.ndim)))
+    w_sum = weight_int.long().sum(dim=tuple(range(1, weight_int.ndim)))
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)
     sw = s_w.to(torch.float64)

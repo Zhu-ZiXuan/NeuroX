@@ -73,8 +73,8 @@ def _quantiles(value: Tensor) -> Tensor:
 
     ordered = value.sort().values
     positions = probabilities * (value.numel() - 1)
-    lower = positions.floor().to(torch.int64)
-    upper = positions.ceil().to(torch.int64)
+    lower = positions.floor().long()
+    upper = positions.ceil().long()
     fraction = positions - lower
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
@@ -84,7 +84,7 @@ def summarize_probe(
     input_value: Tensor,
 ) -> ProbeSummary:
     """Summarize the input-signal distribution globally and per ideal value."""
-    ideal = ideal_value.detach().flatten().to(torch.int64)
+    ideal = ideal_value.detach().flatten().long()
     signal = input_value.detach().flatten().to(torch.float64)
     if ideal.numel() != signal.numel():
         raise ValueError(f"require: ideal_value numel ({ideal.numel()}) == input_value numel ({signal.numel()})")

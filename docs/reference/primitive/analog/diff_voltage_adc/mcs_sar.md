@@ -131,7 +131,7 @@ The reference voltage is not a parameter of this ADC — it is supplied per conv
 | $E_{\mathrm{reset}}$ | reset-phase residual-charge dissipation | fJ | energy accounting |
 | $E_{\mathrm{op}}, E_{\mathrm{bit}}$ | energy overheads | fJ | `energy_per_op__fJ`, `energy_per_bit__fJ` |
 | $T$ | operating temperature | K | `T__K` |
-| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
+| $k_B$ | Boltzmann constant | fJ/K | `K_BOLTZMANN__fJ_per_K` |
 | $\sigma_V$ | kT/C sampling-noise sigma on a held top plate | V | derived from $T$, $C_{\mathrm{total}}$ |
 
 ## Assumptions, scope & validity

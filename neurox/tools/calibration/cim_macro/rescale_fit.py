@@ -20,8 +20,8 @@ from pathlib import Path
 
 import torch
 
+from neurox.common.dataclass_mixin import TensorDataClassMixin
 from neurox.common.module import ConfigBase
-from neurox.common.tensor_dataclass_mixin import TensorDataClassMixin
 from neurox.common.validate_mixin import ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, IdealCimMacro
 from neurox.tools.config import resolve_relative_path

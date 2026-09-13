@@ -72,4 +72,4 @@ $S_x$ is a unit-layer symbol; the macro and solver layers below keep generic lea
 
 ## Validation
 
-Bit-exact stage combinations, non-divisible dimensions, coprime dimensions, short-vector packing, and input phases are covered by `tests/architecture/unit/test_cim_unit.py` and `tests/architecture/unit/test_engine_input_packing.py`.
+Bit-exact stage combinations, non-divisible dimensions, coprime dimensions, short-vector packing, and input phases are covered by `tests/architecture/unit/cim/linear/test_engine_composition.py` and `tests/architecture/unit/cim/engine/test_engine_input_packing.py`.

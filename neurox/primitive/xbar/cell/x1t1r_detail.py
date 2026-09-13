@@ -13,8 +13,8 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
 from neurox.common.torch_compat import torch_assert_async
+from neurox.execution.solving import SolvingState, SolvingTrace, run_solving
 from neurox.primitive.device.mosfet import MosfetConfig, MosfetPolicy, MosfetSnap, Nmos
 from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy, RramSnap
 
@@ -136,29 +136,16 @@ class _Solver:
                 is_active=current.is_active,
             )
 
-        if record_trace:
-            return run_solving_trace_scan(
-                init_state=init_state,
-                body_fn=body_fn,
-                default_trace=_Trace.empty(
-                    tuple(v_x_init__V.shape), dtype=v_x_init__V.dtype, device=v_x_init__V.device
-                ),
-                max_iter=self.MAX_ITER,
-                strict=False,
-                trace_mask=trace_mask,
-            )
-
-        def solve_body(current: _State) -> _State:
-            next_state, _ = body_fn(current)
-            return next_state
-
-        final_state = run_solving_loop(
+        return run_solving(
             init_state=init_state,
-            body_fn=solve_body,
+            body_fn=body_fn,
+            record_trace=record_trace,
+            default_trace_fn=lambda: _Trace.empty(
+                tuple(v_x_init__V.shape), dtype=v_x_init__V.dtype, device=v_x_init__V.device
+            ),
             max_iter=self.MAX_ITER,
-            strict=True,
+            trace_mask=trace_mask,
         )
-        return final_state, None
 
     def _evaluate_vx(
         self,
@@ -286,9 +273,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype)
 
         self._register_nonpersistent_buffer(
             "_state_to_g_map__uS",
@@ -300,7 +286,6 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
             policy=policy.rram_policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
             g_max__uS=config.rram_g_max__uS,
         )
         self.nmos = Nmos(
@@ -308,7 +293,6 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
             policy=policy.nmos_policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
             W__um=config.access_nmos_W__um,
             L__um=config.access_nmos_L__um,
         )

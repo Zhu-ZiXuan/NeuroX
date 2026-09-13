@@ -46,9 +46,8 @@ class RsCsaIadc(SarIadc):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype)
         self._register_nonpersistent_buffer("_energy_per_bit__fJ", torch.tensor(config.energy_per_bit__fJ, dtype=dtype))
 
     def latency__ns(self, *, active_bits: int) -> float:

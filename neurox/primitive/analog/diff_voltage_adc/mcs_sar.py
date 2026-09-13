@@ -15,7 +15,7 @@ from neurox.primitive.nonideality import (
     apply_gaussian,
     apply_pelgrom_mismatch,
 )
-from neurox.primitive.physics import K_BOLTZMANN__J_per_K
+from neurox.primitive.physics import thermal_fluctuation_energy__fJ
 
 from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
@@ -105,22 +105,13 @@ class McsSarDiffVadc(DiffVadc):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
-        if not (T__K > 0.0):
-            raise ValueError(f"McsSarDiffVadc T__K ({T__K}) must be > 0")
-
-        self._T__K = T__K
-
-        self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
-
         self._register_fabrication_buffers(dtype=dtype)
 
     def latency__ns(self, *, active_bits: int) -> float:
@@ -218,7 +209,7 @@ class McsSarDiffVadc(DiffVadc):
         v_n_top__V = 2 * v_cm__V - v_neg__V
 
         # sample thermal noise on each held top plate (per-leg kT/C).
-        kt__fJ = K_BOLTZMANN__J_per_K * self._T__K * 1e15
+        kt__fJ = thermal_fluctuation_energy__fJ(self.T__K)
         v_p_top__V = apply_gaussian(
             v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
         )
@@ -230,7 +221,7 @@ class McsSarDiffVadc(DiffVadc):
 
         # neg cap top to comparator Vin+, pos cap top to comparator Vin-
         last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
-        code = last_bit.to(torch.int32)
+        code = last_bit.int()
 
         # --- 3: precompute loop-invariant per-bit constants ---
 
@@ -258,7 +249,7 @@ class McsSarDiffVadc(DiffVadc):
             v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
             # neg cap top to comparator Vin+, pos cap top to comparator Vin-
             last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
-            code = (code << 1) | last_bit.to(torch.int32)
+            code = (code << 1) | last_bit.int()
 
         # --- 5: compute dynamic energy when requested ---
 
@@ -296,10 +287,14 @@ class McsSarDiffVadc(DiffVadc):
         Returns:
             Bool tensor; `True` means the positive leg won.
         """
+        config = self.config
+        policy = self.policy
+
+        noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(self.T__K / 300.0)
         v_diff__V = apply_gaussian(
             v_pos__V - v_neg__V,
-            self._comparator_noise_sigma__V,
-            enabled=self.policy.comparator_thermal_noise,
+            noise_sigma__V,
+            enabled=policy.comparator_thermal_noise,
         )
         return v_diff__V > self._comparator_offset__V
 

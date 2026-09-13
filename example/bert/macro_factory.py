@@ -13,7 +13,6 @@ from pathlib import Path
 import torch
 
 from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
-from neurox.primitive import T_ROOM__K
 
 _CIRCUIT_DTYPE = torch.float32
 
@@ -49,7 +48,6 @@ def build_macro_factory(
             policy=read_macro_policy(policy_path),
             w_logical_shape=w_logical_shape,
             dtype=_CIRCUIT_DTYPE,
-            T__K=T_ROOM__K,
             ideal_macro=ideal_macro,
         )
 

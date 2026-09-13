@@ -29,7 +29,6 @@ def cim_macro_from_file(
     policy_files: Sequence[Path],
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-    T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
 ) -> CimMacro:
@@ -41,7 +40,6 @@ def cim_macro_from_file(
         policy=policy,
         inst_shape=inst_shape,
         dtype=dtype,
-        T__K=T__K,
     )
 
 
@@ -51,7 +49,6 @@ def cim_unit_from_file(
     policy_files: Sequence[Path],
     w_logical_shape: tuple[int, ...],
     dtype: torch.dtype,
-    T__K: float,
     ideal_macro: bool,
     config_section: str | None = None,
     policy_section: str | None = None,
@@ -70,7 +67,6 @@ def cim_unit_from_file(
         policy=policy,
         w_logical_shape=w_logical_shape,
         dtype=dtype,
-        T__K=T__K,
         ideal_macro=ideal_macro,
     )
 
@@ -81,7 +77,6 @@ def iadc_from_file(
     policy_files: Sequence[Path],
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-    T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
 ) -> Iadc:
@@ -93,7 +88,6 @@ def iadc_from_file(
         policy=policy,
         inst_shape=inst_shape,
         dtype=dtype,
-        T__K=T__K,
     )
 
 
@@ -103,7 +97,6 @@ def diff_vadc_from_file(
     policy_files: Sequence[Path],
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-    T__K: float,
     config_section: str | None = None,
     policy_section: str | None = None,
 ) -> DiffVadc:
@@ -115,5 +108,4 @@ def diff_vadc_from_file(
         policy=policy,
         inst_shape=inst_shape,
         dtype=dtype,
-        T__K=T__K,
     )

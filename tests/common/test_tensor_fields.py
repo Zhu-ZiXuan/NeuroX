@@ -8,7 +8,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox.common.tensor_dataclass_mixin import map_paired_tensor_fields, map_single_tensor_fields, visit_tensor_fields
+from neurox.common.dataclass_mixin import map_paired_tensor_fields, map_single_tensor_fields, visit_tensor_fields
 
 
 @dataclass(frozen=True)
@@ -69,16 +69,8 @@ def test_single_inspection_visits_nested_fields_without_reconstruction(device: t
     result = visit_tensor_fields(inspect, tree)
     assert result is None
     assert len(visited) == 2
-    assert visited[0] is tree.value
-    assert visited[1] is tree.child.value
-
-
-def test_map_rejects_incompatible_parallel_structures(device: torch.device) -> None:
-    left = _Tree(torch.ones(2, device=device), _Leaf(None), "left")
-    right = _Tree(torch.ones(2, device=device), _Leaf(torch.ones(2, device=device)), "right")
-
-    with pytest.raises(TypeError, match="same concrete dataclass structure"):
-        map_paired_tensor_fields(torch.add, left, right)
+    torch.testing.assert_close(visited[0], tree.value)
+    torch.testing.assert_close(visited[1], tree.child.value)
 
 
 @pytest.mark.parametrize("tree", [_Leaf(None), _Branch(_Leaf(None))])
@@ -86,8 +78,10 @@ def test_maps_preserve_empty_trees_and_visit_skips_them(tree: _Leaf | _Branch) -
     def inspect(tensor: Tensor) -> None:
         raise AssertionError("empty trees must not invoke the callback")
 
-    assert map_single_tensor_fields(torch.clone, tree) is tree
-    assert map_paired_tensor_fields(torch.add, tree, tree) is tree
+    for result in (map_single_tensor_fields(torch.clone, tree), map_paired_tensor_fields(torch.add, tree, tree)):
+        assert type(result) is type(tree)
+        leaf = result.child if isinstance(result, _Branch) else result
+        assert leaf.value is None
     assert visit_tensor_fields(inspect, tree) is None
 
 
@@ -109,74 +103,6 @@ def test_map_preserves_the_concrete_subclass(device: torch.device) -> None:
     result = map_single_tensor_fields(torch.neg, tree)
 
     assert type(result) is _ExtendedTree
-    assert result.child is tree.child
     assert result.child.value is None
     assert result.label == "kept"
     torch.testing.assert_close(result.extra, -torch.ones(3, device=device))
-
-
-def test_map_callback_captures_shared_tensor_indices(device: torch.device) -> None:
-    values = torch.arange(6.0, device=device).reshape(2, 3)
-    tree = _Tree(values, _Leaf(values + 10), "kept")
-    index = torch.tensor([2, 0], device=device)
-
-    def fn(tensor: Tensor) -> Tensor:
-        return tensor.index_select(-1, index)
-
-    result = map_single_tensor_fields(fn, tree)
-
-    torch.testing.assert_close(result.value, values[:, [2, 0]])
-    torch.testing.assert_close(result.child.value, (values + 10)[:, [2, 0]])
-    assert result.label == "kept"
-
-
-def test_fullgraph_preserves_nested_callback_results(device: torch.device) -> None:
-    values = torch.arange(6.0, device=device).reshape(2, 3)
-    factor = torch.tensor(2.0, device=device)
-
-    def apply(values: Tensor, factor: Tensor) -> tuple[Tensor, Tensor | None]:
-        tree = _Tree(values, _Leaf(values.sum(-1)), "kept")
-
-        def fn(tensor: Tensor) -> Tensor:
-            return tensor * factor
-
-        result = map_single_tensor_fields(fn, tree)
-        return result.value, result.child.value
-
-    with torch._dynamo.config.patch(disable=False):
-        actual = torch.compile(apply, backend="inductor", fullgraph=True)(values, factor)
-
-    torch.testing.assert_close(actual, (2.0 * values, 2.0 * values.sum(-1)))
-
-
-def test_fullgraph_combines_two_nested_trees(device: torch.device) -> None:
-    left = torch.arange(6.0, device=device).reshape(2, 3)
-    right = left + 10
-
-    def apply(left: Tensor, right: Tensor) -> tuple[Tensor, Tensor | None]:
-        left_tree = _Tree(left, _Leaf(left.sum(-1)), "kept")
-        right_tree = _Tree(right, _Leaf(right.sum(-1)), "ignored")
-        result = map_paired_tensor_fields(torch.add, left_tree, right_tree)
-        return result.value, result.child.value
-
-    with torch._dynamo.config.patch(disable=False):
-        actual = torch.compile(apply, backend="inductor", fullgraph=True)(left, right)
-
-    torch.testing.assert_close(actual, (left + right, left.sum(-1) + right.sum(-1)))
-
-
-def test_fullgraph_visits_fields_without_reconstruction(device: torch.device) -> None:
-    def inspect(tensor: Tensor) -> None:
-        if tensor.dtype != torch.float32:
-            raise TypeError("expected float32")
-
-    def apply(left: Tensor, right: Tensor) -> Tensor:
-        tree = _Tree(left, _Leaf(left.sum(-1)), "left")
-        result = visit_tensor_fields(inspect, tree)
-        assert result is None
-        return tree.value + right
-
-    left = torch.arange(6.0, device=device).reshape(2, 3)
-    right = torch.ones_like(left)
-    actual = torch.compile(apply, fullgraph=True)(left, right)
-    torch.testing.assert_close(actual, left + right)

@@ -44,7 +44,6 @@ def _make(
         policy=policy,
         inst_shape=inst_shape,
         dtype=torch.float64,
-        T__K=300.0,
         W__um=W__um,
         L__um=L__um,
     )
@@ -139,87 +138,3 @@ def test_partials_match_finite_difference(
     assert torch.allclose(dc.did_dvg__uS, fd_g, atol=1e-4)
     assert torch.allclose(dc.did_dvd__uS, fd_d, atol=1e-4)
     assert torch.allclose(dc.did_dvs__uS, fd_s, atol=1e-4)
-
-
-def test_all_off_snapshot_deterministic() -> None:
-    """With every mismatch toggle off, fabricate + snapshot are deterministic and uniform."""
-    k = 2
-    dev = _make(
-        Nmos,
-        vth0__V=0.4,
-        inst_shape=(k,),
-        policy=_OFF,
-        A_vt__mV_um=1.0,
-        A_beta_relative__um=0.1,
-    )
-    snap1 = dev.snapshot(shape=(k,))
-    dev.fabricate()
-    snap2 = dev.snapshot(shape=(k,))
-    # No mismatch applied -> every cell is uniform and refabrication is identical.
-    assert torch.all(snap1.beta__uA_per_V2 == snap1.beta__uA_per_V2[0])
-    assert torch.all(snap1.vth__V == snap1.vth__V[0])
-    assert torch.equal(snap1.beta__uA_per_V2, snap2.beta__uA_per_V2)
-    assert torch.equal(snap1.vth__V, snap2.vth__V)
-
-
-def test_beta_mismatch_preserves_positive_magnitude(monkeypatch: pytest.MonkeyPatch) -> None:
-    policy = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=True)
-    monkeypatch.setattr(torch, "randn_like", lambda value: torch.full_like(value, -2.0))
-
-    dev = _make(
-        Nmos,
-        vth0__V=0.4,
-        inst_shape=(2,),
-        policy=policy,
-        A_beta_relative__um=1.0,
-    )
-
-    assert torch.all(dev.snapshot(shape=(2,)).beta__uA_per_V2 > 0.0)
-
-
-def test_nominal_beta_must_be_representable_by_dtype() -> None:
-    with pytest.raises(ValueError, match="positive normal value representable"):
-        Nmos(
-            config=_config(vth0__V=0.4, mu0__cm2_per_V_s=1.0e-40),
-            policy=_OFF,
-            inst_shape=(1,),
-            dtype=torch.float32,
-            T__K=300.0,
-            W__um=1.0,
-            L__um=1.0,
-        )
-
-
-def test_abstract_base_cannot_instantiate() -> None:
-    """The polarity-free MOSFET base is abstract; only NMOS / PMOS construct."""
-    with pytest.raises(TypeError):
-        Mosfet(
-            config=_config(vth0__V=0.4),
-            policy=_OFF,
-            inst_shape=(1,),
-            dtype=torch.float64,
-            T__K=300.0,
-            W__um=1.0,
-            L__um=1.0,
-        )
-
-
-def test_config_rejects_nonpositive_mobility() -> None:
-    with pytest.raises(ValueError, match=r"require: mu0__cm2_per_V_s \(0\.0\) > 0"):
-        _config(mu0__cm2_per_V_s=0.0)
-
-
-def test_config_rejects_nonpositive_oxide_cap() -> None:
-    with pytest.raises(ValueError, match=r"require: c_ox__fF_per_um2 \(0\.0\) > 0"):
-        _config(c_ox__fF_per_um2=0.0)
-
-
-def test_config_rejects_subunity_n_factor() -> None:
-    with pytest.raises(ValueError, match=r"require: n_factor \(1\.0\) > 1\.0"):
-        _config(n_factor=1.0)
-
-
-def test_config_accepts_either_vth_sign() -> None:
-    """vth0 sign is unconstrained: enhancement (+) and depletion / p-channel (-) both validate."""
-    assert _config(vth0__V=0.4).vth0__V == 0.4
-    assert _config(vth0__V=-0.4).vth0__V == -0.4

@@ -53,9 +53,8 @@ class Vdac(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        del dtype, T__K
+        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @classmethod
@@ -66,7 +65,6 @@ class Vdac(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> Vdac:
         """Build the implementation registered for the config-policy pair.
 
@@ -79,7 +77,6 @@ class Vdac(
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property

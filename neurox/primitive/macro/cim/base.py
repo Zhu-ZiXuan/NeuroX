@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, final
 import torch
 from torch import Tensor
 
-from neurox.common.encoding import Encoding, Transcoder
 from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
+from neurox.encoding import Encoding, Transcoder
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -155,7 +155,6 @@ class CimMacro(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._w_digit_num = config.w_digit_n
@@ -172,7 +171,6 @@ class CimMacro(
             radix=self._x_digit_radix,
             digit_count=self._x_digit_num,
         )
-        self._T__K = T__K
         self._dtype = dtype
 
     @property
@@ -220,7 +218,6 @@ class CimMacro(
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> CimMacro:
         """Build the implementation registered for the config-policy pair.
 
@@ -233,7 +230,6 @@ class CimMacro(
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )
 
     @property
@@ -300,7 +296,7 @@ class CimMacro(
         """Run one conversion per word-line plane.
 
         Args:
-            x: Logical input tensor whose leading axes end with the complete
+            x: Integer logical input tensor whose leading axes end with the complete
                 `inst_shape`-aligned block. At most `max_active_num` positions
                 may be selected per conversion; unselected positions must be
                 zero. Entries must lie in `x_value_range`.
@@ -311,8 +307,11 @@ class CimMacro(
                 requests this macro's highest available precision.
 
         Returns:
-            Final macro output-code tensor retaining the input's aligned leading axes.
+            Final integer macro output-code tensor retaining the input's aligned leading axes.
             Shape: `[..., output]`.
+
+        Raises:
+            ValueError: Input geometry, conversion settings, or output shape is invalid.
         """
         self._check_quantization_mode(quantization_mode)
         self._check_adc_active_bits(adc_active_bits)
@@ -325,10 +324,10 @@ class CimMacro(
             quantization_mode=quantization_mode,
             adc_active_bits=adc_active_bits,
         )
-        expected_shape = (self.lane_num, self.scan_num)
-        if tuple(output.shape[-2:]) != expected_shape:
+        expected_shape = (*x.shape[:-1], self.lane_num, self.scan_num)
+        if tuple(output.shape) != expected_shape:
             raise ValueError(
-                f"require: vec_mat_mul implementation output trailing shape {expected_shape}; got {tuple(output.shape)}"
+                f"require: vec_mat_mul implementation output shape {expected_shape}; got {tuple(output.shape)}"
             )
         return output.flatten(-2)
 
@@ -380,7 +379,7 @@ class CimMacro(
         """Return an ideal twin using the calibrated output scales.
 
         The twin inherits this macro's logical geometry, instance multiplicity,
-        value domains, mode scales and quantization scheme.
+        value domains, mode scales, quantization scheme, and current temperature.
         """
         # Local import — the `ideal` module imports from this file, so the
         # symbols are only safe to resolve at call time.
@@ -405,10 +404,11 @@ class CimMacro(
             w_value_range=self.w_value_range,
             adc_bits=self.adc_bits,
         )
-        return IdealCimMacro(
+        ideal = IdealCimMacro(
             config=config,
             policy=IdealCimMacroPolicy(),
             inst_shape=self.inst_shape,
             dtype=self._dtype,
-            T__K=self._T__K,
         )
+        ideal.set_temperature(self.T__K)
+        return ideal

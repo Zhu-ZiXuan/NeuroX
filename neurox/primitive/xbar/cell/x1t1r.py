@@ -67,9 +67,8 @@ class XbarCell1t1r[SnapT: _Snap](
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        del dtype, T__K
+        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @property
@@ -111,7 +110,6 @@ class XbarCell1t1r[SnapT: _Snap](
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> XbarCell1t1r[Any]:
         """Build the 1T1R cell registered for the config-policy pair.
 
@@ -124,5 +122,4 @@ class XbarCell1t1r[SnapT: _Snap](
             policy=policy,
             inst_shape=inst_shape,
             dtype=dtype,
-            T__K=T__K,
         )

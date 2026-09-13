@@ -64,10 +64,7 @@ class Selector(ModuleBase):
         policy: _Policy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        T__K: float,
     ) -> None:
-        # `T__K` completes the uniform device-construction signature; this threshold model
-        # has no temperature dependence to apply it to.
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._register_fabrication_buffers(dtype=dtype)
 
