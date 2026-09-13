@@ -29,10 +29,13 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
+        # Descendants reuse the family table; resetting it would discard registrations.
         for ancestor in cls.__mro__[1:]:
             if "_module_registry" in ancestor.__dict__:
                 return
         cls._module_registry = {}
+
+    # === Public API ===
 
     @classmethod
     @final
@@ -67,6 +70,8 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
             return module_type
 
         return _decorator
+
+    # === Tools for subclass and internal use ===
 
     @classmethod
     @final

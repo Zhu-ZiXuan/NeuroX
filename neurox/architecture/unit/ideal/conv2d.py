@@ -180,4 +180,5 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
         # Shape: [B, L, C_out] -> [B, C_out, H_out, W_out]
-        return output.transpose(-2, -1).unflatten(-1, out_hw)
+        folded_output: Tensor = output.transpose(-2, -1).unflatten(-1, out_hw)
+        return folded_output

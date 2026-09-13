@@ -132,14 +132,18 @@ class SarIadc(Iadc):
             Unsigned magnitude codes [long] in `[0, 2 ** active_bits - 1]`
             and optional per-output dynamic energy [fJ].
         """
+        # --- 1: initialize full-width conversion state ---
+
         code = torch.zeros_like(i_in__uA, dtype=torch.int)
         e_dyn__fJ: Tensor | None = None
+
+        # --- 2: resolve the active bits from most to least significant ---
 
         for bit_position in range(self.bits - 1, self.bits - active_bits - 1, -1):
             trial_code = code | (1 << bit_position)
             i_ref__uA = self._select_reference(i_refs__uA, trial_code)
-            bit = i_in__uA - i_ref__uA >= self._comparator_offset__uA
-            code = torch.where(bit, trial_code, code)
+            accept_trial = i_in__uA - i_ref__uA >= self._comparator_offset__uA
+            code = torch.where(accept_trial, trial_code, code)
 
             if record_energy:
                 e_bit__fJ = self._compute_bit_dynamic_energy__fJ(
@@ -151,15 +155,21 @@ class SarIadc(Iadc):
                 if e_bit__fJ is not None:
                     e_dyn__fJ = e_bit__fJ if e_dyn__fJ is None else e_dyn__fJ + e_bit__fJ
 
-        return code >> (self.bits - active_bits), e_dyn__fJ
+        # --- 3: compact the retained decisions ---
+
+        dropped_bits = self.bits - active_bits
+        return code >> dropped_bits, e_dyn__fJ
 
     def _select_reference(self, i_refs__uA: Tensor, trial_code: Tensor) -> Tensor:
         """Select the decision reference for `trial_code`."""
-        n_taps = int(i_refs__uA.shape[-1])
+        tap_num = i_refs__uA.shape[-1]
+        # Gather needs every conversion position present in the ladder's leading axes.
         # Shape: [..., tap] -> [..., tap]
-        i_ref_lut__uA = torch.broadcast_to(i_refs__uA, (*trial_code.shape, n_taps))
+        i_ref_lut__uA = torch.broadcast_to(i_refs__uA, (*trial_code.shape, tap_num))
+        # Shape: [...] -> [..., tap=1]
+        tap_index = (trial_code - 1).unsqueeze(-1)
         # Shape: [..., tap] -> [...]
-        return torch.gather(i_ref_lut__uA, -1, (trial_code - 1).unsqueeze(-1)).squeeze(-1)
+        return torch.gather(i_ref_lut__uA, -1, tap_index).squeeze(-1)
 
     def _compute_bit_dynamic_energy__fJ(
         self,

@@ -96,7 +96,7 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
             raise ValueError(f"value {value!r} not in Literal{list(args)}")
         return value
 
-    # Union, including Optional.
+    # Union alternatives retain annotation order because more than one may accept a value.
     if origin is Union or origin is UnionType:
         if value is None and NoneType in args:
             return None
@@ -182,6 +182,7 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
 
 def _coerce_primitive(value: ConfigValue, tp: _PrimitiveType) -> bool | int | float | str:
     """Validate a primitive value against its declared type, without silent coercion."""
+    # Python bool subclasses int, but configuration booleans are not numeric values.
     if tp is bool:
         if isinstance(value, bool):
             return value
@@ -232,6 +233,8 @@ def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
 
 def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
     """Build a dataclass from an already validated configuration mapping."""
+    # --- 1: resolve the concrete construction type ---
+
     if not is_dataclass(cls):
         raise TypeError(f"{cls.__name__} is not a dataclass type")
     type_name = data.get(CLASS_DISCRIMINATOR)
@@ -248,6 +251,9 @@ def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
             f"{cls.__name__} is an abstract config base; select a concrete subclass "
             f"via the _neurox_class discriminator (one of: {descendants or '<none>'})"
         )
+
+    # --- 2: validate keys against the resolved class ---
+
     hints = get_type_hints(cls)
     names = _dataclass_field_names(cls)
     unknown = [k for k in data if k != CLASS_DISCRIMINATOR and k not in names]
@@ -256,6 +262,9 @@ def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
     missing = _required_field_names(cls) - set(data)
     if missing:
         raise TypeError(f"{cls.__name__}: missing key(s) {sorted(missing)}; valid fields: {sorted(names)}")
+
+    # --- 3: build field values before invoking construction hooks ---
+
     kwargs: dict[str, object] = {}
     for name, raw in data.items():
         if name == CLASS_DISCRIMINATOR:

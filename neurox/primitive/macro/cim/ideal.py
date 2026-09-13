@@ -174,9 +174,13 @@ class IdealCimMacro(CimMacro):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> Tensor:
+
+        # --- 1: accumulate the programmed integer planes ---
+
         factor = self.config.rescale_factors[quantization_mode]
         w = self._w
 
+        # Construction selects FP32 only when the integer accumulation is exact.
         if self._fp32_exact:
             # Shape: [..., input] -> [..., output]
             plane_dot = torch.einsum("...io,...i->...o", w.float(), x.float())
@@ -186,13 +190,20 @@ class IdealCimMacro(CimMacro):
 
         plane_dot = plane_dot.long()
 
+        # --- 2: apply the selected quantization contract ---
+
         if adc_active_bits is None:
             code = plane_dot
         elif self.config.quant_scheme is CimMacroQuantizationScheme.SIGN_MAGNITUDE:
             code = self._convert_sign_magnitude(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
         else:
             code = self._convert_zero_point(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
-        return code.reshape(*code.shape[:-1], self.lane_num, self.scan_num)
+
+        # --- 3: restore the readout axes ---
+
+        # Shape: [..., output] -> [..., lane, scan]
+        output: Tensor = code.unflatten(-1, (self.lane_num, self.scan_num))
+        return output
 
     def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
         code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)

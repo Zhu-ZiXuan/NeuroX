@@ -37,6 +37,8 @@ class IadcConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Static leakage power per ADC instance."""
 
+    # === Required by base class ===
+
     def validate(self) -> None:
         self._require_in_closed_interval(self.bits, "bits", 1, 31)
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -79,6 +81,8 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
         del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
+    # === Public API ===
+
     @classmethod
     def from_config(
         cls,
@@ -103,38 +107,9 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
 
     @property
     @final
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    @final
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
-    @property
-    @final
     def bits(self) -> int:
         """Physical output bit width."""
         return self.config.bits
-
-    @final
-    def _check_active_bits(self, active_bits: int) -> None:
-        """Require an active resolution this converter supports.
-
-        Raises:
-            ValueError: `active_bits` is outside `[1, bits]`.
-        """
-        if not (1 <= active_bits <= self.bits):
-            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")
-
-    @abstractmethod
-    def latency__ns(self, *, active_bits: int) -> float:
-        """Duration of one `convert` call at `active_bits` [ns].
-
-        Args:
-            active_bits: Active conversion resolution in `[1, bits]`.
-        """
-        raise NotImplementedError
 
     @torch.no_grad()
     def convert(
@@ -187,6 +162,38 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             AdcProber.submit(_Record(i_in__uA=i_in__uA))
         return code
 
+    @final
+    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
+        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
+
+        Every current ADC emits the family's full unsigned active-bit range.
+        """
+        self._check_active_bits(active_bits)
+        return 0, (1 << active_bits) - 1
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    # === For subclass to implement or override ===
+
+    @abstractmethod
+    def latency__ns(self, *, active_bits: int) -> float:
+        """Duration of one `convert` call at `active_bits` [ns].
+
+        Args:
+            active_bits: Active conversion resolution in `[1, bits]`.
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def _convert_impl(
         self,
@@ -208,11 +215,14 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
         """
         raise NotImplementedError
 
-    @final
-    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
+    # === Tools for subclass and internal use ===
 
-        Every current ADC emits the family's full unsigned active-bit range.
+    @final
+    def _check_active_bits(self, active_bits: int) -> None:
+        """Require an active resolution this converter supports.
+
+        Raises:
+            ValueError: `active_bits` is outside `[1, bits]`.
         """
-        self._check_active_bits(active_bits)
-        return 0, (1 << active_bits) - 1
+        if not (1 <= active_bits <= self.bits):
+            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")

@@ -19,6 +19,8 @@ class VdacConfig(ConfigBase, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
+    # === Required by base class ===
+
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
@@ -57,6 +59,8 @@ class Vdac(
         del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
+    # === Public API ===
+
     @classmethod
     def from_config(
         cls,
@@ -79,12 +83,6 @@ class Vdac(
             dtype=dtype,
         )
 
-    @property
-    @abstractmethod
-    def code_max(self) -> int:
-        """Largest code the converter accepts; valid codes lie in `[0, code_max]`."""
-        raise NotImplementedError
-
     @torch.no_grad()
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to analog output voltages.
@@ -97,6 +95,14 @@ class Vdac(
             energy is emitted through the profiler side channel.
         """
         return self._convert_impl(code)
+
+    # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def code_max(self) -> int:
+        """Largest code the converter accepts; valid codes lie in `[0, code_max]`."""
+        raise NotImplementedError
 
     @abstractmethod
     def _convert_impl(self, code: Tensor) -> Tensor:

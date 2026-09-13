@@ -52,6 +52,8 @@ class XSliceStage(
         self._slicer = self._build_slicer(macro_x_value_range)
         self.shift_adder = None
 
+    # === Public API ===
+
     @classmethod
     def from_config(
         cls,
@@ -70,24 +72,26 @@ class XSliceStage(
             macro_group_num=macro_group_num,
         )
 
+    @property
+    def value_range(self) -> tuple[int, int]:
+        return self._slicer.value_range
+
+    def slice(self, x: Tensor) -> Tensor:
+        """Append the Sx axis to a logical input tensor."""
+        return self._slicer.slice(x)
+
+    # === For subclass to implement or override ===
+
     @abstractmethod
     def _build_slicer(self, macro_x_value_range: tuple[int, int]) -> Slicer:
         """Construct the slicer defining this stage's logical input domain."""
         raise NotImplementedError
 
     @property
-    def value_range(self) -> tuple[int, int]:
-        return self._slicer.value_range
-
-    @property
     @abstractmethod
     def slice_num(self) -> int:
         """Successive input cycles one logical input is serialized into — the Sx axis."""
         raise NotImplementedError
-
-    def slice(self, x: Tensor) -> Tensor:
-        """Append the Sx axis to a logical input tensor."""
-        return self._slicer.slice(x)
 
     @abstractmethod
     def aggregate(self, code: Tensor) -> Tensor:
@@ -184,7 +188,7 @@ class SerialXSliceStage(XSliceStage):
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            # Shape: [G]
+            # Shape: [macro_group]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.x_slice_num,

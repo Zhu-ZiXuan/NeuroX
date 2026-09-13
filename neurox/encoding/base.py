@@ -43,6 +43,8 @@ class Transcoder(ABC):
         self.__radix = radix
         self.__digit_count = digit_count
 
+    # === Public API ===
+
     @staticmethod
     def from_encoding(*, encoding: Encoding, radix: int, digit_count: int) -> Transcoder:
         """Construct the implementation selected by `encoding`."""
@@ -75,26 +77,6 @@ class Transcoder(ABC):
         """LSB-first positional weights."""
         return tuple(self.radix**digit for digit in range(self.digit_count))
 
-    @property
-    @abstractmethod
-    def value_range(self) -> tuple[int, int]:
-        """Inclusive continuous integer range the encoding represents."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        """Encode integers into the target digit representation.
-
-        Args:
-            x: Integer tensor to encode.
-            dim: Axis at which the digit dimension is inserted.
-
-        Returns:
-            Encoded tensor carrying a new digit axis at `dim`.
-            Shape: `[..., digit, ...]`.
-        """
-        raise NotImplementedError
-
     def decode(self, digits: Tensor, *, dim: int = -1) -> Tensor:
         """Reduce a digit tensor back to integers via positional weights.
 
@@ -116,3 +98,25 @@ class Transcoder(ABC):
         for part in reversed(parts[:-1]):
             decoded = decoded * self.radix + part
         return decoded
+
+    # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def value_range(self) -> tuple[int, int]:
+        """Inclusive continuous integer range the encoding represents."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
+        """Encode integers into the target digit representation.
+
+        Args:
+            x: Integer tensor to encode.
+            dim: Axis at which the digit dimension is inserted.
+
+        Returns:
+            Encoded tensor carrying a new digit axis at `dim`.
+            Shape: `[..., digit, ...]`.
+        """
+        raise NotImplementedError

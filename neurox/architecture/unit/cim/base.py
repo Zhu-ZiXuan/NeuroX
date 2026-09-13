@@ -25,6 +25,8 @@ class CimUnitConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Unit-local peripheral static leakage, excluding every child module."""
 
+    # === Required by base class ===
+
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
@@ -67,6 +69,8 @@ class CimUnit(
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
         self._w_logical_shape = tuple(w_logical_shape)
+
+    # === Public API ===
 
     @classmethod
     def from_config(
@@ -122,6 +126,8 @@ class EngineBackedCimUnit(CimUnit, ABC):
         )
         self._init_engine_child(dtype=dtype, ideal_macro=ideal_macro)
 
+    # === Required by base class ===
+
     @property
     def _area_per_inst__um2(self) -> float:
         return self.config.area_per_inst__um2
@@ -129,19 +135,6 @@ class EngineBackedCimUnit(CimUnit, ABC):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
-
-    def _init_engine_child(self, *, dtype: torch.dtype, ideal_macro: bool) -> None:
-        self.engine = CimEngine.from_config(
-            config=self.config.engine,
-            policy=self.policy.engine,
-            w_logical_shape=self._engine_w_logical_shape(),
-            dtype=dtype,
-            ideal_macro=ideal_macro,
-        )
-
-    def _engine_w_logical_shape(self) -> tuple[int, ...]:
-        """Logical weight shape handed to the engine; defaults to the unit's own."""
-        return self._w_logical_shape
 
     @property
     def w_value_range(self) -> tuple[int, int]:
@@ -171,3 +164,20 @@ class EngineBackedCimUnit(CimUnit, ABC):
         adc_active_bits: int | None,
     ) -> Tensor:
         return self.engine.matmul(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+
+    # === For subclass to implement or override ===
+
+    def _engine_w_logical_shape(self) -> tuple[int, ...]:
+        """Logical weight shape handed to the engine; defaults to the unit's own."""
+        return self._w_logical_shape
+
+    # === Tools for subclass and internal use ===
+
+    def _init_engine_child(self, *, dtype: torch.dtype, ideal_macro: bool) -> None:
+        self.engine = CimEngine.from_config(
+            config=self.config.engine,
+            policy=self.policy.engine,
+            w_logical_shape=self._engine_w_logical_shape(),
+            dtype=dtype,
+            ideal_macro=ideal_macro,
+        )

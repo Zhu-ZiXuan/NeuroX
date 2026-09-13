@@ -39,6 +39,8 @@ class DiffVadcConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Static leakage power per ADC instance."""
 
+    # === Required by base class ===
+
     def validate(self) -> None:
         self._require_in_closed_interval(self.bits, "bits", 1, 31)
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -90,15 +92,7 @@ class DiffVadc(
         del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    @property
-    @final
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    @final
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+    # === Public API ===
 
     @classmethod
     def from_config(
@@ -127,20 +121,6 @@ class DiffVadc(
     def bits(self) -> int:
         """Physical output bit width."""
         return self.config.bits
-
-    @final
-    def _check_active_bits(self, active_bits: int) -> None:
-        if not (1 <= active_bits <= self.bits):
-            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")
-
-    @abstractmethod
-    def latency__ns(self, *, active_bits: int) -> float:
-        """Duration of one `convert` call at `active_bits` [ns].
-
-        Args:
-            active_bits: Active conversion resolution in `[1, bits]`.
-        """
-        raise NotImplementedError
 
     @torch.no_grad()
     def convert(
@@ -194,6 +174,50 @@ class DiffVadc(
             AdcProber.submit(_Record(v_pos__V=v_pos__V, v_neg__V=v_neg__V))
         return code
 
+    @final
+    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
+        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
+
+        Every differential voltage ADC emits the family's full raw
+        offset-binary active-bit range.
+        """
+        self._check_active_bits(active_bits)
+        return 0, (1 << active_bits) - 1
+
+    @final
+    def zero_offset(self, active_bits: int) -> int:
+        """Return the raw code representing analog zero at `active_bits`.
+
+        Subtract this offset before scaling:
+        `(code - zero_offset(active_bits)) · rescale_factor`. Sign and offset
+        are not folded into the emitted code.
+        """
+        self._check_active_bits(active_bits)
+        return 1 << (active_bits - 1)
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    # === For subclass to implement or override ===
+
+    @abstractmethod
+    def latency__ns(self, *, active_bits: int) -> float:
+        """Duration of one `convert` call at `active_bits` [ns].
+
+        Args:
+            active_bits: Active conversion resolution in `[1, bits]`.
+        """
+        raise NotImplementedError
+
     def _validate_runtime_args(self, v_refs__V: Tensor) -> None:
         """Validate implementation-specific reference requirements before conversion."""
 
@@ -219,23 +243,9 @@ class DiffVadc(
         """
         raise NotImplementedError
 
-    @final
-    def unsigned_range(self, active_bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
-
-        Every differential voltage ADC emits the family's full raw
-        offset-binary active-bit range.
-        """
-        self._check_active_bits(active_bits)
-        return 0, (1 << active_bits) - 1
+    # === Tools for subclass and internal use ===
 
     @final
-    def zero_offset(self, active_bits: int) -> int:
-        """Return the raw code representing analog zero at `active_bits`.
-
-        Subtract this offset before scaling:
-        `(code - zero_offset(active_bits)) · rescale_factor`. Sign and offset
-        are not folded into the emitted code.
-        """
-        self._check_active_bits(active_bits)
-        return 1 << (active_bits - 1)
+    def _check_active_bits(self, active_bits: int) -> None:
+        if not (1 <= active_bits <= self.bits):
+            raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")

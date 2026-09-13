@@ -13,6 +13,8 @@ class ValidateMixin:
     Every numeric predicate rejects non-finite operands.
     """
 
+    # === Tools for subclass and internal use ===
+
     @staticmethod
     def _require_gt(value: float, name: str, ref: float) -> None:
         """Require finite `value` > finite `ref`."""

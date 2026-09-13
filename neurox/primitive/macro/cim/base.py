@@ -52,6 +52,46 @@ class CimMacroConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Macro-owned leakage per instance, excluding profiled child modules."""
 
+    # === Public API ===
+
+    @property
+    @final
+    def output_num(self) -> int:
+        """Logical output capacity fixed by the readout geometry."""
+        return self.lane_num * self.scan_num
+
+    # === Required by base class ===
+
+    def validate(self) -> None:
+
+        # --- Port geometry ---
+
+        self._require_pos(self.input_num, "input_num")
+        self._require_pos(self.lane_num, "lane_num")
+        self._require_pos(self.scan_num, "scan_num")
+        self._require_pos(self.max_active_num, "max_active_num")
+        self._require_le(self.max_active_num, "max_active_num", self.input_num)
+
+        # --- Digit geometry ---
+
+        self._require_pos(self.w_digit_n, "w_digit_n")
+        self._require_ge(self.w_digit_r, "w_digit_r", 2)
+        self._require_pos(self.x_digit_n, "x_digit_n")
+        self._require_ge(self.x_digit_r, "x_digit_r", 2)
+
+        # --- Output scales ---
+
+        self._require_non_empty(self.rescale_factors, "rescale_factors")
+        for index, factor in enumerate(self.rescale_factors):
+            self._require_pos(factor, f"rescale_factors[{index}]")
+
+        # --- PPA ---
+
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+    # === For subclass to implement or override ===
+
     @property
     @abstractmethod
     def w_digit_n(self) -> int:
@@ -86,40 +126,6 @@ class CimMacroConfig(ConfigBase, ABC):
     @abstractmethod
     def quant_scheme(self) -> CimMacroQuantizationScheme:
         raise NotImplementedError
-
-    @property
-    @final
-    def output_num(self) -> int:
-        """Logical output capacity fixed by the readout geometry."""
-        return self.lane_num * self.scan_num
-
-    def validate(self) -> None:
-
-        # --- Port geometry ---
-
-        self._require_pos(self.input_num, "input_num")
-        self._require_pos(self.lane_num, "lane_num")
-        self._require_pos(self.scan_num, "scan_num")
-        self._require_pos(self.max_active_num, "max_active_num")
-        self._require_le(self.max_active_num, "max_active_num", self.input_num)
-
-        # --- Digit geometry ---
-
-        self._require_pos(self.w_digit_n, "w_digit_n")
-        self._require_ge(self.w_digit_r, "w_digit_r", 2)
-        self._require_pos(self.x_digit_n, "x_digit_n")
-        self._require_ge(self.x_digit_r, "x_digit_r", 2)
-
-        # --- Output scales ---
-
-        self._require_non_empty(self.rescale_factors, "rescale_factors")
-        for index, factor in enumerate(self.rescale_factors):
-            self._require_pos(factor, f"rescale_factors[{index}]")
-
-        # --- PPA ---
-
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 class CimMacroPolicy(PolicyBase, ABC):
@@ -173,6 +179,8 @@ class CimMacro(
         )
         self._dtype = dtype
 
+    # === Public API ===
+
     @property
     @final
     def input_num(self) -> int:
@@ -199,16 +207,6 @@ class CimMacro(
     def max_active_num(self) -> int:
         """Maximum number of input positions selected by one conversion."""
         return self.config.max_active_num
-
-    @property
-    @final
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    @final
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
 
     @classmethod
     def from_config(
@@ -241,48 +239,6 @@ class CimMacro(
     def w_value_range(self) -> tuple[int, int]:
         """Inclusive integer weight range the macro can program directly."""
         return self._w_transcoder.value_range
-
-    @property
-    @abstractmethod
-    def adc_bits(self) -> int:
-        """Maximum selectable ADC resolution."""
-        raise NotImplementedError
-
-    @final
-    def _check_quantization_mode(self, quantization_mode: int) -> None:
-        mode_num = len(self.config.rescale_factors)
-        if not (0 <= quantization_mode < mode_num):
-            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
-
-    @final
-    def _check_adc_active_bits(self, adc_active_bits: int | None) -> None:
-        if adc_active_bits is not None and not (1 <= adc_active_bits <= self.adc_bits):
-            raise ValueError(f"require: adc_active_bits ({adc_active_bits}) in [1, adc_bits ({self.adc_bits})]")
-
-    @final
-    def _resolve_adc_active_bits(self, adc_active_bits: int | None) -> int:
-        return self.adc_bits if adc_active_bits is None else adc_active_bits
-
-    @abstractmethod
-    def latency__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of one complete `vec_mat_mul` call [ns].
-
-        Args:
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
-                requests this macro's highest available precision.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def program(self, w: Tensor) -> None:
-        """Program the macro from a logical weight matrix.
-
-        Args:
-            w: Integer weight tensor matching the configured logical matrix
-                geometry. Entries must lie in `w_value_range`.
-                Shape: `[*inst_shape, input, output]`.
-        """
-        raise NotImplementedError
 
     @final
     @torch.no_grad()
@@ -330,22 +286,6 @@ class CimMacro(
                 f"require: vec_mat_mul implementation output shape {expected_shape}; got {tuple(output.shape)}"
             )
         return output.flatten(-2)
-
-    @abstractmethod
-    def _vec_mat_mul_impl(
-        self,
-        x: Tensor,
-        *,
-        quantization_mode: int,
-        adc_active_bits: int | None,
-    ) -> Tensor:
-        """Return the canonical readout layout before output flattening.
-
-        Returns:
-            Macro output codes with the readout axes kept separate.
-            Shape: `[..., lane, scan]`.
-        """
-        raise NotImplementedError
 
     def rescale_factor(
         self,
@@ -412,3 +352,77 @@ class CimMacro(
         )
         ideal.set_temperature(self.T__K)
         return ideal
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def adc_bits(self) -> int:
+        """Maximum selectable ADC resolution."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def latency__ns(self, *, adc_active_bits: int | None) -> float:
+        """Circuit latency of one complete `vec_mat_mul` call [ns].
+
+        Args:
+            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
+                requests this macro's highest available precision.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def program(self, w: Tensor) -> None:
+        """Program the macro from a logical weight matrix.
+
+        Args:
+            w: Integer weight tensor matching the configured logical matrix
+                geometry. Entries must lie in `w_value_range`.
+                Shape: `[*inst_shape, input, output]`.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _vec_mat_mul_impl(
+        self,
+        x: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
+        """Return the canonical readout layout before output flattening.
+
+        Returns:
+            Macro output codes with the readout axes kept separate.
+            Shape: `[..., lane, scan]`.
+        """
+        raise NotImplementedError
+
+    # === Tools for subclass and internal use ===
+
+    @final
+    def _check_quantization_mode(self, quantization_mode: int) -> None:
+        mode_num = len(self.config.rescale_factors)
+        if not (0 <= quantization_mode < mode_num):
+            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
+
+    @final
+    def _check_adc_active_bits(self, adc_active_bits: int | None) -> None:
+        if adc_active_bits is not None and not (1 <= adc_active_bits <= self.adc_bits):
+            raise ValueError(f"require: adc_active_bits ({adc_active_bits}) in [1, adc_bits ({self.adc_bits})]")
+
+    @final
+    def _resolve_adc_active_bits(self, adc_active_bits: int | None) -> int:
+        return self.adc_bits if adc_active_bits is None else adc_active_bits

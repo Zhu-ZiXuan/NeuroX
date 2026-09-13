@@ -111,7 +111,7 @@ class PlacementStage(ModuleBase):
         self.contraction_accumulator = Accumulator(
             config=self.config.contraction_accumulator_config,
             policy=DigitalPolicy(),
-            # Shape: [Sw, G]
+            # Shape: [macro_plane, macro_group]
             inst_shape=(macro_plane_num, macro_group_num),
         )
 

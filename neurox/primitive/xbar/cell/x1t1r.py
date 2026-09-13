@@ -71,6 +71,32 @@ class XbarCell1t1r[SnapT: _Snap](
         del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
+    # === Public API ===
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        config: _Config,
+        policy: _Policy,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+    ) -> XbarCell1t1r[Any]:
+        """Build the 1T1R cell registered for the config-policy pair.
+
+        Returns:
+            Registered 1T1R cell implementation.
+        """
+        impl = cls._lookup_impl(config=config, policy=policy)
+        return impl(
+            config=config,
+            policy=policy,
+            inst_shape=inst_shape,
+            dtype=dtype,
+        )
+
+    # === For subclass to implement or override ===
+
     @property
     @abstractmethod
     def w_state_num(self) -> int:
@@ -101,25 +127,3 @@ class XbarCell1t1r[SnapT: _Snap](
     ) -> _Dcop:
         """Return the branch operating point including the access node."""
         raise NotImplementedError
-
-    @classmethod
-    def from_config(
-        cls,
-        *,
-        config: _Config,
-        policy: _Policy,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-    ) -> XbarCell1t1r[Any]:
-        """Build the 1T1R cell registered for the config-policy pair.
-
-        Returns:
-            Registered 1T1R cell implementation.
-        """
-        impl = cls._lookup_impl(config=config, policy=policy)
-        return impl(
-            config=config,
-            policy=policy,
-            inst_shape=inst_shape,
-            dtype=dtype,
-        )

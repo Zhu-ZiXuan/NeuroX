@@ -410,9 +410,9 @@ class Xue2020JsscCimMacro(CimMacro):
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
         seat_shape = (*v_wl__V.shape[:-2], 1, self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        # Shape: [...] -> [..., x_bit=1, row=1, lane=1, scan=1, polarity=1, w_digit=1]
         bl_v_ref__V = self.cablc_vref.values()
         bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1, 1)
+        # Shape: [...] -> [..., x_bit=1, row=1, lane=1, scan=1, polarity=1, w_digit=1]
         bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
 
         # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit] -> [..., x_bit, row=1, phys_col]
@@ -427,8 +427,8 @@ class Xue2020JsscCimMacro(CimMacro):
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )
-        # Shape: [..., x_bit, row=1, phys_col] -> [..., x_bit, row=1, lane, scan, polarity, w_digit]
         seat_axes = (self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
+        # Shape: [..., x_bit, row=1, phys_col] -> [..., x_bit, row=1, lane, scan, polarity, w_digit]
         i_bl_seat__uA = array_dcop.i_bl_port__uA.unflatten(-1, seat_axes)
         i_sl_seat__uA = array_dcop.i_sl_port__uA.unflatten(-1, seat_axes)
         self.cablc.drive(i_port__uA=i_bl_seat__uA)
@@ -453,8 +453,9 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 4: SINWP-SC temporal input-radix combine -> I_DL_PN ---
 
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, lane, scan, polarity]
+        # Shape: [x_bit] -> [x_bit, lane=1, scan=1, polarity=1, w_digit=1]
         bit_ratios = self._sinwp_bit_ratios.view(config.x_bit_num, 1, 1, 1, 1)
+        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, lane, scan, polarity]
         i_sc_increment = (i_wdl * bit_ratios).sum(dim=-1)
         # Shape: [..., x_bit, lane, scan, polarity]
         i_sc_phase = i_sc_increment.cumsum(dim=-4)

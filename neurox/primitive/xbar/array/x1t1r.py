@@ -385,25 +385,29 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
             )
             return _Outputs(dcop=dcop, energy__fJ=energy__fJ, trace=trace)
 
+        # Only the PyTree structure matters here; empty leaves avoid full-size
+        # allocations before chunking. Recording flags fix optional structure at trace time.
+        trace_template = None
+        if record_trace:
+            trace_template = _Trace.empty(
+                (0, 0),
+                port_shape=(0, 0),
+                node_capacity=0,
+                dtype=cell_snap.v_wl__V.dtype,
+                device=cell_snap.v_wl__V.device,
+            )
+        output_template = _Outputs(
+            dcop=self._dcop_template(like=cell_snap.v_wl__V),
+            energy__fJ=cell_snap.v_wl__V.new_empty(0) if record_energy else None,
+            trace=trace_template,
+        )
         result = run_chunked(
             operands=_Inputs(
                 cell_snap=cell_snap,
                 bl_driver_snap=bl_driver_snap,
                 sl_driver_snap=sl_driver_snap,
             ),
-            output_template=_Outputs(
-                dcop=self._dcop_template(like=cell_snap.v_wl__V),
-                energy__fJ=cell_snap.v_wl__V.new_empty(0) if record_energy else None,
-                trace=_Trace.empty(
-                    (0, 0),
-                    port_shape=(0, 0),
-                    node_capacity=0,
-                    dtype=cell_snap.v_wl__V.dtype,
-                    device=cell_snap.v_wl__V.device,
-                )
-                if record_trace
-                else None,
-            ),
+            output_template=output_template,
             body_fn=solve_chunk,
             leading_shape=leading_shape,
             expected_chunk_size=self.policy.solve_chunk_size,
@@ -418,6 +422,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
             phase_energy__fJ = phase_energy__fJ.sum(dim=wl_phase_dims)
             v_bl_rest__V = bl_driver_snap.v_ref__V
             v_sl_rest__V = sl_driver_snap.v_ref__V
+            # Remove later axes first so earlier phase indices keep their meaning.
             for dim in reversed(wl_phase_dims):
                 v_bl_rest__V = v_bl_rest__V.select(dim, 0)
                 v_sl_rest__V = v_sl_rest__V.select(dim, 0)

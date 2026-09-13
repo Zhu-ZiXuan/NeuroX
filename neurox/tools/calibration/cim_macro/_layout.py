@@ -18,7 +18,7 @@ def unroll_active_positions(
     plane_num = -(-input_num // max_active_num)
     plane_of_input = torch.arange(input_num, device=x.device) // max_active_num
     mask = plane_of_input == torch.arange(plane_num, device=x.device).unsqueeze(-1)
-    # Shape: [P, input] -> [P, *inst_shape=1, input]
+    # Shape: [input_phase, input] -> [input_phase, *inst_shape=1, input]
     mask_shape = (mask.shape[0], *(1,) * inst_rank, mask.shape[-1])
     mask = mask.view(mask_shape)
     planes = torch.where(mask, x.unsqueeze(-(inst_rank + 2)), x.new_zeros(()))

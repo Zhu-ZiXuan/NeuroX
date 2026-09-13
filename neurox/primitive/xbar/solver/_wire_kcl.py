@@ -35,6 +35,7 @@ def f_kcl__uA(
     node_index_shape[dim] = node_num
     node_index = torch.arange(node_num, device=v_node__V.device).reshape(node_index_shape)
 
+    # Roll supplies interior neighbors; masking removes its periodic boundary links.
     # Shape: [..., node, ...]
     dv_to_prev__V = v_node__V - torch.roll(v_node__V, shifts=1, dims=dim)
     dv_to_prev__V = torch.where(node_index == 0, v_node__V - v_port__V, dv_to_prev__V)

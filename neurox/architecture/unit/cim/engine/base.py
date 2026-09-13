@@ -169,7 +169,7 @@ class CimEngine(ModuleBase):
         self.cim_macro = self._build_cim_macro(
             cim_macro_config=self.config.cim_macro_config,
             cim_macro_policy=self.policy.cim_macro_policy,
-            # Shape: [M=1, Sx=1, Sw, Tc, G]
+            # Shape: [output_plane=1, x_slice=1, macro_plane, input_tile, macro_group]
             inst_shape=macro_inst_shape,
             dtype=dtype,
             ideal_macro=ideal_macro,
@@ -351,7 +351,6 @@ class CimEngine(ModuleBase):
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,
-            # Shape: [*inst_shape]
             inst_shape=inst_shape,
             dtype=dtype,
         )

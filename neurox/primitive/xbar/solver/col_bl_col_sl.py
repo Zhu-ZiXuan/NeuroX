@@ -296,7 +296,9 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
         # Shape: [..., row, col]
         residual__uA = torch.maximum(f_bl__uA.abs(), f_sl__uA.abs())
-        next_is_active = is_active & (residual__uA > threshold__uA).any(dim=row_dim, keepdim=True)
+        # Shape: [..., row, col] -> [..., row=1, col]
+        unresolved = (residual__uA > threshold__uA).any(dim=row_dim, keepdim=True)
+        next_is_active = is_active & unresolved
 
         applied_dv_bl_node__V = torch.where(next_is_active, dv_bl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
         applied_dv_sl_node__V = torch.where(next_is_active, dv_sl_node__V.clamp(-self.MAX_STEP, self.MAX_STEP), 0)
@@ -305,9 +307,9 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
             v_sl_node__V=v_sl_node__V + applied_dv_sl_node__V,
             is_active=next_is_active,
         )
-        limited = next_is_active & ((dv_bl_node__V.abs() > self.MAX_STEP) | (dv_sl_node__V.abs() > self.MAX_STEP)).any(
-            dim=row_dim, keepdim=True
-        )
+        exceeds_step_limit = (dv_bl_node__V.abs() > self.MAX_STEP) | (dv_sl_node__V.abs() > self.MAX_STEP)
+        # Shape: [..., row, col] -> [..., row=1, col]
+        limited = next_is_active & exceeds_step_limit.any(dim=row_dim, keepdim=True)
         trace = _NodeTrace(
             limited=limited,
             residual__uA=residual__uA,

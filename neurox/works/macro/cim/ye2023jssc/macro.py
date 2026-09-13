@@ -298,7 +298,7 @@ class Ye2023JsscCimMacro(CimMacro):
 
         # Shape: [..., input, output] -> [..., w_digit, input, output]
         digits = self._w_transcoder.encode(w, dim=-3)
-        # Shape: [..., w_digit, input, output] -> [..., w_digit+1, input, output]
+        # Shape: [..., w_digit, input, output] -> [..., w_digit=_w_digit_num+1, input, output]
         digits = self._append_disabled_rsm(digits, dim=-3)
         # Shape: [..., w_digit, input, row] -> [..., row, w_digit, input] -> [..., row, col]
         state_idx = digits.movedim(-1, -3).flatten(-2, -1)
@@ -336,9 +336,9 @@ class Ye2023JsscCimMacro(CimMacro):
         # --- 3: solve every scan phase ---
 
         port_shape = (*leading_shape, self.scan_num, 1, self.col_num)
-        bl_driver_snap = self.bl_driver.snapshot(
-            v_ref__V=v_bl__V.unsqueeze(-2).unsqueeze(self.array.row_dim), shape=port_shape
-        )
+        # Shape: [..., col] -> [..., scan=1, row=1, col]
+        bl_v_ref__V = v_bl__V.unsqueeze(-2).unsqueeze(self.array.row_dim)
+        bl_driver_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=port_shape)
         sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._v_sl__V, shape=port_shape)
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
@@ -372,8 +372,8 @@ class Ye2023JsscCimMacro(CimMacro):
 
         # Shape: [..., mode] -> [...]
         i_refs__uA = self.rscsa_reference.values()[..., quantization_mode]
-        # Shape: [...] -> [..., lane=1, scan=1, tap=1]
         i_refs_shape = (*i_refs__uA.shape, 1, 1, 1)
+        # Shape: [...] -> [..., lane=1, scan=1, tap=1]
         i_refs__uA = i_refs__uA.view(i_refs_shape)
         # Shape: [..., lane, scan]
         i_signal__uA = i_tbl__uA - self.array.i_tbl_leak__uA

@@ -10,6 +10,8 @@ from torch import Tensor
 class Slicer(ABC):
     """Decompose integers into a trailing slice axis."""
 
+    # === For subclass to implement or override ===
+
     @property
     @abstractmethod
     def value_range(self) -> tuple[int, int]:

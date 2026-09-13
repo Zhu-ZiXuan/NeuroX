@@ -242,12 +242,6 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
                 "call neurox.stamp_names(model) once the model is assembled"
             ) from None
 
-    # === Tools for subclass ===
-
-    @final
-    def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
-        nn.Module.register_buffer(self, name, tensor, persistent=False)
-
     # === For subclass to implement or override ===
 
     def _on_temperature_changed(self) -> None:
@@ -262,6 +256,12 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
 
     def _sample_fabrication_variation(self) -> None:
         pass
+
+    # === Tools for subclass and internal use ===
+
+    @final
+    def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
+        nn.Module.register_buffer(self, name, tensor, persistent=False)
 
 
 def neurox_roots(model: nn.Module) -> list[ModuleBase]:

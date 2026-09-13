@@ -24,6 +24,8 @@ class SerializeMixin:
     uses the host's constructor, including any validation it performs.
     """
 
+    # === Public API ===
+
     @classmethod
     def from_dict(cls, data: Mapping[str, ConfigValue]) -> Self:
         """Build the receiver or its named concrete subclass from a mapping."""

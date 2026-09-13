@@ -17,26 +17,7 @@ from .base import UnitBase
 class LinearUnit(UnitBase, ABC):
     """Interface for an integer `torch.nn.functional.linear` replacement."""
 
-    @abstractmethod
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
-        """Write the unit's static weight state and optional integer bias.
-
-        Args:
-            weight: Integer weight values.
-                Shape: `[N, K]`.
-            bias: Per-channel integer bias added in the int64 accumulation
-                domain; `None` clears any programmed bias.
-                Shape: `[N]`.
-        """
-        raise NotImplementedError
-
-    def _activation_to_planes(self, input: Tensor) -> Tensor:
-        # Shape: [..., K] -> [..., M=1, K]
-        return input.unsqueeze(-2)
-
-    def _undo_aggregation(self, output: Tensor) -> Tensor:
-        # Shape: [..., M=1, N] -> [..., N]
-        return output.squeeze(-2)
+    # === Public API ===
 
     @torch.no_grad()
     def linear(
@@ -66,3 +47,28 @@ class LinearUnit(UnitBase, ABC):
             # Shape: [..., N] + [N] -> [..., N]
             y = y + int_bias
         return y
+
+    # === Required by base class ===
+
+    def _activation_to_planes(self, input: Tensor) -> Tensor:
+        # Shape: [..., K] -> [..., M=1, K]
+        return input.unsqueeze(-2)
+
+    def _undo_aggregation(self, output: Tensor) -> Tensor:
+        # Shape: [..., M=1, N] -> [..., N]
+        return output.squeeze(-2)
+
+    # === For subclass to implement or override ===
+
+    @abstractmethod
+    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+        """Write the unit's static weight state and optional integer bias.
+
+        Args:
+            weight: Integer weight values.
+                Shape: `[N, K]`.
+            bias: Per-channel integer bias added in the int64 accumulation
+                domain; `None` clears any programmed bias.
+                Shape: `[N]`.
+        """
+        raise NotImplementedError

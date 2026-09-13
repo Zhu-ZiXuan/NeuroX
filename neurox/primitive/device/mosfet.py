@@ -149,56 +149,7 @@ class Mosfet(ModuleBase, ABC):
         self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * self._isqrt_area__per_um
         self._register_fabrication_buffers(dtype=dtype)
 
-    @property
-    @abstractmethod
-    def polarity(self) -> int:
-        """Channel polarity sign: `+1` (n-channel) or `-1` (p-channel).
-
-        The concrete class fixes it, so config, policy, snap, and result stay
-        polarity-free and one model core serves both channel types.
-        """
-        raise NotImplementedError
-
-    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        config = self.config
-        # Reference values are fixed at config.T_nom__K.
-        # The 0.1 factor converts cm^2, fF, and um^2 to uA/V^2.
-        nominal_beta__uA_per_V2 = config.mu0__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * self._w_l_ratio
-        dtype_info = torch.finfo(dtype)
-        if not (dtype_info.tiny <= nominal_beta__uA_per_V2 <= dtype_info.max):
-            raise ValueError(
-                f"nominal_beta__uA_per_V2 ({nominal_beta__uA_per_V2}) is not a positive normal value "
-                f"representable by {dtype}"
-            )
-        self._register_nonpersistent_buffer(
-            "_nominal_beta__uA_per_V2", torch.tensor(nominal_beta__uA_per_V2, dtype=dtype)
-        )
-        self._register_nonpersistent_buffer("_nominal_vth__V", torch.tensor(config.vth0__V, dtype=dtype))
-
-    def _sample_fabrication_variation(self) -> None:
-        config = self.config
-        policy = self.policy
-
-        # --- 1: apply temperature scaling to the compact reference values ---
-
-        temperature_ratio = self.T__K / config.T_nom__K
-        beta__uA_per_V2 = self._nominal_beta__uA_per_V2 * math.pow(temperature_ratio, -config.ute)
-        vth__V = self._nominal_vth__V + config.kt1__V * (temperature_ratio - 1.0)
-        sigma_beta__uA_per_V2 = beta__uA_per_V2 * config.A_beta_relative__um * self._isqrt_area__per_um
-
-        # --- 2: sample and retain one per-instance realization ---
-
-        beta__uA_per_V2 = apply_gaussian(
-            beta__uA_per_V2.expand(self.inst_shape),
-            sigma_beta__uA_per_V2,
-            enabled=policy.A_beta_mismatch,
-        )
-        if policy.A_beta_mismatch:
-            dtype_info = torch.finfo(beta__uA_per_V2.dtype)
-            beta__uA_per_V2 = beta__uA_per_V2.clamp(min=dtype_info.tiny, max=dtype_info.max)
-
-        self._beta__uA_per_V2 = beta__uA_per_V2
-        self._vth__V = apply_gaussian(vth__V.expand(self.inst_shape), self._sigma_vth__V, enabled=policy.A_vt_mismatch)
+    # === Public API ===
 
     @torch.no_grad()
     def snapshot(
@@ -266,6 +217,63 @@ class Mosfet(ModuleBase, ABC):
             did_dvd__uS=did_dvd__uS,
             did_dvs__uS=did_dvs__uS,
         )
+
+    # === Required by base class ===
+
+    def _sample_fabrication_variation(self) -> None:
+        config = self.config
+        policy = self.policy
+
+        # --- 1: apply temperature scaling to the compact reference values ---
+
+        temperature_ratio = self.T__K / config.T_nom__K
+        beta__uA_per_V2 = self._nominal_beta__uA_per_V2 * math.pow(temperature_ratio, -config.ute)
+        vth__V = self._nominal_vth__V + config.kt1__V * (temperature_ratio - 1.0)
+        sigma_beta__uA_per_V2 = beta__uA_per_V2 * config.A_beta_relative__um * self._isqrt_area__per_um
+
+        # --- 2: sample and retain one per-instance realization ---
+
+        beta__uA_per_V2 = apply_gaussian(
+            beta__uA_per_V2.expand(self.inst_shape),
+            sigma_beta__uA_per_V2,
+            enabled=policy.A_beta_mismatch,
+        )
+        if policy.A_beta_mismatch:
+            dtype_info = torch.finfo(beta__uA_per_V2.dtype)
+            beta__uA_per_V2 = beta__uA_per_V2.clamp(min=dtype_info.tiny, max=dtype_info.max)
+
+        self._beta__uA_per_V2 = beta__uA_per_V2
+        self._vth__V = apply_gaussian(vth__V.expand(self.inst_shape), self._sigma_vth__V, enabled=policy.A_vt_mismatch)
+
+    # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def polarity(self) -> int:
+        """Channel polarity sign: `+1` (n-channel) or `-1` (p-channel).
+
+        The concrete class fixes it, so config, policy, snap, and result stay
+        polarity-free and one model core serves both channel types.
+        """
+        raise NotImplementedError
+
+    # === Tools for subclass and internal use ===
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        config = self.config
+        # Reference values are fixed at config.T_nom__K.
+        # The 0.1 factor converts cm^2, fF, and um^2 to uA/V^2.
+        nominal_beta__uA_per_V2 = config.mu0__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * self._w_l_ratio
+        dtype_info = torch.finfo(dtype)
+        if not (dtype_info.tiny <= nominal_beta__uA_per_V2 <= dtype_info.max):
+            raise ValueError(
+                f"nominal_beta__uA_per_V2 ({nominal_beta__uA_per_V2}) is not a positive normal value "
+                f"representable by {dtype}"
+            )
+        self._register_nonpersistent_buffer(
+            "_nominal_beta__uA_per_V2", torch.tensor(nominal_beta__uA_per_V2, dtype=dtype)
+        )
+        self._register_nonpersistent_buffer("_nominal_vth__V", torch.tensor(config.vth0__V, dtype=dtype))
 
 
 class Nmos(Mosfet):

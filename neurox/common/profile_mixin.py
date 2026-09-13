@@ -30,6 +30,24 @@ class ProfileMixin:
             if declared:
                 raise TypeError(f"{cls.__qualname__} sets is_profile_target = False but declares {', '.join(declared)}")
 
+    # === Public API ===
+
+    @property
+    @final
+    def area__um2(self) -> float:
+        if not self.is_profile_target:
+            raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no area")
+        return self._area_per_inst__um2 * self.inst_count
+
+    @property
+    @final
+    def leakage__uW(self) -> float:
+        if not self.is_profile_target:
+            raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no leakage")
+        return self._leakage_per_inst__uW * self.inst_count
+
+    # === For subclass to implement or override ===
+
     @property
     def inst_count(self) -> int:
         raise NotImplementedError
@@ -46,19 +64,7 @@ class ProfileMixin:
     def qualified_name(self) -> str:
         raise NotImplementedError
 
-    @property
-    @final
-    def area__um2(self) -> float:
-        if not self.is_profile_target:
-            raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no area")
-        return self._area_per_inst__um2 * self.inst_count
-
-    @property
-    @final
-    def leakage__uW(self) -> float:
-        if not self.is_profile_target:
-            raise RuntimeError(f"{type(self).__qualname__} is not a profile target and reports no leakage")
-        return self._leakage_per_inst__uW * self.inst_count
+    # === Tools for subclass and internal use ===
 
     @final
     def _is_dynamic_energy_profile_active(self) -> bool:

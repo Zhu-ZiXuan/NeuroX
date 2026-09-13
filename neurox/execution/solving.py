@@ -43,6 +43,8 @@ class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin):
         if self.is_active.dtype != torch.bool:
             raise TypeError("is_active must be a boolean mask")
 
+    # === Public API ===
+
     @property
     def device(self) -> torch.device:
         """Device shared by all tensor leaves."""
@@ -76,6 +78,8 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
 
         visit_tensor_fields(validate_tensor, self)
 
+    # === Public API ===
+
     @final
     def select(self, index: int) -> Self:
         """Remove the last iteration axis to retrieve one complete observation."""
@@ -96,8 +100,17 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
         """
 
         def mask_tensor(tensor: Tensor) -> Tensor:
-            broadcast_valid = valid.reshape((*valid.shape, *((1,) * (tensor.ndim - valid.ndim))))
-            unused = False if tensor.dtype == torch.bool else torch.nan if tensor.is_floating_point() else -1
+            # Nested histories append axes after positions; the mask must not
+            # align its last position axis with an iteration axis.
+            mask_shape = (*valid.shape, *((1,) * (tensor.ndim - valid.ndim)))
+            broadcast_valid = valid.reshape(mask_shape)
+            unused: bool | float | int
+            if tensor.dtype == torch.bool:
+                unused = False
+            elif tensor.is_floating_point():
+                unused = torch.nan
+            else:
+                unused = -1
             return torch.where(broadcast_valid, tensor, unused)
 
         return map_single_tensor_fields(mask_tensor, self)
@@ -278,13 +291,17 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
 
     def active_body_fn(current: StateT) -> tuple[StateT, TraceT]:
         next_state, trace = body_fn(current)
-        valid = current.is_active if trace_mask is None else current.is_active & trace_mask
+        # Use pre-update activity so the observation that proves convergence survives.
+        valid = current.is_active
+        if trace_mask is not None:
+            valid = valid & trace_mask
         trace = trace.mask_invalid(valid)
         # Explicit format also fixes size-one strides across cond branches.
         trace = map_single_tensor_fields(lambda t: t.clone(memory_format=torch.contiguous_format), trace)
         return next_state, trace
 
     def inactive_body_fn(current: StateT) -> tuple[StateT, TraceT]:
+        # Even a no-op branch must return fresh tensors to avoid cond input aliasing.
         return (
             map_single_tensor_fields(torch.clone, current),
             map_single_tensor_fields(torch.clone, default_trace),
@@ -306,6 +323,7 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
         output_template=default_trace,
         device=init_state.device,
     )
+    # Shape: [iteration, ...] -> [..., iteration]
     trace = map_single_tensor_fields(lambda t: t.movedim(0, -1), trace)
 
     if strict:

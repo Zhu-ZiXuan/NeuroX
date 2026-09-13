@@ -35,6 +35,8 @@ class UnitBase(ABC):
 
     _int_bias: Tensor | None = None  # Shape: [channel]
 
+    # === For subclass to implement or override ===
+
     @property
     @abstractmethod
     def w_value_range(self) -> tuple[int, int]:
@@ -133,6 +135,8 @@ class UnitBase(ABC):
     def _undo_aggregation(self, output: Tensor) -> Tensor:
         """Convert matmul output back to the operator output layout."""
         return output
+
+    # === Tools for subclass and internal use ===
 
     def _lower_matmul(
         self,

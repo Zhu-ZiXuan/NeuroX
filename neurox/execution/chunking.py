@@ -91,12 +91,14 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
     if leading_size == 0:
         raise ValueError("leading_shape must contain at least one position")
 
-    # --- 2: construct the balanced static schedule and execute it ---
+    # --- 2: construct the balanced static schedule ---
 
     chunk_num = 1 if expected_chunk_size == 0 else math.ceil(leading_size / expected_chunk_size)
     chunk_size = math.ceil(leading_size / chunk_num)
     smaller_chunk_num = chunk_num * chunk_size - leading_size
     larger_chunk_num = chunk_num - smaller_chunk_num
+
+    # --- 3: execute the two uniform groups in position order ---
 
     result = _run_uniform_group(
         group_chunk_size=chunk_size,
@@ -120,6 +122,8 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
             body_fn=body_fn,
         )
         result = map_paired_tensor_fields(lambda left, right: torch.cat((left, right), dim=0), result, smaller_result)
+
+    # --- 4: restore the caller's leading axes ---
 
     return _restore_result(result, leading_shape=leading_shape)
 
@@ -158,6 +162,7 @@ def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
         return evaluate_chunk(offsets + start)
 
     stacked = run_map(xs=starts, body_fn=map_body_fn, output_template=output_template)
+    # Shape: [chunk, position, ...] -> [chunk*position, ...]
     return map_single_tensor_fields(lambda tensor: tensor.flatten(0, 1), stacked)
 
 
@@ -169,6 +174,7 @@ def _restore_result[OutputsT: _Dataclass](
     """Restore a flat result to its complete semantic leading shape."""
 
     def fn(tensor: Tensor) -> Tensor:
+        # Shape: [position, ...] -> [*leading_shape, ...]
         return tensor.reshape((*leading_shape, *tensor.shape[1:]))
 
     return map_single_tensor_fields(fn, result)
@@ -187,12 +193,14 @@ def _slice_operands[InputsT: _Dataclass](
     def fn(tensor: Tensor) -> Tensor:
         view = tensor
         trailing_shape = tuple(tensor.shape[leading_rank:])
+        # Gather only stored values of broadcast tails, then restore their extents.
+        # Otherwise advanced indexing materializes the entire expanded tail.
         for axis in range(leading_rank, tensor.ndim):
             if view.size(axis) > 1 and view.stride(axis) == 0:
                 view = view.narrow(axis, 0, 1)
 
-        index: list[int | Tensor] = [0 if view.stride(axis) == 0 else coords[axis] for axis in range(leading_rank)]
-        sliced = view[tuple(index)]
+        index = tuple(0 if view.stride(axis) == 0 else coords[axis] for axis in range(leading_rank))
+        sliced = view[index]
         if not any(isinstance(entry, Tensor) for entry in index):
             sliced = sliced.unsqueeze(0)
         return sliced.expand(chunk_size, *trailing_shape)

@@ -76,6 +76,7 @@ def boundary_inverse_block_tridiagonal_2x2(
 
     def body_fn(state: _TensorTuple4, index: Tensor) -> _TensorTuple4:
         a_00, a_01, a_10, a_11 = state
+        # Keep the index on device; converting a tensor index to int would synchronize.
         k = index.view(1)
 
         def select(t: Tensor) -> Tensor:
@@ -124,11 +125,11 @@ def solve_block_tridiagonal_2x2(
     `U = diag(off_diag)`, which reduces the block Thomas recurrence to one
     explicit 2×2 inverse plus multiply-adds per step. The off-diagonal blocks
     are never materialized and the boundary slots need no special casing. `N`
-    is the number of block rows, each block being 2×2.
+    is the number of blocks, each block being 2×2.
 
     Forward and reverse scans retain only one block in their carry. Reduced
     coefficients and solutions are collected as outputs; their storage grows
-    with `N`. The two solution components are returned in ascending row order.
+    with `N`. The two solution components are returned in ascending block order.
 
     CUDA sweeps benefit when `component.select(dim, k)` is contiguous across
     the remaining axes, for both `diag` and `rhs`. Unit stride on the recurrence
@@ -161,11 +162,11 @@ def solve_block_tridiagonal_2x2(
 
     block_num = rhs_0.shape[dim]
 
-    # --- Forward elimination ---
+    # --- 1: forward block elimination ---
 
-    def forward_elimination_step(state: _TensorTuple6, row: _TensorTuple6) -> tuple[_TensorTuple6, _TensorTuple6]:
+    def forward_elimination_step(state: _TensorTuple6, block: _TensorTuple6) -> tuple[_TensorTuple6, _TensorTuple6]:
         a_00_prev, a_01_prev, a_10_prev, a_11_prev, e_0_prev, e_1_prev = state
-        m_00, m_01, m_10, m_11, b_0, b_1 = row
+        m_00, m_01, m_10, m_11, b_0, b_1 = block
 
         m_00 = m_00 - w_00 * a_00_prev
         m_01 = m_01 - w_01 * a_01_prev
@@ -183,11 +184,11 @@ def solve_block_tridiagonal_2x2(
         e_1 = a_10 * b_0 + a_11 * b_1
 
         next_state = (a_00, a_01, a_10, a_11, e_0, e_1)
-        # Native scan forbids carry/output aliasing; clone only the current row.
+        # Native scan forbids carry/output aliasing; clone only the current block.
         output = (a_00.clone(), a_01.clone(), a_10.clone(), a_11.clone(), e_0.clone(), e_1.clone())
         return next_state, output
 
-    # A_{-1} = 0 and e_{-1} = 0 represent the boundary before the first row.
+    # A_{-1} = 0 and e_{-1} = 0 represent the boundary before the first block.
     # Only these six current-block components enter the scan carry.
     # Canonical strides also match subsequent carries for singleton batch axes.
     # Shape: [...]
@@ -210,10 +211,11 @@ def solve_block_tridiagonal_2x2(
     )
     a_00_seq, a_01_seq, a_10_seq, a_11_seq, e_0_seq, e_1_seq = reduced
 
-    # --- Back substitution ---
+    # --- 2: recover solutions from the trailing boundary ---
 
     def back_substitution_step(state: _TensorTuple2, index: Tensor) -> tuple[_TensorTuple2, _TensorTuple2]:
         x_0_next, x_1_next = state
+        # Keep the index on device; converting a tensor index to int would synchronize.
         k = index.view(1)
 
         def select(t: Tensor) -> Tensor:
@@ -226,7 +228,7 @@ def solve_block_tridiagonal_2x2(
         x_1 = select(e_1_seq) - (select(a_10_seq) * s_0 + select(a_11_seq) * s_1)
         return (x_0, x_1), (x_0.clone(), x_1.clone())
 
-    # x_N = 0 makes the last-row update x_{N-1} = e_{N-1}, including N = 1.
+    # x_N = 0 makes the last-block update x_{N-1} = e_{N-1}, including N = 1.
     # Shape: [...]
     init_solution = (
         torch.zeros_like(rhs_0.select(dim, 0), memory_format=torch.contiguous_format),
@@ -234,7 +236,7 @@ def solve_block_tridiagonal_2x2(
     )
 
     # Reverse only the small index sequence, leaving all six histories in place.
-    # The adapter restores outputs to ascending row order.
+    # The adapter restores outputs to ascending block order.
     _, solution = run_scan(
         init_state=init_solution,
         xs=torch.arange(block_num, device=rhs_0.device),
@@ -242,7 +244,11 @@ def solve_block_tridiagonal_2x2(
         output_template=init_solution,
         reverse=True,
     )
+
+    # --- 3: restore the original recurrence axis ---
+
     x_0_seq, x_1_seq = solution
+    # Shape: [N, ..., ...] -> [..., N, ...]
     return x_0_seq.movedim(0, dim), x_1_seq.movedim(0, dim)
 
 

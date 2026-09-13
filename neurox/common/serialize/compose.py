@@ -16,16 +16,17 @@ from .value import ConfigDict, ConfigValue
 def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: bool) -> ConfigDict:
     """Fill missing keys in the override mapping from the default one, recursively."""
     merged = override.copy()
-    for k, d_v in default.items():
-        if k not in merged:
-            merged[k] = d_v
+    for key, default_value in default.items():
+        if key not in merged:
+            merged[key] = default_value
             continue
-        o_v = merged[k]
-        if isinstance(o_v, dict) and isinstance(d_v, dict):
-            merged[k] = _deep_fill_defaults(o_v, d_v, strict_type=strict_type)
-        elif strict_type and isinstance(o_v, dict) != isinstance(d_v, dict):
+        override_value = merged[key]
+        if isinstance(override_value, dict) and isinstance(default_value, dict):
+            merged[key] = _deep_fill_defaults(override_value, default_value, strict_type=strict_type)
+        elif strict_type and isinstance(override_value, dict) != isinstance(default_value, dict):
             raise ValueError(
-                f"Cannot merge key '{k}': type mismatch. override={type(o_v).__name__}, default={type(d_v).__name__}",
+                f"Cannot merge key '{key}': type mismatch. "
+                f"override={type(override_value).__name__}, default={type(default_value).__name__}",
             )
     return merged
 
@@ -50,8 +51,8 @@ def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
         return dicts[0].copy()
 
     merged = dicts[0].copy()
-    for d in dicts[1:]:
-        merged = _deep_fill_defaults(merged, d, strict_type=strict_type)
+    for defaults in dicts[1:]:
+        merged = _deep_fill_defaults(merged, defaults, strict_type=strict_type)
     return merged
 
 
@@ -167,10 +168,14 @@ def _resolve_directive_branch(
     in_progress: frozenset[tuple[Path, str]],
 ) -> ConfigDict:
     """Resolve and merge one referenced configuration fragment."""
+    # --- 1: locate the fragment and reject recursive references ---
+
+    # Track the active branch, not all visited fragments: siblings may reuse a section.
     key = (path, section)
     if key in in_progress:
         trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
         raise ValueError(f"{directive} cycle detected: {trail} -> {path.name}:{section}")
+    # Cache parsed content only; expansion depends on the current reference branch.
     if path not in cache:
         cache[path] = dict_from_file(path)
     root = cache[path]
@@ -180,6 +185,9 @@ def _resolve_directive_branch(
         raise KeyError(f"{directive} target in {path}: {exc.args[0]}") from None
     if not isinstance(target, dict):
         raise TypeError(f"{directive} target {value[directive]!r} must be a table, got {type(target).__name__}")
+
+    # --- 2: expand the fragment and inline overrides in their own contexts ---
+
     resolved_fragment = _resolve_uses_in_dict(
         target,
         base_dir_for_fragment,
@@ -195,6 +203,9 @@ def _resolve_directive_branch(
         in_progress=in_progress,
         in_preset=in_preset_for_inline,
     )
+
+    # --- 3: apply inline values over fragment defaults ---
+
     return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
 
 
@@ -344,11 +355,16 @@ def load_config_dict(
     """
     if not files:
         raise ValueError("At least one config file must be provided")
-    raw = [
-        _pluck_section(
-            resolve_uses(dict_from_file(f, encoding=encoding), base_dir=f.parent),
-            section,
-        )
-        for f in files
-    ]
-    return merge_dicts(*raw, strict_type=strict_type)
+
+    # --- 1: expand each file before selecting its section ---
+
+    fragments: list[ConfigDict] = []
+    for file in files:
+        parsed = dict_from_file(file, encoding=encoding)
+        resolved = resolve_uses(parsed, base_dir=file.parent)
+        selected = _pluck_section(resolved, section)
+        fragments.append(selected)
+
+    # --- 2: merge in caller-specified priority order ---
+
+    return merge_dicts(*fragments, strict_type=strict_type)

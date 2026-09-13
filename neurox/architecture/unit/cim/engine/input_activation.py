@@ -67,7 +67,7 @@ class InputActivationStage(ModuleBase):
         self.phase_accumulator = SerialAccumulator(
             config=config.phase_accumulator_config,
             policy=DigitalPolicy(),
-            # Shape: [Sw, Tc, G]
+            # Shape: [macro_plane, input_tile, macro_group]
             inst_shape=(
                 macro_plane_num,
                 input_tile_num,

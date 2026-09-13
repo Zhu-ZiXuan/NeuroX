@@ -226,11 +226,11 @@ class McsSarDiffVadc(DiffVadc):
         # --- 3: precompute loop-invariant per-bit constants ---
 
         # The active capacitor slice is indexed directly by the SAR bit.
-        cap_lo = self.bits - active_bits + 1
+        first_active_cap = self.bits - active_bits + 1
         # Shape: [..., bit]
-        c_p_used__fF = c_p__fF[..., cap_lo : self.bits]
+        c_p_used__fF = c_p__fF[..., first_active_cap : self.bits]
         # Shape: [..., bit]
-        c_n_used__fF = c_n__fF[..., cap_lo : self.bits]
+        c_n_used__fF = c_n__fF[..., first_active_cap : self.bits]
         # Shape: [...] -> [..., bit=1]
         c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
         # Shape: [...] -> [..., bit=1]
@@ -240,11 +240,11 @@ class McsSarDiffVadc(DiffVadc):
 
         # --- 4: run the SAR decisions ---
 
-        for k in range(active_bits - 2, -1, -1):
+        for bit_index in range(active_bits - 2, -1, -1):
             # Shape: [..., bit] -> [...]
-            v_p_step__V = v_p_step_table__V[..., k]
+            v_p_step__V = v_p_step_table__V[..., bit_index]
             # Shape: [..., bit] -> [...]
-            v_n_step__V = v_n_step_table__V[..., k]
+            v_n_step__V = v_n_step_table__V[..., bit_index]
             v_p_top__V = torch.where(last_bit, v_p_top__V + v_p_step__V, v_p_top__V - v_p_step__V)
             v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
             # neg cap top to comparator Vin+, pos cap top to comparator Vin-
@@ -267,10 +267,8 @@ class McsSarDiffVadc(DiffVadc):
             # Shape: [...] -> [..., bit]
             bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
             # Shape: [..., bit] -> [...]
-            e_detect__fJ = (
-                torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
-                + active_bits * self.config.energy_per_bit__fJ
-            )
+            e_switch__fJ = torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
+            e_detect__fJ = e_switch__fJ + active_bits * self.config.energy_per_bit__fJ
             # Shape: [..., bit] -> [...]
             c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
             e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)

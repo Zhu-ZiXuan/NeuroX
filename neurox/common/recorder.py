@@ -30,6 +30,8 @@ class RecordBase(TensorDataClassMixin):
     express.
     """
 
+    # === Public API ===
+
     def detach(self) -> Self:
         """Return this record with every tensor field detached from autograd.
 
@@ -45,6 +47,8 @@ class RecordBase(TensorDataClassMixin):
             `self` when no field would change, a copy otherwise.
         """
         return self._map_tensors(lambda tensor: tensor.to(device))
+
+    # === Tools for subclass and internal use ===
 
     def _map_tensors(self, transform: Callable[[Tensor], Tensor]) -> Self:
         """Rebuild through every tensor field, recursing into nested dataclasses.
@@ -106,6 +110,8 @@ class RecorderBase[RecordT: RecordBase](ABC):
             cls._family_root = cls
             cls._active_recorder = None
 
+    # === Public API ===
+
     @property
     @final
     def records(self) -> tuple[RecordT, ...]:
@@ -136,20 +142,6 @@ class RecorderBase[RecordT: RecordBase](ABC):
 
     @classmethod
     @final
-    def _root(cls) -> type[RecorderBase[Any]]:
-        """Return the family root holding this class's active slot.
-
-        Raises:
-            TypeError: The class opens no family, i.e. it is `RecorderBase`
-                itself.
-        """
-        root = cls._family_root
-        if root is None:
-            raise TypeError(f"{cls.__qualname__} opens no recorder family; subclass RecorderBase directly to open one")
-        return root
-
-    @classmethod
-    @final
     def current(cls) -> Self | None:
         """Return the family's active recorder, or `None` outside a context."""
         return cast(Self, cls._root()._active_recorder)  # noqa: SLF001
@@ -174,10 +166,28 @@ class RecorderBase[RecordT: RecordBase](ABC):
         """
         cls._submit_impl(record)
 
+    # === For subclass to implement or override ===
+
     @classmethod
     def _submit_impl(cls, record: RecordT) -> None:
         """Apply the family's admission rule and submit what survives."""
         cls._submit_record(record)
+
+    # === Tools for subclass and internal use ===
+
+    @classmethod
+    @final
+    def _root(cls) -> type[RecorderBase[Any]]:
+        """Return the family root holding this class's active slot.
+
+        Raises:
+            TypeError: The class opens no family, i.e. it is `RecorderBase`
+                itself.
+        """
+        root = cls._family_root
+        if root is None:
+            raise TypeError(f"{cls.__qualname__} opens no recorder family; subclass RecorderBase directly to open one")
+        return root
 
     @classmethod
     @final

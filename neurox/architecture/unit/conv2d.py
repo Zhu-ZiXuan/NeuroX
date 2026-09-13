@@ -20,33 +20,7 @@ class Conv2dUnit(UnitBase, ABC):
     Grouped convolution is not supported.
     """
 
-    @abstractmethod
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
-        """Write the unit's static weight state and optional integer bias.
-
-        Args:
-            weight: Integer weight values.
-                Shape: `[C_out, C_in, kh, kw]`.
-            bias: Per-channel integer bias added in the int64 accumulation
-                domain; `None` clears any programmed bias.
-                Shape: `[C_out]`.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Convert convolution input to matmul-shaped planes."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Fold matmul output back to the convolution output layout.
-
-        Returns:
-            Integer convolution output planes.
-            Shape: `[B, C_out, H_out, W_out]`.
-        """
-        raise NotImplementedError
+    # === Public API ===
 
     @torch.no_grad()
     def conv2d(
@@ -94,6 +68,38 @@ class Conv2dUnit(UnitBase, ABC):
             # Shape: [B=1, C_out, H_out, W_out] -> [C_out, H_out, W_out]
             y = y.squeeze(0)
         return y
+
+    # === For subclass to implement or override ===
+
+    @abstractmethod
+    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+        """Write the unit's static weight state and optional integer bias.
+
+        Args:
+            weight: Integer weight values.
+                Shape: `[C_out, C_in, kh, kw]`.
+            bias: Per-channel integer bias added in the int64 accumulation
+                domain; `None` clears any programmed bias.
+                Shape: `[C_out]`.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
+        """Convert convolution input to matmul-shaped planes."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
+        """Fold matmul output back to the convolution output layout.
+
+        Returns:
+            Integer convolution output planes.
+            Shape: `[B, C_out, H_out, W_out]`.
+        """
+        raise NotImplementedError
+
+    # === Tools for subclass and internal use ===
 
     def _conv2d_out_hw(self, h: int, w: int) -> tuple[int, int]:
         """Output map extent `(H_out, W_out)` for an `(h, w)` input map.

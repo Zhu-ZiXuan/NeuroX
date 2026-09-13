@@ -39,7 +39,7 @@ torch_compiler_disable: _CompilerDisable = torch.compiler.disable
 
 
 def torch_assert_async(condition: Tensor, message: str) -> None:
-    """Wrap ``torch._assert_async(input: Tensor, assert_msg: str)``."""
+    """Wrap `torch._assert_async(input: Tensor, assert_msg: str)`."""
     torch._assert_async(condition, message)  # noqa: SLF001
 
 
@@ -57,7 +57,7 @@ def torch_cond[InputsT, OutputT](
         output_template: Result PyTree structure; tensor values and metadata
             are unused.
     """
-    # --- 1. Flatten pytree and check params ---
+    # --- 1: flatten and validate the structured inputs ---
 
     def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[Tensor, ...], pytree.TreeSpec]:
         leaves, spec = pytree.tree_flatten(tree)
@@ -68,7 +68,7 @@ def torch_cond[InputsT, OutputT](
     flat_inputs, input_spec = _flatten_pytree(inputs, name="inputs")
     _, output_spec = _flatten_pytree(output_template, name="output_template")
 
-    # --- 2. Define unflatten functions ---
+    # --- 2: restore callback argument structures ---
 
     def _unflatten_inputs(flat_inputs: tuple[Tensor, ...]) -> InputsT:
         return cast(InputsT, pytree.tree_unflatten(flat_inputs, input_spec))
@@ -76,7 +76,7 @@ def torch_cond[InputsT, OutputT](
     def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
         return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
 
-    # --- 3. Define wrapper functions ---
+    # --- 3: adapt callbacks to flat tensor leaves ---
 
     def flatten_branch(fn: Callable[[InputsT], OutputT], flat_inputs: tuple[Tensor, ...]) -> tuple[Tensor, ...]:
         output = fn(_unflatten_inputs(flat_inputs))
@@ -91,11 +91,11 @@ def torch_cond[InputsT, OutputT](
     def flat_false_fn(*flat_inputs: Tensor) -> tuple[Tensor, ...]:
         return flatten_branch(false_fn, flat_inputs)
 
-    # --- 4. Run pytorch cond ---
+    # --- 4: execute the selected branch ---
 
     flat_output = torch.cond(pred, flat_true_fn, flat_false_fn, flat_inputs)
 
-    # --- 5. Unflatten pytree ---
+    # --- 5: restore the result structure ---
 
     return _unflatten_output(flat_output)
 
@@ -109,7 +109,7 @@ def torch_while_loop[CarryT](
     carried_state: CarryT,
 ) -> CarryT:
     """Adapt `torch.while_loop` to callbacks receiving one structured state."""
-    # --- 1. Flatten pytree and check params ---
+    # --- 1: flatten and validate the structured inputs ---
 
     def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[_WhileLoopLeaf, ...], pytree.TreeSpec]:
         leaves, spec = pytree.tree_flatten(tree)
@@ -119,12 +119,12 @@ def torch_while_loop[CarryT](
 
     flat_carry, carry_spec = _flatten_pytree(carried_state, name="carried_state")
 
-    # --- 2. Define unflatten functions ---
+    # --- 2: restore callback argument structures ---
 
     def _unflatten_carry(flat_carry: tuple[_WhileLoopLeaf, ...]) -> CarryT:
         return cast(CarryT, pytree.tree_unflatten(flat_carry, carry_spec))
 
-    # --- 3. Define wrapper functions ---
+    # --- 3: adapt callbacks to flat tensor leaves ---
 
     def flat_cond_fn(*flat_carry: _WhileLoopLeaf) -> Tensor | bool:
         return cond_fn(_unflatten_carry(flat_carry))
@@ -139,11 +139,11 @@ def torch_while_loop[CarryT](
             )
         return new_carry_leaves
 
-    # --- 4. Run pytorch while loop ---
+    # --- 4: iterate over the carried state ---
 
     flat_carry = torch.while_loop(flat_cond_fn, flat_body_fn, flat_carry)
 
-    # --- 5. Unflatten pytree ---
+    # --- 5: restore the result structure ---
 
     return _unflatten_carry(flat_carry)
 
@@ -169,7 +169,7 @@ def torch_scan[CarryT, InputT, OutputT](
         Each output's iteration axis occupies the resolved `dim` if that axis
         exists in the stacked tensor, otherwise axis zero.
     """
-    # --- 1. Flatten pytree and check params ---
+    # --- 1: flatten and validate the structured inputs ---
 
     def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[Tensor, ...], pytree.TreeSpec]:
         leaves, spec = pytree.tree_flatten(tree)
@@ -193,11 +193,12 @@ def torch_scan[CarryT, InputT, OutputT](
     if any(tensor.shape[scan_dim] != scan_length for tensor in flat_xs[1:]):
         raise ValueError("all xs leaves must have the same scan dimension length")
 
+    # Shape: [..., step, ...] -> [step, ..., ...]
     flat_xs = tuple(tensor.movedim(scan_dim, 0) for tensor in flat_xs)
     if reverse:
         flat_xs = tuple(tensor.flip(0) for tensor in flat_xs)
 
-    # --- 2. Define unflatten functions ---
+    # --- 2: restore callback argument structures ---
 
     def _unflatten_carry(flat_carry: tuple[Tensor, ...]) -> CarryT:
         return cast(CarryT, pytree.tree_unflatten(flat_carry, carry_spec))
@@ -208,7 +209,7 @@ def torch_scan[CarryT, InputT, OutputT](
     def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
         return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
 
-    # --- 3. Define wrapper functions ---
+    # --- 3: adapt callbacks to flat tensor leaves ---
 
     def flat_combine_fn(
         flat_carry: tuple[Tensor, ...],
@@ -223,12 +224,13 @@ def torch_scan[CarryT, InputT, OutputT](
             raise TypeError("scan output must match the output_template PyTree structure")
         return new_flat_carry, new_flat_output
 
-    # --- 4. Run pytorch scan ---
+    # --- 4: scan along the leading axis ---
 
     flat_carry, stacked_flat_output = scan(flat_combine_fn, flat_carry, flat_xs, dim=0, reverse=False)
 
-    # --- 5. Unflatten pytree ---
+    # --- 5: restore the result structure ---
 
+    # Reverse traversal changes recurrence order, but results retain input order.
     if reverse:
         stacked_flat_output = tuple(tensor.flip(0) for tensor in stacked_flat_output)
     stacked_flat_output = tuple(
@@ -261,7 +263,7 @@ def torch_map[InputT, OutputT](
     Returns:
         Outputs stacked on axis 0, with the template's PyTree structure.
     """
-    # --- 1. Flatten pytree and check params ---
+    # --- 1: flatten and validate the structured inputs ---
 
     def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[Tensor, ...], pytree.TreeSpec]:
         leaves, spec = pytree.tree_flatten(tree)
@@ -276,7 +278,7 @@ def torch_map[InputT, OutputT](
     if any(leaf.ndim == 0 for leaf in flat_xs):
         raise ValueError("all xs Tensor leaves must have a leading dimension")
 
-    # --- 2. Define unflatten functions ---
+    # --- 2: restore callback argument structures ---
 
     def _unflatten_input(flat_input: tuple[Tensor, ...]) -> InputT:
         return cast(InputT, pytree.tree_unflatten(flat_input, xs_spec))
@@ -284,7 +286,7 @@ def torch_map[InputT, OutputT](
     def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
         return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
 
-    # --- 3. Define wrapper function ---
+    # --- 3: adapt the callback to flat tensor leaves ---
 
     def flat_fn(flat_input: tuple[Tensor, ...], *_: tuple[Tensor, ...]) -> tuple[Tensor, ...]:
         output = fn(_unflatten_input(flat_input))
@@ -293,10 +295,10 @@ def torch_map[InputT, OutputT](
             raise TypeError("map output must match the output_template PyTree structure")
         return flat_output
 
-    # --- 4. Run pytorch map ---
+    # --- 4: map independent input slices ---
 
     flat_output = _map(flat_fn, flat_xs)
 
-    # --- 5. Unflatten pytree ---
+    # --- 5: restore the result structure ---
 
     return _unflatten_output(flat_output)

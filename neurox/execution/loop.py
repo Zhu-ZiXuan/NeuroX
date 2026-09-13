@@ -87,8 +87,8 @@ def run_while_loop_with_counter[StateT](
 
     def loop_body_fn(carry: tuple[Tensor, StateT]) -> tuple[Tensor, StateT]:
         step, state = carry
-        state = body_fn(step, state)
-        return step + 1, state
+        next_state = body_fn(step, state)
+        return step + 1, next_state
 
     initial_carry = (torch.zeros((), dtype=torch.int64, device=device), init_state)
     _, final_state = torch_while_loop(loop_cond_fn, loop_body_fn, initial_carry)
@@ -184,6 +184,7 @@ def run_scan_without_output[StateT, InputT](
         Terminal state. Intermediate states are discarded.
     """
 
+    # Scan requires an output leaf; a zero-length tensor carries no observations.
     def scan_body(state: StateT, input: InputT) -> tuple[StateT, Tensor]:
         return body_fn(state, input), torch.empty(0, device=device)
 
@@ -239,10 +240,11 @@ def run_scan_without_inputs[StateT, OutputT](
     def scan_body(state: StateT, _input: Tensor) -> tuple[StateT, OutputT]:
         return body_fn(state)
 
+    steps = torch.arange(length, device=device)
     return torch_scan(
         scan_body,
         init_state,
-        torch.arange(length, device=device),
+        steps,
         reverse=reverse,
         output_template=output_template,
     )
@@ -288,6 +290,7 @@ def run_scan_without_carry[InputT, OutputT](
         `dim` if that axis exists in the stacked tensor, otherwise at axis zero.
     """
 
+    # A fresh empty carry satisfies scan without aliasing its input carry.
     def scan_body(_state: Tensor, input: InputT) -> tuple[Tensor, OutputT]:
         return torch.empty(0, device=device), body_fn(input)
 

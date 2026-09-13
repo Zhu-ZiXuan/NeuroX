@@ -20,6 +20,8 @@ from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 
 class WeightSliceStageConfig(ConfigBase, ABC):
+    # === For subclass to implement or override ===
+
     @abstractmethod
     def layout_geometry(self, *, output_num: int) -> tuple[int, int]:
         """Return `(logical outputs per block, physical macro planes)`."""
@@ -63,6 +65,8 @@ class WeightSliceStage(
         self._slicer = self._build_slicer(macro_w_value_range)
         self.shift_adder = None
 
+    # === Public API ===
+
     @classmethod
     def from_config(
         cls,
@@ -83,11 +87,6 @@ class WeightSliceStage(
             macro_group_num=macro_group_num,
         )
 
-    @abstractmethod
-    def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:
-        """Construct the slicer defining this stage's logical weight domain."""
-        raise NotImplementedError
-
     @property
     def value_range(self) -> tuple[int, int]:
         return self._slicer.value_range
@@ -100,6 +99,13 @@ class WeightSliceStage(
     def slice(self, weight: Tensor) -> Tensor:
         """Append the logical Sw axis to a weight tensor."""
         return self._slicer.slice(weight)
+
+    # === For subclass to implement or override ===
+
+    @abstractmethod
+    def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:
+        """Construct the slicer defining this stage's logical weight domain."""
+        raise NotImplementedError
 
     @abstractmethod
     def arrange_weight(self, weight: Tensor) -> Tensor:
@@ -216,7 +222,7 @@ class InterWeightSliceStage(WeightSliceStage):
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            # Shape: [G]
+            # Shape: [macro_group]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,
@@ -293,7 +299,7 @@ class IntraWeightSliceStage(WeightSliceStage):
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            # Shape: [G]
+            # Shape: [macro_group]
             inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,

@@ -18,7 +18,7 @@ One question routes every statement:
 | docstring | The contract of the symbol it sits on: caller-facing semantics of a public API, and the extension contract a base, mixin, or protocol places on a subclass author, including the field shapes of a public tensor container |
 | inline comment | Local implementation intent — why a line or block is written the way it is |
 | shape annotation | The terminal shape a class-header declaration carries, and semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
-| banner comment | Related-definition grouping at module scope, declaration and field grouping at class scope, and procedural phase boundaries in a function or method body; its format is in [code_style](code_style.md) |
+| banner comment | Related-definition grouping at module scope, declaration, field, and base-class method grouping at class scope, and procedural phase boundaries in a function or method body; its format is in [code_style](code_style.md) |
 | `pyproject.toml` | Supported Python and dependency ranges, package metadata, dependency groups, and tool configuration |
 | `uv.lock` | The resolved dependency graph used to reproduce a development environment; never the supported-version policy |
 | `Makefile` | The available repository-level development tasks and the commands each task runs |

@@ -13,6 +13,8 @@ class DigitalConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
     """Static leakage power of one fabricated instance."""
 
+    # === Required by base class ===
+
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")

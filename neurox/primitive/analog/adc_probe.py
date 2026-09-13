@@ -10,6 +10,8 @@ from neurox.common.recorder import RecordBase, RecorderBase
 
 
 class AdcRecord(RecordBase, ABC):
+    # === For subclass to implement or override ===
+
     @abstractmethod
     def input_name(self) -> str:
         """Return the recorded input quantity's unit-bearing name."""
