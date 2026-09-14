@@ -95,30 +95,18 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
 
     @final
     def expand(self, shape: tuple[int, ...]) -> Self:
-        """Expand every tensor field with `Tensor.expand` semantics."""
-
-        def fn(tensor: Tensor) -> Tensor:
-            return tensor.expand(shape)
-
-        return map_single_tensor_fields(fn, self)
+        """Apply ``t.expand(shape)`` on each tensor field."""
+        return map_single_tensor_fields(lambda t: t.expand(shape), self)
 
     @final
     def flatten_axes(self, start_dim: int, end_dim: int) -> Self:
-        """Flatten every tensor field's `[start_dim, end_dim]` axes into one."""
-
-        def fn(tensor: Tensor) -> Tensor:
-            return tensor.flatten(start_dim, end_dim)
-
-        return map_single_tensor_fields(fn, self)
+        """Apply ``t.flatten(start_dim, end_dim)`` on each tensor field."""
+        return map_single_tensor_fields(lambda t: t.flatten(start_dim, end_dim), self)
 
     @final
     def index_select(self, dim: int, index: Tensor) -> Self:
-        """Index-select one dim of every tensor field."""
-
-        def fn(tensor: Tensor) -> Tensor:
-            return tensor.index_select(dim, index)
-
-        return map_single_tensor_fields(fn, self)
+        """Apply ``t.index_select(dim, index)`` on each tensor field."""
+        return map_single_tensor_fields(lambda t: t.index_select(dim, index), self)
 
 
 class DcopBase(TensorDataClassMixin):

@@ -145,7 +145,9 @@ class TestQuantizedDots:
         quantization_mode = 0
         adc_active_bits = 4
         actual = macro.vec_mat_mul(
-            planes.to(device), quantization_mode=quantization_mode, adc_active_bits=adc_active_bits
+            planes.to(device),
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
         )
         dot = _plane_dot_oracle(weight, planes)
         rail = 1 << (macro.adc_bits - 1)

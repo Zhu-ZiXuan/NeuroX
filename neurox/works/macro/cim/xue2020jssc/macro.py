@@ -6,6 +6,8 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torch
 from torch import Tensor
 
@@ -287,17 +289,24 @@ class Xue2020JsscCimMacro(CimMacro):
         """Maximum ADC magnitude resolution [bits]."""
         return self.tmcsa.bits
 
-    def latency__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of all serialized scan positions."""
+    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
+        # Shape: [output] -> [lane, scan]
+        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
+            self.lane_num, self.scan_num
+        )
+        # Shape: [..., lane=1, scan=1]
+        return output_indices < effective_output_num[..., None, None]
+
+    def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
+        """Circuit latency of one scan position."""
         self._check_adc_active_bits(adc_active_bits)
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         config = self.config
-        access__ns = (
+        return (
             (self._x_digit_num - 1) * config.t_sample__ns
             + self.config.t_settle__ns
             + self.tmcsa.latency__ns(active_bits=adc_active_bits)
         )
-        return access__ns * self.scan_num
 
     @torch.no_grad()
     def program(self, w: Tensor) -> None:
@@ -378,19 +387,25 @@ class Xue2020JsscCimMacro(CimMacro):
         i_sub__uA: Tensor,
         *,
         detect__ns: float,
+        active_mask: Tensor | None,
     ) -> None:
         i_branch__uA = i_p__uA + i_n__uA + i_sub__uA
         q__fC = q_conduction__fC(i_branch__uA, detect__ns)
-        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC) + self.config.pn_isub_energy_per_op__fJ
+        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
+        if active_mask is not None:
+            e__fJ = e__fJ + active_mask.to(i_branch__uA.dtype) * self.config.pn_isub_energy_per_op__fJ
+        else:
+            e__fJ = e__fJ + self.config.pn_isub_energy_per_op__fJ
         self._record_dynamic_energy(e__fJ, channel="pn_isub")
 
-    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,
         *,
+        leading_shape: tuple[int, ...],
         quantization_mode: int,
         adc_active_bits: int | None,
+        phase_mask: Tensor | None,
     ) -> Tensor:
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         config = self.config
@@ -409,20 +424,38 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
-        seat_shape = (*v_wl__V.shape[:-2], 1, self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        bl_v_ref__V = self.cablc_vref.values()
-        bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1, 1)
+        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit]
+        seat_shape = (
+            *leading_shape,
+            config.x_bit_num,
+            1,
+            self.lane_num,
+            self.scan_num,
+            _POLARITY_NUM,
+            config.w_digit_num,
+        )
         # Shape: [...] -> [..., x_bit=1, row=1, lane=1, scan=1, polarity=1, w_digit=1]
-        bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
+        bl_v_ref__V = self.cablc_vref.values()[..., None, None, None, None, None, None]
+        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit]
+        bl_driver_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape)
+        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape)
 
-        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit] -> [..., x_bit, row=1, phys_col]
-        bl_driver_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
-        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit] -> [..., x_bit, row=1, phys_col]
-        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape).flatten_axes(-4, -1)
+        # Shape: [..., lane, scan] -> [..., x_bit=1, row=1, lane, scan, polarity=1, w_digit=1]
+        seat_mask = None if phase_mask is None else phase_mask[..., None, None, :, :, None, None]
+        if seat_mask is not None:
+            bl_driver_snap = replace(
+                bl_driver_snap, v_open__V=bl_driver_snap.v_open__V.where(seat_mask, self._sl_v_ref__V)
+            )
+            sl_driver_snap = replace(
+                sl_driver_snap, v_open__V=sl_driver_snap.v_open__V.where(seat_mask, self._sl_v_ref__V)
+            )
+        bl_driver_snap = bl_driver_snap.flatten_axes(-4, -1)
+        sl_driver_snap = sl_driver_snap.flatten_axes(-4, -1)
 
         # Shape: [..., x_bit, row, col=1]
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
+            leading_shape=(*leading_shape, config.x_bit_num),
             wl_phase_dims=(-3,),
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -431,8 +464,8 @@ class Xue2020JsscCimMacro(CimMacro):
         # Shape: [..., x_bit, row=1, phys_col] -> [..., x_bit, row=1, lane, scan, polarity, w_digit]
         i_bl_seat__uA = array_dcop.i_bl_port__uA.unflatten(-1, seat_axes)
         i_sl_seat__uA = array_dcop.i_sl_port__uA.unflatten(-1, seat_axes)
-        self.cablc.drive(i_port__uA=i_bl_seat__uA)
-        self.sl_driver.drive(i_port__uA=i_sl_seat__uA)
+        self.cablc.drive(i_port__uA=i_bl_seat__uA, enable=seat_mask)
+        self.sl_driver.drive(i_port__uA=i_sl_seat__uA, enable=seat_mask)
 
         # Shape: [..., x_bit, lane, scan, polarity, w_digit]
         i_dl = array_dcop.i_bl_port__uA.squeeze(self.array.row_dim).unflatten(-1, seat_axes)
@@ -463,7 +496,11 @@ class Xue2020JsscCimMacro(CimMacro):
         i_dl_pn = i_sc_phase.select(-4, -1)
 
         if record_dynamic_energy:
-            self._record_sinwp_sc_dynamic_energy(i_sc_phase, sample__ns=sample__ns, detect__ns=detect__ns)
+            self._record_sinwp_sc_dynamic_energy(
+                i_sc_phase,
+                sample__ns=sample__ns,
+                detect__ns=detect__ns,
+            )
 
         # --- 5: PN-ISUB single-ended magnitude + sign ---
 
@@ -474,17 +511,25 @@ class Xue2020JsscCimMacro(CimMacro):
         sign = i_n__uA > i_p__uA
 
         if record_dynamic_energy:
-            self._record_pn_isub_dynamic_energy(i_p__uA, i_n__uA, i_sub__uA, detect__ns=detect__ns)
+            self._record_pn_isub_dynamic_energy(
+                i_p__uA,
+                i_n__uA,
+                i_sub__uA,
+                detect__ns=detect__ns,
+                active_mask=phase_mask,
+            )
 
         # --- 6: TMCSA quantize against the per-instance reference ladder ---
 
         # Shape: [..., lane, scan]
-        code = self.tmcsa.convert(i_sub__uA, adc_i_refs__uA, active_bits=adc_active_bits)
+        code = self.tmcsa.convert(i_sub__uA, adc_i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
         # Shape: [..., lane, scan]
         signed = torch.where(sign, -code, code)
 
         # --- 7: Control energy ---
 
-        self.control.execute((*signed.shape[:-2], signed.shape[-1]))
+        scan_mask = None if phase_mask is None else phase_mask.any(dim=-2)
+        self.control.execute((*leading_shape, self.scan_num), enable=scan_mask)
 
-        return signed
+        # Shape: [..., lane, scan] -> [..., output]
+        return signed.flatten(-2)

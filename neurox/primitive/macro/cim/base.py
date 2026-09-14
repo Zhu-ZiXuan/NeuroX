@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, final, overload
 
 import torch
 from torch import Tensor
 
 from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
+from neurox.common.torch_compat import torch_assert_async
 from neurox.encoding import Encoding, Transcoder
 
 if TYPE_CHECKING:
@@ -241,6 +242,7 @@ class CimMacro(
         return self._w_transcoder.value_range
 
     @final
+    @torch.compile(dynamic=False, fullgraph=True)
     @torch.no_grad()
     def vec_mat_mul(
         self,
@@ -248,6 +250,7 @@ class CimMacro(
         *,
         quantization_mode: int,
         adc_active_bits: int | None,
+        effective_output_num: Tensor | None = None,
     ) -> Tensor:
         """Run one conversion per word-line plane.
 
@@ -257,6 +260,12 @@ class CimMacro(
                 may be selected per conversion; unselected positions must be
                 zero. Entries must lie in `x_value_range`.
                 Shape: `[..., input]`.
+            effective_output_num: Number of valid leading logical outputs per operation.
+                Its shape must broadcast to the input's instance-aligned leading shape
+                without enlarging it.
+                `None` enables every output. Unselected output codes are zero.
+                A zero count requires all corresponding input entries to be zero.
+                Shape: `[...]`.
             quantization_mode: Index selecting one reference operating point
                 and its calibrated output scale.
             adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
@@ -275,17 +284,60 @@ class CimMacro(
             raise ValueError(
                 f"require: x.shape[-1] ({x.shape[-1] if x.ndim else None}) == input_num ({self.input_num})"
             )
+        leading_shape = torch.broadcast_shapes(x.shape[:-1], self.inst_shape)
+        if effective_output_num is not None:
+            effective_output_num_broadcast_shape = torch.broadcast_shapes(effective_output_num.shape, leading_shape)
+            if effective_output_num_broadcast_shape != leading_shape:
+                raise ValueError("effective_output_num must broadcast to x's leading shape without expanding it")
+            torch_assert_async(
+                torch.all((effective_output_num != 0) | (x == 0).all(dim=-1)),
+                "zero effective_output_num requires zero input",
+            )
+        phase_mask = None if effective_output_num is None else self._get_phase_mask(effective_output_num)
         output = self._vec_mat_mul_impl(
             x,
+            leading_shape=leading_shape,
             quantization_mode=quantization_mode,
             adc_active_bits=adc_active_bits,
+            phase_mask=phase_mask,
         )
-        expected_shape = (*x.shape[:-1], self.lane_num, self.scan_num)
+        expected_shape = (*leading_shape, self.output_num)
         if tuple(output.shape) != expected_shape:
             raise ValueError(
                 f"require: vec_mat_mul implementation output shape {expected_shape}; got {tuple(output.shape)}"
             )
-        return output.flatten(-2)
+        if effective_output_num is not None:
+            logical_indices = torch.arange(self.output_num, device=output.device)
+            output = output.where(logical_indices < effective_output_num.unsqueeze(-1), 0)
+        return output
+
+    @overload
+    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: None = None) -> float: ...
+
+    @overload
+    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: Tensor) -> Tensor: ...
+
+    @final
+    @torch.no_grad()
+    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: Tensor | None = None) -> float | Tensor:
+        """Return operation duration from the longest active lane schedule.
+
+        Args:
+            adc_active_bits: Active ADC resolution; `None` uses the maximum.
+            effective_output_num: Valid leading logical outputs per operation;
+                `None` requests all outputs of every instance.
+                Shape: `[...]`.
+
+        Returns:
+            Full-scan duration as a float when the count is `None`; otherwise,
+            durations with the same shape and device as the count tensor.
+        """
+        self._check_adc_active_bits(adc_active_bits)
+        per_scan__ns = self._latency_per_scan__ns(adc_active_bits=adc_active_bits)
+        if effective_output_num is None:
+            return self.scan_num * per_scan__ns
+        effective_scan_num = self._get_phase_mask(effective_output_num).sum(dim=-1).amax(dim=-1)
+        return effective_scan_num * per_scan__ns
 
     def rescale_factor(
         self,
@@ -315,6 +367,7 @@ class CimMacro(
         factor = self.config.rescale_factors[quantization_mode]
         return factor * float(1 << (self.adc_bits - adc_active_bits))
 
+    @final
     def to_ideal(self) -> IdealCimMacro:
         """Return an ideal twin using the calibrated output scales.
 
@@ -374,12 +427,24 @@ class CimMacro(
         raise NotImplementedError
 
     @abstractmethod
-    def latency__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of one complete `vec_mat_mul` call [ns].
+    def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
+        """Return the circuit duration of one scan, including input-digit phases."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
+        """Map a valid logical-output prefix to the programmed readout layout.
+
+        The mapping agrees with weight programming and output ordering. Each
+        lane uses a contiguous prefix of scan positions.
 
         Args:
-            adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
-                requests this macro's highest available precision.
+            effective_output_num: Integer counts in `[0, output_num]`.
+                Shape: `[...]`.
+
+        Returns:
+            Boolean activity of each lane in each scan.
+            Shape: `[..., lane, scan]`.
         """
         raise NotImplementedError
 
@@ -399,18 +464,39 @@ class CimMacro(
         self,
         x: Tensor,
         *,
+        leading_shape: tuple[int, ...],
         quantization_mode: int,
         adc_active_bits: int | None,
+        phase_mask: Tensor | None,
     ) -> Tensor:
-        """Return the canonical readout layout before output flattening.
+        """Restore physical readouts to logical output order.
+
+        Args:
+            x: Input data retaining its original broadcast layout.
+                Shape: `[..., input]`.
+            leading_shape: Complete caller and instance shape after broadcasting
+                the input's leading shape with `inst_shape`.
+            phase_mask: Broadcastable lane/scan activity; `None` enables every phase.
+                Applies to drive commands
+                and skipped circuit events, never to solved currents or their energy.
+                Shape: `[..., lane, scan]`.
 
         Returns:
-            Macro output codes with the readout axes kept separate.
-            Shape: `[..., lane, scan]`.
+            Codes ordered along the logical output axis used by `program`.
+            The base class zero-fills positions beyond the valid logical prefix.
+            Shape: `[..., output_num]`.
         """
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
+
+    @final
+    def _get_phase_mask(self, effective_output_num: Tensor) -> Tensor:
+        if effective_output_num.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
+            raise TypeError("effective_output_num must contain integers")
+        counts = effective_output_num.to(torch.int64)
+        torch_assert_async(((counts >= 0) & (counts <= self.output_num)).all(), "invalid effective_output_num")
+        return self._phase_mask_from_effective_output_num(counts)
 
     @final
     def _check_quantization_mode(self, quantization_mode: int) -> None:

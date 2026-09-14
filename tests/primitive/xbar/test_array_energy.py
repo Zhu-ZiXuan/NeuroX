@@ -124,6 +124,7 @@ def _solve(
     with Profiler(leading_rank=len(leading_shape) - len(wl_phase_dims)) as profiler, torch.no_grad():
         dcop = array.solve_dc(
             v_wl__V=v_wl__V.unsqueeze(array.col_dim),
+            leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref__V, shape=bl_ref__V.shape),
             sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref__V, shape=sl_ref__V.shape),

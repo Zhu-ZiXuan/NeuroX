@@ -117,6 +117,7 @@ def _solve_trace(array: XbarArray1t1r):
     v_wl__V, bl_snap, sl_snap = _inputs(array)
     return array.solve_dc_trace(
         v_wl__V=v_wl__V,
+        leading_shape=tuple(v_wl__V.shape[:-2]),
         wl_phase_dims=(-3,),
         bl_driver_snap=bl_snap,
         sl_driver_snap=sl_snap,
@@ -136,7 +137,7 @@ def test_trace_preserves_array_observation_layout(device: torch.device) -> None:
     assert traced[0].i_bl_port__uA.shape == (5, 1, 1, _COL_NUM)
     assert trace.residual__V.shape[:-1] == traced[0].v_bl_port__V.shape
     assert trace.node_trace is not None
-    assert trace.node_trace.residual__uA.shape[:-2] == traced[0].v_bl_node__V.shape
+    assert trace.node_trace.residual__uA.shape[:-2] == (5, 1, _ROW_NUM, _COL_NUM)
     assert trace.node_trace.residual__uA.shape[-1] == trace.residual__V.shape[-1]
     assert trace.node_trace.limited.shape == (
         *traced[0].v_bl_port__V.shape,
@@ -150,3 +151,27 @@ def test_trace_preserves_array_observation_layout(device: torch.device) -> None:
         valid = ~residual.isnan()
         assert valid.any()
         assert not ((~valid[..., :-1]) & valid[..., 1:]).any()
+
+
+def test_compact_word_lines_use_explicit_leading_shape(device: torch.device) -> None:
+    array = _build_array(device=device)
+    v_wl__V, bl_snap, sl_snap = _inputs(array)
+    leading_shape = tuple(v_wl__V.shape[:-2])
+    compact = v_wl__V[0, 0]
+    expected = array.solve_dc(
+        v_wl__V=compact.expand_as(v_wl__V),
+        leading_shape=leading_shape,
+        wl_phase_dims=(-3,),
+        bl_driver_snap=bl_snap,
+        sl_driver_snap=sl_snap,
+    )
+    actual = array.solve_dc(
+        v_wl__V=compact,
+        leading_shape=leading_shape,
+        wl_phase_dims=(1,),
+        bl_driver_snap=bl_snap,
+        sl_driver_snap=sl_snap,
+    )
+    assert actual.i_bl_port__uA.shape == (5, 1, 1, _COL_NUM)
+    torch.testing.assert_close(actual.i_bl_port__uA, expected.i_bl_port__uA)
+    torch.testing.assert_close(actual.v_bl_port__V, expected.v_bl_port__V)

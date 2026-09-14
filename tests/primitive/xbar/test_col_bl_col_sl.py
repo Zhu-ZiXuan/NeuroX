@@ -254,7 +254,7 @@ def _solver(kwargs: dict[str, Any]) -> solver.ColBlColSlArraySolver[Any, Any, An
         cell=kwargs["cell"],
         bl_driver=kwargs["bl_driver"],
         sl_driver=kwargs["sl_driver"],
-        dtype=kwargs["bl_driver_snap"].v_ref__V.dtype,
+        dtype=kwargs["bl_driver_snap"].v_open__V.dtype,
     )
 
 
@@ -280,8 +280,8 @@ def _used_iterations(residual: Tensor, *, history_ndim: int = 1) -> Tensor:
 def test_settled_nodes_still_require_port_updates(device: torch.device, record_trace: bool) -> None:
     kwargs = _nonideal_kwargs(device)
     port_solver = _solver(kwargs)
-    bl = kwargs["bl_driver_snap"].v_ref__V
-    sl = kwargs["sl_driver_snap"].v_ref__V
+    bl = kwargs["bl_driver_snap"].v_open__V
+    sl = kwargs["sl_driver_snap"].v_open__V
     shape = kwargs["cell_snap"].v_wl__V.shape
     is_active = torch.ones_like(bl, dtype=torch.bool)
 
@@ -429,12 +429,12 @@ def _nonideal_kwargs(device: torch.device) -> dict[str, Any]:
     old_bl_snap = kwargs["bl_driver_snap"]
     old_sl_snap = kwargs["sl_driver_snap"]
     bl_driver, bl_snap = _nonideal_driver(
-        reference=old_bl_snap.v_ref__V,
+        reference=old_bl_snap.v_open__V,
         inst_shape=old_bl.inst_shape,
         r_out__MOhm=2e-3,
     )
     sl_driver, sl_snap = _nonideal_driver(
-        reference=old_sl_snap.v_ref__V,
+        reference=old_sl_snap.v_open__V,
         inst_shape=old_sl.inst_shape,
         r_out__MOhm=3e-3,
     )
@@ -476,11 +476,11 @@ def test_complete_runtime_snap_leading_is_solved_as_one_population(device: torch
     kwargs["cell_snap"] = cell.snapshot(control=control, shape=control.shape)
     port_shape = (*control.shape[:-2], 1, control.shape[-1])
     kwargs["bl_driver_snap"] = kwargs["bl_driver"].snapshot(
-        v_ref__V=kwargs["bl_driver_snap"].v_ref__V.expand(port_shape),
+        v_ref__V=kwargs["bl_driver_snap"].v_open__V.expand(port_shape),
         shape=port_shape,
     )
     kwargs["sl_driver_snap"] = kwargs["sl_driver"].snapshot(
-        v_ref__V=kwargs["sl_driver_snap"].v_ref__V.expand(port_shape),
+        v_ref__V=kwargs["sl_driver_snap"].v_open__V.expand(port_shape),
         shape=port_shape,
     )
     _, trace = _solve(kwargs, record_trace=True)
@@ -577,8 +577,8 @@ def test_wire_newton_correction_obeys_step_limit(device: torch.device) -> None:
     kwargs["bl_segment_r__MOhm"] = 2e-3
     kwargs["sl_segment_r__MOhm"] = 4e-3
     node_solver = _solver(kwargs).node_solver
-    v_bl_port__V = kwargs["bl_driver_snap"].v_ref__V
-    v_sl_port__V = kwargs["sl_driver_snap"].v_ref__V
+    v_bl_port__V = kwargs["bl_driver_snap"].v_open__V
+    v_sl_port__V = kwargs["sl_driver_snap"].v_open__V
     node_shape = kwargs["cell_snap"].v_wl__V.shape
     v_bl_node__V = v_bl_port__V.expand(node_shape)
     v_sl_node__V = v_sl_port__V.expand(node_shape)

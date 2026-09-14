@@ -59,7 +59,9 @@ def _run(macro: Xue2020JsscCimMacro, x: Tensor) -> Tensor:
     """One VMM at the witness resolution; codes on CPU."""
     with torch.no_grad():
         out = macro.vec_mat_mul(
-            x.to(next(macro.buffers()).device), quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS
+            x.to(next(macro.buffers()).device),
+            quantization_mode=QUANTIZATION_MODE,
+            adc_active_bits=TINY_ADC_BITS,
         )
     return out.cpu()
 
@@ -97,7 +99,11 @@ def test_dynamic_energy_is_additive_over_the_ensemble(device: torch.device) -> N
         one = build_calibrated_macro(device=device)
         one.program(w[die].to(device))
         with Profiler() as prof_one, torch.no_grad():
-            one.vec_mat_mul(x[die].to(device), quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
+            one.vec_mat_mul(
+                x[die].to(device),
+                quantization_mode=QUANTIZATION_MODE,
+                adc_active_bits=TINY_ADC_BITS,
+            )
         separate__fJ += Reporter(one).total_dynamic_energy__fJ(prof_one)
 
     assert ensemble__fJ == pytest.approx(separate__fJ)

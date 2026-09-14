@@ -488,8 +488,8 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         # Materialize reference broadcasts so every loop-carried tensor has the
         # same dense layout as the values returned by its first update.
         # Shape: [..., row=1, col]
-        v_bl_port__V = bl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
-        v_sl_port__V = sl_driver_snap.v_ref__V.clone(memory_format=torch.contiguous_format)
+        v_bl_port__V = bl_driver_snap.v_open__V.clone(memory_format=torch.contiguous_format)
+        v_sl_port__V = sl_driver_snap.v_open__V.clone(memory_format=torch.contiguous_format)
         # Shape: [..., row, col]
         node_shape = list(v_bl_port__V.shape)
         node_shape[row_dim] = row_num

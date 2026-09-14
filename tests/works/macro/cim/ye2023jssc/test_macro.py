@@ -75,10 +75,38 @@ def test_macro_energy_rows_follow_physical_owners(device: torch.device) -> None:
 
     with Profiler() as profiler:
         macro.vec_mat_mul(
-            torch.ones(INPUT_NUM, dtype=torch.int32, device=device), quantization_mode=0, adc_active_bits=4
+            torch.ones(INPUT_NUM, dtype=torch.int32, device=device),
+            quantization_mode=0,
+            adc_active_bits=4,
         )
 
     rows = reporter.by_name(profiler)
     assert ".bl_conduction" in rows
     assert ".tbl_conduction" in rows
     assert "rscsa" in rows
+
+
+def test_partial_scan_selects_drive_events_and_latency(device: torch.device) -> None:
+    macro = build_macro(device=device, inst_shape=(2,), lane_num=2, scan_num=2)
+    macro.program(torch.ones((2, INPUT_NUM, OUTPUT_NUM), dtype=torch.int32, device=device))
+    x = torch.ones((3, 1, INPUT_NUM), dtype=torch.int32, device=device)
+    counts = torch.tensor([[0, 0], [1, 3], [2, 4]], device=device)
+    x[0] = 0
+    stamp_names(macro)
+    with Profiler(leading_rank=1) as profiler:
+        output = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS, effective_output_num=counts)
+    assert torch.equal(
+        output,
+        torch.full_like(output, INPUT_NUM).where(torch.arange(OUTPUT_NUM, device=device) < counts.unsqueeze(-1), 0),
+    )
+    records = {
+        r.qualified_name + ("." + r.channel if r.channel else ""): r.dynamic_energy__fJ for r in profiler.records
+    }
+    assert records["rscsa"][0] == 0
+    assert records[".bl_conduction"][0] == 0
+    assert records[".bl_conduction"][1] > 0
+    assert records[".bl_conduction"][2] > 0
+    assert torch.equal(
+        macro.latency__ns(adc_active_bits=ADC_BITS, effective_output_num=counts),
+        torch.tensor([[0, 0], [9, 18], [18, 18]], device=device),
+    )

@@ -219,29 +219,31 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         self,
         *,
         v_wl__V: Tensor,
+        leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
     ) -> _Dcop:
         """Return the converged array DC operating point.
 
-        The WL lines declare the call's complete leading shape. One or more
-        leading axes group the WL phases that share a held BL/SL rest
+        One or more leading axes group the WL phases that share a held BL/SL rest
         boundary. The caller supplies both grid axes in the array's axis order,
         with a singleton column axis for WL. The array broadcasts each row drive
         across its columns before snapshotting the cells; both boundary snaps carry the same
-        leading and repeat their nominal references along the phase axes.
+        leading and repeat their zero-load voltages along the phase axes.
 
         Args:
-            v_wl__V: Analog drive, one value per word line.
+            v_wl__V: Analog drive, one value per word line. Its leading axes
+                broadcast to `leading_shape`.
                 Shape: `[..., row, col=1]`.
-            wl_phase_dims: Axes of `v_wl__V` whose Cartesian product contains
+            leading_shape: Complete per-call leading shape, including WL phase axes.
+            wl_phase_dims: Axes of the full `[*leading_shape, row, col]` layout whose Cartesian product contains
                 the WL phases under one held rest boundary. Every axis must be
                 leading rather than either of the final two grid axes.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call
-                shape `[..., row=1, col]`; its `v_ref__V` is also the ideal BL rest level.
+                shape `[..., row=1, col]`; its `v_open__V` is also the zero-load BL rest level.
             sl_driver_snap: Per-solve SL clamp snap at the full per-call
-                shape `[..., row=1, col]`; its `v_ref__V` is also the ideal SL rest level.
+                shape `[..., row=1, col]`; its `v_open__V` is also the zero-load SL rest level.
 
         Returns:
             The array's converged DC operating point at both boundaries.
@@ -253,6 +255,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         """
         dcop, _ = self._solve_dc_impl(
             v_wl__V=v_wl__V,
+            leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -265,6 +268,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         self,
         *,
         v_wl__V: Tensor,
+        leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
@@ -277,6 +281,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         """
         dcop, trace = self._solve_dc_impl(
             v_wl__V=v_wl__V,
+            leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -290,6 +295,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         self,
         *,
         v_wl__V: Tensor,
+        leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
@@ -300,17 +306,17 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         row_dim = self.row_dim
         col_dim = self.col_dim
 
-        # --- 1: read the canonical leading from the word-line drive ---
+        # --- 1: resolve phase axes in the complete solve layout ---
 
         if not wl_phase_dims:
             raise ValueError("wl_phase_dims must name at least one leading axis")
-        wl_phase_dims = tuple(dim + v_wl__V.ndim if dim < 0 else dim for dim in wl_phase_dims)
-        if any(dim < 0 or dim >= v_wl__V.ndim - 2 for dim in wl_phase_dims):
+        solve_ndim = len(leading_shape) + 2
+        wl_phase_dims = tuple(dim + solve_ndim if dim < 0 else dim for dim in wl_phase_dims)
+        if any(dim < 0 or dim >= len(leading_shape) for dim in wl_phase_dims):
             raise ValueError("wl_phase_dims must contain only leading axes, not the final two grid axes")
         if len(set(wl_phase_dims)) != len(wl_phase_dims):
             raise ValueError("wl_phase_dims must not contain duplicate axes")
         wl_phase_dims = tuple(sorted(wl_phase_dims))
-        leading_shape = tuple(v_wl__V.shape[:-2])
         if v_wl__V.shape[row_dim] != row_num:
             raise ValueError(f"v_wl__V row axis must be row_num {row_num}; got {v_wl__V.shape[row_dim]}")
         if v_wl__V.shape[col_dim] != 1:
@@ -420,8 +426,8 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         phase_energy__fJ = result.energy__fJ
         if phase_energy__fJ is not None:
             phase_energy__fJ = phase_energy__fJ.sum(dim=wl_phase_dims)
-            v_bl_rest__V = bl_driver_snap.v_ref__V
-            v_sl_rest__V = sl_driver_snap.v_ref__V
+            v_bl_rest__V = bl_driver_snap.v_open__V
+            v_sl_rest__V = sl_driver_snap.v_open__V
             # Remove later axes first so earlier phase indices keep their meaning.
             for dim in reversed(wl_phase_dims):
                 v_bl_rest__V = v_bl_rest__V.select(dim, 0)
@@ -506,9 +512,9 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         array_dims = (self.row_dim, self.col_dim)
 
         # Shape: [..., row=1, col]
-        v_bl_rest__V = bl_driver_snap.v_ref__V
+        v_bl_rest__V = bl_driver_snap.v_open__V
         # Shape: [..., row=1, col]
-        v_sl_rest__V = sl_driver_snap.v_ref__V
+        v_sl_rest__V = sl_driver_snap.v_open__V
 
         # Shape: [..., row, col] -> [...]
         bl_node_e__fJ = e_cap_excursion__fJ(

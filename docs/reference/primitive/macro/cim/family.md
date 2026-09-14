@@ -13,7 +13,11 @@ The macro configuration fixes the logical input count $N$, parallel readout-lane
 
 $$M = L S,$$
 
-Internally, converter-facing tensors use `[..., lane_num, scan_num]` and flatten in lane-major, scan-minor order. A concrete macro alone maps the logical input and output directions to physical rows, columns, digits, and peripheral circuits.
+Each concrete macro owns its internal readout layout and restores results to the logical output order used by `program`. The public result always has shape `[..., M]`; its ordering is independent of the physical lane and scan assignment.
+
+A read may select a prefix of the logical outputs. `effective_output_num` supplies one count per operation, without an output axis; its shape broadcasts to the instance-aligned leading shape of the input without enlarging it. A scalar applies the same count everywhere. The concrete output mapping determines which readout lanes participate in each scan. Each lane uses a contiguous scan prefix; operation duration is the longest lane's active scan count multiplied by the duration of one scan. The first selected number of logical outputs carries valid codes; every remaining position is zero-filled.
+
+Disabled word-line selections and closed column branches change the electrical drive conditions. Currents that remain under those conditions retain their conduction cost. Conversion and control events are charged only when executed.
 
 One conversion selects at most $A$ input positions. Unselected positions are zero; a selected position still counts against the limit when its data value is zero. The selection limit bounds the conversion dot-product magnitude used when designing and calibrating the readout.
 

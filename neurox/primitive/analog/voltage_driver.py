@@ -61,13 +61,8 @@ class VoltageDriverDcop(DcopBase):
 
 
 class VoltageDriverSnap(SnapBase):
-    v_ref__V: Tensor
-    """NOMINAL reference port voltage — the ideal value, carrying no offset
-    or thermal draw."""
-    v_perturb__V: Tensor
-    """Driver-owned perturbation on top of the nominal reference — the static
-    per-instance offset plus the per-call thermal draw, whichever the policy
-    enables; exactly zero under an all-off policy."""
+    v_open__V: Tensor
+    """Zero-load output voltage, including sampled offset and thermal noise."""
     r_out__MOhm: Tensor
     """Series output resistance — a frozen constant broadcast to the call
     shape."""
@@ -156,10 +151,8 @@ class VoltageDriver(ModuleBase):
 
         The reference and the fabricated static buffer both expand onto
         `shape`, and the thermal draw takes a fresh sample per position of it.
-        The returned snap's `v_ref__V` stays the NOMINAL reference — every
-        perturbation accumulates instead in `v_perturb__V`, which an all-off
-        policy leaves exactly zero, so the clamp reduces to the nominal
-        reference bit-exactly.
+        The zero-load output combines the nominal reference with the enabled
+        static offset and thermal noise.
 
         Sampling only: no energy is billed here, because the drive is billed
         at the converged port state a snapshot cannot see.
@@ -169,8 +162,8 @@ class VoltageDriver(ModuleBase):
         shares one sample across accesses that are physically distinct.
 
         Args:
-            v_ref__V: Injected reference / zero-current port voltage — the
-                Thevenin open-circuit voltage, broadcastable to `shape`.
+            v_ref__V: Nominal reference voltage before driver offset and noise,
+                broadcastable to `shape`.
             shape: Full per-call shape to expand the reference and the
                 fabricated offset onto and to draw the thermal noise at.
 
@@ -183,16 +176,23 @@ class VoltageDriver(ModuleBase):
         # The slope is one number for every position, and the expand is the
         # stride-0 view that says so without storing it.
         return _Snap(
-            v_ref__V=v_ref__V,
-            v_perturb__V=v_perturb__V,
+            v_open__V=v_ref__V + v_perturb__V,
             r_out__MOhm=self._r_out__MOhm.expand(shape),
         )
 
     @torch.no_grad()
-    def drive(self, *, i_port__uA: Tensor) -> None:
-        """Record one access at the converged port-current layout."""
+    def drive(self, *, i_port__uA: Tensor, enable: Tensor | None = None) -> None:
+        """Record enabled boundary accesses at the port-current layout.
+
+        `enable` selects startup events, independently of the current
+        amplitude. `None` enables all events. Conduction energy belongs to
+        the circuit supplying the port.
+        """
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(self._energy_per_op__fJ.expand(i_port__uA.shape))
+            energy = self._energy_per_op__fJ.expand(i_port__uA.shape)
+            if enable is not None:
+                energy = energy.where(enable, 0)
+            self._record_dynamic_energy(energy)
 
     @torch.no_grad()
     def solve_dc(
@@ -211,14 +211,14 @@ class VoltageDriver(ModuleBase):
                 Accepted and ignored — this driver is closed-form.
 
         Returns:
-            Port state, where `v_port__V = snap.v_ref__V +
-            snap.v_perturb__V - i_port__uA * snap.r_out__MOhm` and
+            Port state, where `v_port__V = snap.v_open__V -
+            i_port__uA * snap.r_out__MOhm` and
             `dvport_di__MOhm = -snap.r_out__MOhm` broadcast to `i_port__uA`
             — the derivative of that map, which the series drop makes
             non-positive.
         """
         del v_port_init__V
         return _Dcop(
-            v_port__V=snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm,
+            v_port__V=snap.v_open__V - i_port__uA * snap.r_out__MOhm,
             dvport_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),
         )

@@ -6,6 +6,8 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torch
 from torch import Tensor
 
@@ -177,12 +179,19 @@ class Ye2023JsscCimMacro(CimMacro):
             )
         self._register_functional_buffers(dtype=dtype)
 
-    def latency__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of all serialized output-row scans."""
+    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
+        # Shape: [output] -> [lane, scan]
+        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
+            self.lane_num, self.scan_num
+        )
+        # Shape: [..., lane, scan]
+        return output_indices < effective_output_num[..., None, None]
+
+    def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
+        """Circuit latency of one output-row scan."""
         self._check_adc_active_bits(adc_active_bits)
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
-        access__ns = self.config.t_settle__ns + self.rscsa.latency__ns(active_bits=adc_active_bits)
-        return self.scan_num * access__ns
+        return self.config.t_settle__ns + self.rscsa.latency__ns(active_bits=adc_active_bits)
 
     def _init_children(self, *, dtype: torch.dtype) -> None:
         config = self.config
@@ -306,23 +315,23 @@ class Ye2023JsscCimMacro(CimMacro):
         state_idx = state_idx.unsqueeze(-3)
         self.array.program(state_idx.contiguous())
 
-    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,
         *,
+        leading_shape: tuple[int, ...],
         quantization_mode: int,
         adc_active_bits: int | None,
+        phase_mask: Tensor | None,
     ) -> Tensor:
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         config = self.config
-        leading_shape = x.shape[:-1]
         access__ns = config.t_settle__ns + self.rscsa.latency__ns(active_bits=adc_active_bits)
 
         # --- 1: drive each logical input across the physical columns ---
 
         # Shape: [..., input] -> [..., w_digit, input]
-        x_code = x.unsqueeze(-2).expand(*leading_shape, self._w_digit_num, self.input_num)
+        x_code = x.unsqueeze(-2).expand(*x.shape[:-1], self._w_digit_num, self.input_num)
         # Shape: [..., w_digit, input] -> [..., col]
         bl_code = self._append_disabled_rsm(x_code, dim=-2).flatten(-2)
         # Shape: [..., col]
@@ -330,26 +339,38 @@ class Ye2023JsscCimMacro(CimMacro):
 
         # --- 2: append the serialized row-scan axis ---
 
-        # Shape: [scan, row, col=1] -> [..., scan, row, col=1]
-        v_wl__V = self._v_wl_scan__V.expand(*leading_shape, self.scan_num, self.row_num, 1)
+        # Shape: [scan, row, col=1]
+        v_wl__V = self._v_wl_scan__V
+        if phase_mask is not None:
+            # Shape: [..., lane, scan] -> [..., scan=1, row, col=1]
+            row_mask = phase_mask.flatten(-2)[..., None, :, None]
+            v_wl__V = v_wl__V.where(row_mask, 0)
 
         # --- 3: solve every scan phase ---
 
         port_shape = (*leading_shape, self.scan_num, 1, self.col_num)
         # Shape: [..., col] -> [..., scan=1, row=1, col]
         bl_v_ref__V = v_bl__V.unsqueeze(-2).unsqueeze(self.array.row_dim)
+        sl_v_ref__V = self._v_sl__V.expand(port_shape)
         bl_driver_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=port_shape)
-        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._v_sl__V, shape=port_shape)
+        sl_driver_snap = self.sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=port_shape)
+        # Enable BL/SL driving when at least one lane uses the scan.
+        # Shape: [..., lane, scan] -> [..., scan, row=1, col=1]
+        scan_enable = None if phase_mask is None else phase_mask.any(dim=-2)[..., None, None]
+        if scan_enable is not None:
+            bl_driver_snap = replace(bl_driver_snap, v_open__V=bl_driver_snap.v_open__V.where(scan_enable, 0))
+            sl_driver_snap = replace(sl_driver_snap, v_open__V=sl_driver_snap.v_open__V.where(scan_enable, 0))
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
+            leading_shape=(*leading_shape, self.scan_num),
             wl_phase_dims=(-3,),
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )
 
         # Complete both boundary accesses at the converged port-current layout.
-        self.bl_driver.drive(i_port__uA=array_dcop.i_bl_port__uA)
-        self.sl_driver.drive(i_port__uA=array_dcop.i_sl_port__uA)
+        self.bl_driver.drive(i_port__uA=array_dcop.i_bl_port__uA, enable=scan_enable)
+        self.sl_driver.drive(i_port__uA=array_dcop.i_sl_port__uA, enable=scan_enable)
 
         # Shape: [..., scan, row] -> [..., scan, lane]
         i_tbl__uA = array_dcop.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices]
@@ -378,11 +399,13 @@ class Ye2023JsscCimMacro(CimMacro):
         # Shape: [..., lane, scan]
         i_signal__uA = i_tbl__uA - self.array.i_tbl_leak__uA
         # Shape: [..., lane, scan]
-        code = self.rscsa.convert(i_signal__uA, i_refs__uA, active_bits=adc_active_bits)
+        code = self.rscsa.convert(i_signal__uA, i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
 
-        # --- 6: unmodeled peripheral energy (per output access) ---
+        # --- 6: shared peripheral energy per active scan ---
 
-        self.mux_driver.execute(code.shape)
-        self.timing_ctrl.execute(code.shape)
+        control_mask = None if phase_mask is None else phase_mask.any(dim=-2)
+        self.mux_driver.execute((*leading_shape, self.scan_num), enable=control_mask)
+        self.timing_ctrl.execute((*leading_shape, self.scan_num), enable=control_mask)
 
-        return code
+        # Shape: [..., lane, scan] -> [..., output]
+        return code.flatten(-2)

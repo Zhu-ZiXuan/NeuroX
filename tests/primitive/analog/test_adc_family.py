@@ -84,6 +84,11 @@ def test_public_conversion_records_returned_energy_once() -> None:
     assert len(profiler.records) == 1
     assert len(prober.records) == 1
     torch.testing.assert_close(profiler.records[0].dynamic_energy__fJ, expected_energy)
+    record = prober.records[0]
+    torch.testing.assert_close(record.v_pos__V, v_pos)
+    torch.testing.assert_close(record.v_neg__V, v_neg)
+    assert record.input_name() == "v_diff__V"
+    torch.testing.assert_close(record.input_value(), v_pos - v_neg)
 
 
 def test_thermal_noise_scales_with_temperature(device: torch.device) -> None:

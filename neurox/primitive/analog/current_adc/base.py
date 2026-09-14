@@ -118,6 +118,7 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
         i_refs__uA: Tensor,
         *,
         active_bits: int,
+        enable: Tensor | None = None,
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
@@ -132,6 +133,8 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
                 a base-level contract.
                 Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
+            enable: Broadcastable conversion enables; disabled conversions
+                return zero and emit no conversion energy. `None` enables all conversions.
 
         Returns:
             Unsigned code values stored as `int32`, one per `i_in__uA` element, in
@@ -156,6 +159,10 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             raise ValueError("ADC implementation must return one code per input element")
         min_code, max_code = self.unsigned_range(active_bits)
         torch_assert_async(((code >= min_code) & (code <= max_code)).all(), "ADC output code outside active-bit range")
+        if enable is not None:
+            code = code.where(enable, 0)
+            if energy__fJ is not None:
+                energy__fJ = energy__fJ.where(enable, 0)
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
         if AdcProber.active():

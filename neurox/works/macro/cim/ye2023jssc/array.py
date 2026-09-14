@@ -131,12 +131,14 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         self,
         *,
         v_wl__V: Tensor,
+        leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
     ) -> _Dcop:
         dcop = super().solve_dc(
             v_wl__V=v_wl__V,
+            leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -147,12 +149,14 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         self,
         *,
         v_wl__V: Tensor,
+        leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
     ) -> tuple[_Dcop, _Trace]:
         dcop, trace = super().solve_dc_trace(
             v_wl__V=v_wl__V,
+            leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -228,7 +232,7 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         t2_gate_energy__fJ = e_cap_excursion__fJ(
             self._vdd__V,
             self._t2_gate_c_by_col__fF.unsqueeze(row_dim),
-            v_rest__V=bl_driver_snap.v_ref__V,
+            v_rest__V=bl_driver_snap.v_open__V,
             v_work__V=cell_dcop.v_x__V,
         ).sum(dim=array_dims)
         # Shape: [..., row, col] -> [...]

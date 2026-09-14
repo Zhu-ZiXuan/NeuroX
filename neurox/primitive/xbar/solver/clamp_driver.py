@@ -11,12 +11,8 @@ class ClampSnap(Protocol):
     """Required clamp-snapshot interface."""
 
     @property
-    def v_ref__V(self) -> Tensor:
-        """NOMINAL reference or zero-current port voltage, free of driver-owned perturbation.
-
-        A concrete snap keeps any offset or noise draw in dedicated fields of
-        its own, folded in by `solve_dc`.
-        """
+    def v_open__V(self) -> Tensor:
+        """Zero-load output voltage, including sampled driver non-idealities."""
         ...
 
 

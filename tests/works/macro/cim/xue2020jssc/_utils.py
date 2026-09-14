@@ -296,5 +296,9 @@ def decode(
     device = macro_device(macro)
     macro.program(w_signed.to(device))
     with torch.no_grad():
-        out = macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        out = macro.vec_mat_mul(
+            x.to(device),
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
+        )
     return out.cpu()

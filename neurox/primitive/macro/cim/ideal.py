@@ -124,7 +124,15 @@ class IdealCimMacro(CimMacro):
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
 
-    def latency__ns(self, *, adc_active_bits: int | None) -> float:
+    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
+        # Shape: [output] -> [lane, scan]
+        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
+            self.lane_num, self.scan_num
+        )
+        # Shape: [..., lane=1, scan=1]
+        return output_indices < effective_output_num[..., None, None]
+
+    def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
         """Zero — an arithmetic oracle has no circuit latency."""
         self._check_adc_active_bits(adc_active_bits)
         return 0.0
@@ -166,13 +174,14 @@ class IdealCimMacro(CimMacro):
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
         self._w = w.detach().clone()
 
-    @torch.compile(dynamic=False, fullgraph=True)
     def _vec_mat_mul_impl(
         self,
         x: Tensor,
         *,
+        leading_shape: tuple[int, ...],
         quantization_mode: int,
         adc_active_bits: int | None,
+        phase_mask: Tensor | None,
     ) -> Tensor:
 
         # --- 1: accumulate the programmed integer planes ---
@@ -199,11 +208,7 @@ class IdealCimMacro(CimMacro):
         else:
             code = self._convert_zero_point(plane_dot, factor=factor, adc_active_bits=adc_active_bits)
 
-        # --- 3: restore the readout axes ---
-
-        # Shape: [..., output] -> [..., lane, scan]
-        output: Tensor = code.unflatten(-1, (self.lane_num, self.scan_num))
-        return output
+        return code
 
     def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
         code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)

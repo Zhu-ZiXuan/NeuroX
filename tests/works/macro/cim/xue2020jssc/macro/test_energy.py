@@ -62,7 +62,11 @@ def _run(
     macro = build_macro(config, device=device)
     macro.program(w.to(device))
     with Profiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        macro.vec_mat_mul(
+            x.to(device),
+            quantization_mode=quantization_mode,
+            adc_active_bits=adc_active_bits,
+        )
     return prof, Reporter(macro)
 
 
@@ -116,6 +120,7 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     v_blc = macro.cablc_vref.values()
     dcop = macro.array.solve_dc(
         v_wl__V=v_wl.unsqueeze(macro.array.col_dim),
+        leading_shape=leading,
         wl_phase_dims=(-3,),
         bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape).flatten_axes(-4, -1),
         sl_driver_snap=macro.sl_driver.snapshot(
@@ -194,7 +199,11 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
         macro = build_macro(config, device=device)
         macro.program(w.to(device))
         with Profiler() as prof, torch.no_grad():
-            macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
+            macro.vec_mat_mul(
+                x.to(device),
+                quantization_mode=QUANTIZATION_MODE,
+                adc_active_bits=TINY_ADC_BITS,
+            )
         by_name = Reporter(macro).by_name(prof)
         cablc = by_name.get(".cablc", 0.0)
         array = by_name.get("array", 0.0)
@@ -417,3 +426,21 @@ def test_tmcsa_grows_with_phase_windows(device: torch.device) -> None:
 
     assert e_base > e_zero
     assert e_double == pytest.approx(2.0 * e_base - e_zero)
+
+
+def test_partial_outputs_close_columns_without_erasing_solved_currents(device: torch.device) -> None:
+    macro = build_macro(build_config(), device=device, inst_shape=(2,))
+    macro.program(_w_full().to(device).expand(2, -1, -1))
+    x = torch.ones((5, 1, TINY_INPUT_NUM), dtype=torch.int32, device=device)
+    counts = torch.arange(5, device=device).unsqueeze(-1)
+    x[0] = 0
+    full = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=TINY_ADC_BITS)
+    with Profiler(leading_rank=1) as profiler:
+        partial = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=TINY_ADC_BITS, effective_output_num=counts)
+    assert torch.equal(partial, full.where(torch.arange(TINY_OUTPUT_NUM, device=device) < counts.unsqueeze(-1), 0))
+    for record in profiler.records:
+        assert record.dynamic_energy__fJ[0] == 0
+    duration = macro.latency__ns(adc_active_bits=TINY_ADC_BITS, effective_output_num=counts)
+    assert duration[0] == 0
+    assert duration[1] * 2 == duration[2]
+    assert duration[2] == duration[3] == duration[4]
