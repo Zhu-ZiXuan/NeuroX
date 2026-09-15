@@ -12,7 +12,7 @@ The mapping distinguishes parallel replication from temporal reuse. Replication 
 
 ## Mapping and aggregation
 
-Each mapping has a corresponding aggregation: digit slices require positional weighting, contraction partitions require summation, and output partitions require restoration to logical order. Their pairing determines both numerical meaning and the digital hardware used to assemble results.
+Each mapping has a corresponding aggregation: digit slices require positional weighting, contraction partitions require summation, and output partitions require restoration to logical order. Their pairing determines numerical meaning. Input-tile summation is evaluated functionally without modeled hardware cost; input-phase accumulation and precision reconstruction retain their digital accounting.
 
 Engine-side transformations use exact integer arithmetic. Padding represents zero, and trimming removes padded positions. The physical macro access introduces the modeled analog and conversion effects. An ideal access therefore provides a control for the same mapping and aggregation.
 

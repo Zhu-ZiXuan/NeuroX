@@ -50,9 +50,9 @@ Window gather, weight flattening, output folding, and bias addition are exact in
 | $C_{\mathrm{in}}, C_{\mathrm{out}}$ | input / output channels | — | `w_logical_shape` |
 | $k_h, k_w$ | kernel extent | — | `w_logical_shape` |
 | $s_h, s_w$; $p_h, p_w$; $d_h, d_w$ | stride; padding; dilation | — | `stride`, `padding`, `dilation` |
-| $K$ | flattened convolution-window length | — | engine logical shape |
+| $K$ | flattened convolution-window length | — | flattened kernel shape |
 | $M$ | output-window count | — | runtime input axis |
-| $N$ | output-channel count | — | engine logical shape |
+| $N$ | output-channel count | — | flattened kernel shape |
 | $b$ | integer bias vector of length $C_{\mathrm{out}}$ | — | `_int_bias` |
 
 ## Assumptions, scope & validity

@@ -28,7 +28,8 @@ _ROOT_LIFT_EXCEPTIONS = {
             "set_temperature",
             "stamp_names",
             "cim_macro_from_file",
-            "cim_unit_from_file",
+            "linear_unit_from_file",
+            "conv2d_unit_from_file",
             "diff_vadc_from_file",
             "iadc_from_file",
         }

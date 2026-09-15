@@ -1,87 +1,44 @@
 # Algorithm-engineer workflow
 
-Goal: measure how a model's accuracy and energy behave when its conv and linear layers run on a simulated RRAM crossbar instead of ideal arithmetic.
+Train an original floating-point model, then observe its operator energy with NeuroX during checkpoint inference. The original model supplies the predictions; energy observation checks that each sample's logits match inference without observation exactly.
 
-The route is manual operator replacement. Define a quantized model whose conv and linear layers are backed by `neurox.architecture.unit`, train it to a QAT checkpoint, then evaluate that checkpoint against a chip described by a `--config` / `--policy` file pair. The public surface stops at `neurox.architecture.unit` ([Python API](../../api/python.md)); everything under `example/` is user code demonstrating the route, not part of it.
+The bundled examples provide LeNet-5 on MNIST and BERT-small on SST-2. Each directory contains `model_float.py`, `data.py`, `train_float.py`, and an `evaluate.py` entry into the shared energy evaluation code. BERT requires `transformers` and `datasets` in addition to the core dependencies.
 
-The bundled pipelines walk the whole route end to end:
+## Train the original model
 
-- **LeNet-5 on MNIST** (`example/lenet/`) — a small CNN, fast to train, whose activation range lands easily on the chip's quantization grid.
-- **BERT-small on SST-2** (`example/bert/`) — a transformer encoder over a much wider activation range and a deeper layer count. It needs `transformers` and `datasets` beyond the core dependencies.
-
-Both directories carry the same set of scripts: `model_float.py` and `model_quant.py` (the float model and its quantized twin), `data.py` (the dataset loader), `train_float.py` and `train_quant.py` (the two training stages), `quant.py` (the per-layer quantized conv and linear operators), `macro_factory.py` (config and policy loading, one unit per layer), and `evaluate.py` (the measured run).
-
-Every runnable script requires `--device`; no script selects a CPU or GPU implicitly. LeNet is feasible on CPU; BERT is not.
-
-## Step 1 — train the float reference
-
-Float training touches no simulated hardware. It produces the teacher and the initialization the next stage starts from.
+LeNet trains from random initialization and saves a floating-point state dictionary:
 
 ```bash
 python -m example.lenet.train_float --device cuda:0 --dataset-dir dataset/mnist \
     --checkpoint weight/lenet_float.pth
 ```
 
-The BERT pipeline fine-tunes instead of training from scratch, with the same three flags plus `--max-length`:
+BERT fine-tunes the pretrained encoder and classification head:
 
 ```bash
 python -m example.bert.train_float --device cuda:0 --dataset-dir dataset/sst2 \
     --checkpoint weight/bert_small_float.pth
 ```
 
-## Step 2 — quantization-aware training
+The corresponding Make targets are `make train-lenet DEVICE=cuda:0` and `make train-bert DEVICE=cuda:0`. Training parameters can be overridden through `DATASET_DIR`, `RAW_CKPT`, `BATCH_SIZE`, `EPOCHS`, and `LR`; BERT also accepts `MAX_LENGTH`.
 
-QAT consumes the float checkpoint and emits a QAT checkpoint. No macro runs in its forward pass: it settles the per-layer observers and trains the model on the quantization grid the chip will present, distilling from the frozen float teacher.
+## Evaluate energy
 
-```bash
-python -m example.lenet.train_quant --device cuda:0 --dataset-dir dataset/mnist \
-    --float-checkpoint weight/lenet_float.pth --checkpoint weight/lenet_qat.pth
-```
-
-`--calibration-batches` sets how many forward-only train-mode batches run before training so the observers settle; `--kd-alpha` and `--kd-temperature` weigh the hard-label and distillation terms.
-
-## Step 3 — evaluate against the chip
-
-Evaluation is where the crossbar enters. `--config` and `--policy` name TOML files inside the pipeline directory, not paths, and the checkpoint must be the one step 2 wrote — the script rejects a checkpoint whose schema tag does not match.
+Evaluation loads the original checkpoint and observes supported linear and convolution operators:
 
 ```bash
-python -m example.lenet.evaluate    --device cuda:0 --dataset-dir dataset/mnist \
-    --checkpoint weight/lenet_qat.pth \
-    --config macro_with_physical_xbar.toml --policy macro_with_physical_xbar.policy.toml
+python -m example.lenet.evaluate --device cuda:0 --checkpoint weight/lenet_float.pth \
+    --preset xue2020jssc --num-samples 10 --output log/energy/lenet_xue.json
+python -m example.bert.evaluate --device cuda:0 --checkpoint weight/bert_small_float.pth \
+    --preset ye2023jssc --num-samples 10 --output log/energy/bert_ye.json
 ```
 
-`--max-samples` caps the samples processed, which is the knob for a quick smoke run.
+Checkpoints and evaluation data must be available locally. `--num-samples` bounds the evaluation size. `--batch-chunk` and `--spatial-chunk` bound the work submitted to each measurement call. The Make targets `eval-lenet` and `eval-bert` accept `DEVICE`, `EVAL_CKPT`, `PRESET`, and `MAX_SAMPLES`.
 
-The bundled `make` targets bind the checkpoint, config, policy, and batch size per model, on a shared device, and each is overridable on the command line (`DEVICE=`, `BATCH_SIZE=`, `EVAL_CKPT=`, `CONFIG=`, `POLICY=`, `CIM_MACRO=`):
+The energy observer maps operands using the bundled circuit presets and runs ideal macro twins. It reports configured digital-operation energy; analog dynamic energy is excluded. Operand encoding belongs to the independent measurement and does not alter the original model. Attention matrix products and operations outside the observed linear/convolution products are outside this report's scope.
 
-```bash
-make eval-lenet MAX_SAMPLES=100 BATCH_SIZE=10
-make eval-bert  MAX_SAMPLES=100
-```
+## Read the report
 
-## Step 4 — read the report
+The JSON output records the checkpoint, preset, sample count, correct predictions, whether logits were preserved, and the operator energy breakdown. Digital accumulator and shift-adder costs are explicit evaluation assumptions, so these results establish integration rather than calibrated physical-macro energy estimates.
 
-The run names the config and policy it used, then prints accuracy beside the PPA figures: total area, total leakage power, total dynamic energy, and the modeled latency per sample, followed by the per-module dynamic-energy breakdown that shows where the energy went.
-
-Leakage power and latency stay separate figures rather than being multiplied into a static energy: static energy is leakage times the measurement or duty-cycle period chosen by the deployment model. The axes behind these numbers are in [PPA accounting](../../system_design/ppa_accounting.md).
-
-The measurement objects are public, so the same readout works in your own evaluation script: `neurox.stamp_names` names the assembled model once, `neurox.Profiler` collects the records one measured call emits, and `neurox.Reporter` turns the model plus that profiler into the static and dynamic rows ([Python API](../../api/python.md)).
-
-## Comparing against an idealized macro
-
-`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining the selected quantization window and finite integer ADC resolutions; `--cim_macro physical` runs the macro as configured. Passing `adc_active_bits = None` requests the selected macro's highest available precision: maximum-width physical conversion or exact ideal execution. Pass an explicit finite width when both paths must use the same quantization resolution.
-
-A standalone ideal config is the other route: `macro_with_ideal_xbar.toml` for LeNet and `macro_ideal.toml` for BERT, each with its own policy file. These instantiate an ideal macro directly from hand-authored parameters tied to no fabricated chip, so they serve flow bring-up and carry no hardware provenance.
-
-## The two config files
-
-A run is described by two files, whose schema, `_neurox_*` directives, and preset mechanism are specified in [Configuration](../../api/configuration.md):
-
-- **`--config`** — the immutable circuit design. In the bundled files the top section is `[cim_unit]`, and the macro it drives sits at `[cim_unit.engine.cim_macro_config]`, either tagged with `_neurox_class` or pulled from a scheme's chip params by `_neurox_use`. To target a different chip, point that section at that chip's params.
-- **`--policy`** — the mutable nonideality switches, mirroring the config's section tree. The example policies pull in a scheme's all-off preset, so every nonideality starts off; enable one by overriding its `bool` inline after the `_neurox_use` line that pulls the preset in.
-
-Each quantization mode the chip declares has one calibrated entry in `rescale_factors`, derived by the [calibration guides](../calibration/README.md). The stored value applies at `adc_bits`; at runtime the macro combines it with `adc_active_bits` to express one physical output code in MAC units. `quant.py` folds the resulting `rescale_factor` into its per-channel scales. Train and evaluate against the same config pair, or the folded scales no longer match the codes the chip returns.
-
-## Bounding memory on the physical path
-
-The physical path can require substantial memory, especially for convolution workloads. Start with a small `--batch-size`, then tune `solve_chunk_size` under the array's policy table using the compiled workload. Smaller chunks reduce intermediate storage while full-call inputs and outputs remain live. Results should agree across chunk sizes within numerical tolerance, with the same physical accesses and sampled values. Use the [performance measurement procedure](../../validation/structured_while_solve.md#execution-diagnostics) to distinguish compilation cost, execution time, and peak allocation.
+For custom measurement code, `neurox.stamp_names` names an assembled module tree, `neurox.Profiler` collects dynamic-energy records, and `neurox.Reporter` aggregates static metrics and dynamic energy ([Python API](../../api/python.md)). Static metrics include leakage power; converting it to static energy requires a measurement period chosen by the caller, as described in [PPA accounting](../../system_design/ppa_accounting.md).

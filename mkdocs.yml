@@ -72,12 +72,12 @@ nav:
     - Unit:
       - Family: reference/architecture/unit/family.md
       - CIM:
-        - Engine:
-          - Family: reference/architecture/unit/cim/engine/family.md
-          - Input activation: reference/architecture/unit/cim/engine/input_activation.md
-          - Placement: reference/architecture/unit/cim/engine/placement.md
-          - Weight slicing: reference/architecture/unit/cim/engine/weight_slice.md
-          - Input slicing: reference/architecture/unit/cim/engine/x_slice.md
+        - Matrix mapping:
+          - Family: reference/architecture/mapping/family.md
+          - Input activation: reference/architecture/mapping/input_activation.md
+          - Placement: reference/architecture/mapping/placement.md
+          - Weight slicing: reference/architecture/mapping/weight_slice.md
+          - Input slicing: reference/architecture/mapping/x_slice.md
       - Conv2d mapping: reference/architecture/unit/conv2d.md
   - Primitive:
     - Analog:

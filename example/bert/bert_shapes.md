@@ -1,6 +1,6 @@
 # BERT-small linear-layer shapes
 
-Shapes for every `nn.Linear` that `example/bert/macro_factory.py` swaps for a crossbar-backed counterpart when this example runs against `google/bert_uncased_L-4_H-512_A-8` (4 layers, hidden=512, heads=8, intermediate=2048, binary classification head → num_labels=2). The walk uses example-side code only — NeuroX core stops at the macro layer.
+Linear-operator shapes in `google/bert_uncased_L-4_H-512_A-8` (4 layers, hidden=512, heads=8, intermediate=2048, and a binary classification head). Energy evaluation observes these operators in the original checkpoint model.
 
 `weight.shape = (out_features, in_features)`.  Tile counts assume the `example/bert/macro.toml` geometry of **64 × 64** (`col_num=64`, `row_num=64`): `Tc = ceil(out/64)`, `Tr = ceil(in/64)`, `tiles = Tc · Tr`.
 

@@ -149,10 +149,6 @@ class IdealCimMacro(CimMacro):
     def adc_bits(self) -> int:
         return self.config.adc_bits
 
-    def to_ideal(self) -> IdealCimMacro:
-        """Return this already ideal macro."""
-        return self
-
     def rescale_factor(
         self,
         *,

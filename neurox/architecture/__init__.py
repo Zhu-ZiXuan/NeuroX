@@ -1,5 +1,5 @@
 """Architectural compute-unit models."""
 
-from . import unit
+from . import mapping, unit
 
-__all__ = ["unit"]
+__all__ = ["mapping", "unit"]

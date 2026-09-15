@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from neurox.api.module_from_file import cim_macro_from_file
+from neurox.api.factory import cim_macro_from_file
 from neurox.common.module import DEFAULT_T__K
 from neurox.primitive.macro.cim import CimMacro
 from neurox.tools.module import prepare_module

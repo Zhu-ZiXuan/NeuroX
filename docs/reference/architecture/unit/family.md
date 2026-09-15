@@ -1,12 +1,12 @@
 # Unit family
 
-A unit realizes one exact-integer tensor operator by lowering it to a matrix-multiplication-shaped execution substrate and undoing every representation axis that lowering introduces.
+A unit realizes one integer tensor operator. CIM implementations map it onto physical macros; ideal implementations execute the corresponding PyTorch operator.
 
 ## Operator law
 
 Over its accepted integer value domain, a unit returns the result of its declared operator before requantization. Any deviation from exact integer arithmetic belongs to the execution substrate rather than to the lowering.
 
-Every operator lowers through three seams: a program-time weight-to-matrix map, a call-time activation-to-planes map, and an aggregation map that removes exactly the axes introduced by the first two. A shape change introduced by lowering is undone there; input-leading axes pass through without reduction, reordering, or interpretation.
+A mapped implementation restores every representation axis introduced by its mapping. Linear input-leading axes pass through unchanged; convolution window positions are restored to the output spatial layout.
 
 When the operator carries an integer bias, the bias is programmed with the weight and added in the int64 accumulation domain after substrate aggregation. It introduces no execution cycle or dynamic-energy event of its own.
 

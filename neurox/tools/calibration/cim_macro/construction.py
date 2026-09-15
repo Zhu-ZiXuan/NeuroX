@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from neurox.api.module_from_file import cim_macro_from_file
+from neurox.api.factory import cim_macro_from_file
 from neurox.common.validate_mixin import ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, IdealCimMacro
 from neurox.tools.config import resolve_relative_path

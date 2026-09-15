@@ -79,93 +79,45 @@ validate_ye2023jssc: require-device ## Run the ye2023jssc WH-2T1R CIM macro vali
 
 
 # --- Examples ---
-#
-# Two reference pipelines: LeNet-5 on MNIST and BERT-small on SST-2.
-# All per-target defaults (dataset, checkpoints, hyperparameters) are
-# declared via GNU Make target-specific variables.  A small, shared
-# vocabulary (DATASET_DIR, RAW_CKPT, HAT_CKPT, EPOCHS, LR, ...) is
-# reused across both models; each target binds its own default, and
-# command-line overrides still win, e.g.:
-#
-#   make hat-lenet EPOCHS=30 LR=3e-5
-#   make eval-bert MAX_SAMPLES=1000
-#
-# Hardware knobs: HAT uses the bundled 1T1R TOML and the lossless
-# ideal xbar; evaluate defaults to ``physical`` for deployment
-# accuracy.  Override ``CIM_MACRO=...`` to swap.
 
-MAX_SAMPLES ?=
+MAX_SAMPLES ?= 1
 
-# LeNet-5 on MNIST
-train-lenet hat-lenet eval-lenet: DATASET_DIR ?= dataset/mnist
-train-lenet hat-lenet eval-lenet: RAW_CKPT    ?= weight/lenet_float.pth
-train-lenet hat-lenet eval-lenet: HAT_CKPT    ?= weight/lenet_hat.pth
-train-lenet hat-lenet eval-lenet: BATCH_SIZE  ?= 128
-train-lenet:                      EPOCHS      ?= 50
-train-lenet:                      LR          ?= 1e-2
-hat-lenet:                        EPOCHS      ?= 80
-hat-lenet:                        LR          ?= 2e-5
-hat-lenet:                        CAL_BATCHES ?= 128
-hat-lenet:                        KD_ALPHA    ?= 0.1
-hat-lenet:                        KD_TEMP     ?= 2.0
-hat-lenet:                        CIM_MACRO   ?= ideal
-eval-lenet:                       CIM_MACRO   ?= physical
-eval-lenet:                       EVAL_CKPT   ?= weight/lenet_qat.pth
-eval-lenet:                       CONFIG      ?= macro_with_physical_xbar.toml
-eval-lenet:                       POLICY      ?= macro_with_physical_xbar.policy.toml
+train-lenet: DATASET_DIR ?= dataset/mnist
+train-lenet: RAW_CKPT ?= weight/lenet_float.pth
+train-lenet: BATCH_SIZE ?= 128
+train-lenet: EPOCHS ?= 50
+train-lenet: LR ?= 1e-2
 
 .PHONY: train-lenet
 train-lenet: require-device ## Float-train LeNet-5 on MNIST
-	$(PYTHON) -m example.lenet.train --dataset-dir $(DATASET_DIR) --checkpoint $(RAW_CKPT) \
+	$(PYTHON) -m example.lenet.train_float --dataset-dir $(DATASET_DIR) --checkpoint $(RAW_CKPT) \
 		--device $(DEVICE) --batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR)
 
-.PHONY: hat-lenet
-hat-lenet: require-device ## Hardware-aware QAT for LeNet-5 (macro-in-the-loop, KD)
-	$(PYTHON) -m example.lenet.hat_qat --dataset-dir $(DATASET_DIR) \
-		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--calibration-batches $(CAL_BATCHES) \
-		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
+train-bert: DATASET_DIR ?= dataset/sst2
+train-bert: RAW_CKPT ?= weight/bert_small_float.pth
+train-bert: BATCH_SIZE ?= 32
+train-bert: MAX_LENGTH ?= 128
+train-bert: EPOCHS ?= 3
+train-bert: LR ?= 2e-5
 
+.PHONY: train-bert
+train-bert: require-device ## Float-fine-tune BERT-small on SST-2
+	$(PYTHON) -m example.bert.train_float --dataset-dir $(DATASET_DIR) --checkpoint $(RAW_CKPT) \
+		--device $(DEVICE) --batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
+		--max-length $(MAX_LENGTH)
+
+eval-lenet: EVAL_CKPT ?= weight/lenet_float.pth
+eval-lenet: PRESET ?= xue2020jssc
 .PHONY: eval-lenet
-eval-lenet: require-device ## Evaluate a LeNet QAT checkpoint on MNIST
-	$(PYTHON) -m example.lenet.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) --batch-size $(BATCH_SIZE) \
-		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
+eval-lenet: require-device ## Observe LeNet energy while retaining the original numerical output
+	$(PYTHON) -m example.lenet.evaluate --checkpoint $(EVAL_CKPT) --preset $(PRESET) \
+		--device $(DEVICE) --num-samples $(if $(MAX_SAMPLES),$(MAX_SAMPLES),1) --output log/energy/lenet_$(PRESET).json
 
-# BERT-small on SST-2
-hat-bert eval-bert: DATASET_DIR ?= dataset/sst2
-hat-bert eval-bert: RAW_CKPT    ?= weight/bert_small_float.pth
-hat-bert eval-bert: HAT_CKPT    ?= weight/bert_small_hat.pth
-hat-bert eval-bert: BATCH_SIZE  ?= 16
-hat-bert eval-bert: MAX_LENGTH  ?= 128
-hat-bert:           EPOCHS      ?= 10
-hat-bert:           LR          ?= 1e-4
-hat-bert:           CAL_BATCHES ?= 128
-hat-bert:           KD_ALPHA    ?= 0.5
-hat-bert:           KD_TEMP     ?= 2.0
-hat-bert:           KD_HIDDEN   ?= 0.3
-hat-bert:           CIM_MACRO        ?= ideal
-eval-bert:          CIM_MACRO        ?= physical
-eval-bert:          EVAL_CKPT   ?= weight/bert_small_qat.pth
-eval-bert:          CONFIG      ?= macro.toml
-eval-bert:          POLICY      ?= macro.policy.toml
-
-.PHONY: hat-bert
-hat-bert: require-device ## Hardware-aware QAT for BERT-small on SST-2 (KD + pooled MSE)
-	$(PYTHON) -m example.bert.hat_qat --dataset-dir $(DATASET_DIR) \
-		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--max-length $(MAX_LENGTH) --calibration-batches $(CAL_BATCHES) \
-		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP) --kd-hidden-weight $(KD_HIDDEN)
-
+eval-bert: EVAL_CKPT ?= weight/bert_small_float.pth
+eval-bert: PRESET ?= xue2020jssc
+eval-bert: MAX_LENGTH ?= 128
 .PHONY: eval-bert
-eval-bert: require-device ## Evaluate a BERT-small QAT checkpoint on SST-2
-	$(PYTHON) -m example.bert.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --max-length $(MAX_LENGTH) \
-		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
+eval-bert: require-device ## Observe BERT energy while retaining the original numerical output
+	$(PYTHON) -m example.bert.evaluate --checkpoint $(EVAL_CKPT) --preset $(PRESET) \
+		--device $(DEVICE) --num-samples $(if $(MAX_SAMPLES),$(MAX_SAMPLES),1) \
+		--sequence-length $(MAX_LENGTH) --output log/energy/bert_$(PRESET).json
