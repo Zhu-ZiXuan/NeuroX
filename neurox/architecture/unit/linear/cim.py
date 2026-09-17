@@ -26,7 +26,7 @@ _Config = LinearCimUnitConfig
 _Policy = LinearCimUnitPolicy
 
 
-@LinearUnit.register_impl(config_type=_Config, policy_type=_Policy)
+@LinearUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class LinearCimUnit(CimUnit, LinearUnit):
     """CIM linear operator using separate physical tiles without input-slot sharing."""
 

@@ -10,38 +10,55 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, PolicyBase, ProfileModule, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 
 
 class VoltageDriverConfig(ConfigBase):
+    # === Output impedance ===
+
     r_out__MOhm: float
     """Series output resistance — its NEGATIVE is the constant port-voltage slope
     ∂V_port/∂I; 0 recovers the ideal voltage-source limit."""
+
+    # === Nonidealities ===
+
     offset_sigma__V: float
     """σ of the static systematic per-instance offset on the reference."""
     thermal_sigma__V: float
     """σ of the per-solve Gaussian thermal noise on the reference."""
+
+    # === Static PPA ===
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
+    # === Dynamic energy ===
+
     energy_per_op__fJ: float
     """Per-column-op interface energy, e.g. one full C·V² interface-node
     precharge cycle; a physical zero is a legitimate value."""
-    area_per_inst__um2: float
-    leakage_per_inst__uW: float
-    """Carries all static power, including any internal amplifier / bias."""
 
     def validate(self) -> None:
+        super().validate()
 
-        # --- Source and noise ---
+        # --- Output impedance ---
 
         self._require_non_neg(self.r_out__MOhm, "r_out__MOhm")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.offset_sigma__V, "offset_sigma__V")
         self._require_non_neg(self.thermal_sigma__V, "thermal_sigma__V")
 
-        # --- PPA ---
+        # --- Static PPA ---
 
-        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+        # --- Dynamic energy ---
+
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 
 
 class VoltageDriverPolicy(PolicyBase):
@@ -74,7 +91,7 @@ _Dcop = VoltageDriverDcop
 _Snap = VoltageDriverSnap
 
 
-class VoltageDriver(ModuleBase):
+class VoltageDriver(ProfileModule):
     """Generic Thevenin voltage-source clamp driver.
 
     The port voltage follows `v_port = v_ref + v_perturb - i_port * r_out`, where
@@ -188,7 +205,7 @@ class VoltageDriver(ModuleBase):
         amplitude. `None` enables all events. Conduction energy belongs to
         the circuit supplying the port.
         """
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             energy = self._energy_per_op__fJ.expand(i_port__uA.shape)
             if enable is not None:
                 energy = energy.where(enable, 0)

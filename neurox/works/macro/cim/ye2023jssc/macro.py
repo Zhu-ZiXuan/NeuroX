@@ -39,29 +39,12 @@ from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 
 
 class Ye2023JsscCimMacroConfig(CimMacroConfig):
+    # === Digit geometry ===
+
     w_digit_num: int
     """Digits per weight."""
-
     w_digit_radix: int
     """Weight-digit radix."""
-
-    # === Device-bearing sub-blocks ===
-
-    array_config: Ye2023Jssc2t1rArrayConfig
-    adc_config: RsCsaIadcConfig
-    reference_config: ReferenceConfig
-    bl_driver_config: VoltageDriverConfig
-    sl_driver_config: VoltageDriverConfig
-
-    # === Unmodeled peripheral blocks ===
-
-    mux_driver_config: UnmodeledBlockConfig
-    timing_ctrl_config: UnmodeledBlockConfig
-
-    # === Timing ===
-
-    t_settle__ns: float
-    """Array settling duration before each RS-CSA conversion."""
 
     # === Biases and supply ===
 
@@ -72,6 +55,21 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     v_sl__V: float
     vdd__V: float
     """Core supply behind array-node charging."""
+
+    # === Timing ===
+
+    t_settle__ns: float
+    """Array settling duration before each RS-CSA conversion."""
+
+    # === Submodules ===
+
+    array_config: Ye2023Jssc2t1rArrayConfig
+    bl_driver_config: VoltageDriverConfig
+    sl_driver_config: VoltageDriverConfig
+    adc_config: RsCsaIadcConfig
+    reference_config: ReferenceConfig
+    mux_driver_config: UnmodeledBlockConfig
+    timing_ctrl_config: UnmodeledBlockConfig
 
     @property
     def w_digit_n(self) -> int:
@@ -104,14 +102,19 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     def validate(self) -> None:
         super().validate()
 
-        self._require_non_neg(self.t_settle__ns, "t_settle__ns")
+        # --- Biases and supply ---
+
         self._require_non_neg(self.v_bl__V, "v_bl__V")
         self._require_pos(self.v_wl_on__V, "v_wl_on__V")
         self._require_non_neg(self.v_tbl__V, "v_tbl__V")
         self._require_non_neg(self.v_sl__V, "v_sl__V")
         self._require_non_neg(self.vdd__V, "vdd__V")
 
-        # --- Readout reference ---
+        # --- Timing ---
+
+        self._require_non_neg(self.t_settle__ns, "t_settle__ns")
+
+        # --- Submodules ---
 
         expected_shape = (len(self.rescale_factors),)
         if self.reference_config.shape != expected_shape:
@@ -136,7 +139,7 @@ _Config = Ye2023JsscCimMacroConfig
 _Policy = Ye2023JsscCimMacroPolicy
 
 
-@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+@CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Ye2023JsscCimMacro(CimMacro):
     """WH-2T1R array with RSM disabled and a time-shared RS-CSA readout."""
 
@@ -379,7 +382,7 @@ class Ye2023JsscCimMacro(CimMacro):
 
         # --- 4: array conduction ---
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             self._record_dynamic_energy(
                 array_dcop.v_bl_port__V * array_dcop.i_bl_port__uA * access__ns,
                 channel="bl_conduction",

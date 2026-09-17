@@ -6,21 +6,24 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, NonProfileModule, PolicyBase
 
 
 class ImuxConfig(ConfigBase):
+    # === Multiplexing ===
+
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
     """Matched transport gain shared by every lane."""
 
     def validate(self) -> None:
+
+        # --- Multiplexing ---
+
         self._require_pos(self.mux_ratio, "mux_ratio")
         self._require_pos(self.mux_gain, "mux_gain")
 
@@ -33,10 +36,8 @@ _Config = ImuxConfig
 _Policy = ImuxPolicy
 
 
-class Imux(ModuleBase):
+class Imux(NonProfileModule):
     """Ideal N:1 time-share current mux — identity·gain transport."""
-
-    is_profile_target: ClassVar[bool] = False
 
     config: _Config
     policy: _Policy

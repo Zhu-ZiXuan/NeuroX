@@ -7,21 +7,28 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import final
 
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 
 
 class VdacConfig(ConfigBase, ABC):
+    # === Static PPA ===
+
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
     # === Required by base class ===
 
     def validate(self) -> None:
+        super().validate()
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -34,11 +41,7 @@ _Config = VdacConfig
 _Policy = VdacPolicy
 
 
-class Vdac(
-    ModuleBase,
-    RegistryMixin["_Config", "_Policy", "Vdac"],
-    ABC,
-):
+class Vdac(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
     """Base class for voltage-domain DAC implementations.
 
     A converter reports no duration; conversion settles within an externally
@@ -95,6 +98,18 @@ class Vdac(
             energy is emitted through the profiler side channel.
         """
         return self._convert_impl(code)
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     # === For subclass to implement or override ===
 

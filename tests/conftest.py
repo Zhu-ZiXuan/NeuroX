@@ -1,9 +1,16 @@
-"""Shared pytest fixture for caller-selected device placement."""
+"""Caller-selected device placement and isolation between compiled model fixtures."""
 
 import contextlib
 
 import pytest
 import torch
+
+
+@pytest.fixture(autouse=True)
+def isolate_compiler_cache() -> None:
+    # Independent models specialize the same functions; variants from earlier
+    # tests must not consume the next test's compiler recompile budget.
+    torch.compiler.reset()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

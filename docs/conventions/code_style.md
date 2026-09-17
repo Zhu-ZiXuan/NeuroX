@@ -89,7 +89,6 @@ Order a class header: docstring, class variable assignments, grouped state decla
 
 - A class variable defines and assigns a real value shared by every instance; a state declaration describes per-instance state and assigns at most an absent-state default.
 - A class variable assignment carries no banner.
-- A class reporting no silicon area of its own — one whose area and leakage are counted at its owner, or a pure container owning no silicon — declares the profile-target class variable false.
 - A declaration that carries a class-scope default — an optional programmed tensor defaulting to absent — is a state declaration, not a class variable, and stays inside its lifecycle group.
 
 ## Class state declarations
@@ -175,7 +174,7 @@ The convention unifies semantics, not surface spelling. Layout operations descri
 
 ## Dynamic-energy axes
 
-Submit energy through `ProfileMixin._record_dynamic_energy`.
+Submit energy through `ProfileModule._record_dynamic_energy`.
 
 At an emission site the shape annotation writes the caller block as a named group under the `*` prefix, a downstream contract slicing the tensor by that rank, and everything after it as `...`. Constant-per-element billing builds a 0-dim tensor holding the per-op constant and expands it onto the billed layout, so no full constant energy tensor is ever materialized; that constant fixes the energy dtype, the billed layout being typically an integer code or a reduced-precision signal.
 

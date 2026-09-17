@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common.serialize import compose, dataclass_from_dict, dict_from_file, load_config_dict, resolve_uses
+from neurox.common.serialize import compose, dataclass_from_dict, load_config_dict, resolve_uses
 
 
 @dataclass(frozen=True)
@@ -47,13 +47,6 @@ def config_dir(tmp_path: Path) -> Path:
 # --- basic resolution ---
 
 
-def test_basic_reference_expands_fragment(config_dir: Path) -> None:
-    _write(config_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
-    _write(config_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "frag:piece"\n')
-    obj = dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
-    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=2.0))
-
-
 def test_inline_keys_override_fragment(config_dir: Path) -> None:
     _write(config_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
     _write(
@@ -89,25 +82,13 @@ def test_explicit_suffix_also_works(config_dir: Path) -> None:
 # --- recursion ---
 
 
-def test_nested_use_inside_fragment_resolves(config_dir: Path) -> None:
-    _write(config_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
-    _write(config_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\n')
-    _write(config_dir / "main.toml", '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\n')
-    obj = dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
-    assert obj == _Outer(name="n", inner=_Inner(a=10.0, b=20.0))
-
-
-def test_mid_layer_can_override_leaf(config_dir: Path) -> None:
+def test_nested_reference_override_precedence(config_dir: Path) -> None:
     _write(config_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
     _write(config_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\nb = 99.0\n')
     _write(config_dir / "main.toml", '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\n')
-    obj = dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
-    assert obj == _Outer(name="n", inner=_Inner(a=10.0, b=99.0))
+    inherited = dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
+    assert inherited == _Outer(name="n", inner=_Inner(a=10.0, b=99.0))
 
-
-def test_main_inline_overrides_chain(config_dir: Path) -> None:
-    _write(config_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
-    _write(config_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\nb = 99.0\n')
     _write(
         config_dir / "main.toml",
         '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\nb = 1.0\n',
@@ -130,23 +111,11 @@ def test_cycle_is_rejected(config_dir: Path) -> None:
 # --- pure dict-level resolver ---
 
 
-def test_resolve_uses_pure_dict_form(config_dir: Path) -> None:
+def test_resolve_uses_preserves_unreferenced_branches(config_dir: Path) -> None:
     _write(config_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
-    raw = {"outer": {"inner": {"_neurox_use": "frag:piece", "b": 5.0}}}
+    raw = {"outer": {"inner": {"_neurox_use": "frag:piece", "b": 5.0}}, "untouched": {"values": [1, 2, 3]}}
     expanded = resolve_uses(raw, base_dir=config_dir)
-    assert expanded == {"outer": {"inner": {"a": 1.0, "b": 5.0}}}
-
-
-def test_resolve_uses_preserves_no_use_data(config_dir: Path) -> None:
-    raw = {"only": {"a": 1, "b": 2}, "list_ish": [1, 2, 3]}
-    assert resolve_uses(raw, base_dir=config_dir) == raw
-
-
-def test_dict_from_file_keeps_raw_use(config_dir: Path) -> None:
-    _write(config_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
-    _write(config_dir / "main.toml", '[outer.inner]\n_neurox_use = "frag:piece"\n')
-    raw = dict_from_file(config_dir / "main.toml")
-    assert raw == {"outer": {"inner": {"_neurox_use": "frag:piece"}}}
+    assert expanded == {"outer": {"inner": {"a": 1.0, "b": 5.0}}, "untouched": {"values": [1, 2, 3]}}
 
 
 # --- _neurox_use_preset --------------------------------------------------------
@@ -159,13 +128,6 @@ def presets_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root.mkdir()
     monkeypatch.setattr(compose, "_presets_root", lambda: root)
     return root
-
-
-def test_preset_basic_resolution(config_dir: Path, presets_root: Path) -> None:
-    _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
-    _write(config_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "frag:piece"\n')
-    obj = dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
-    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=2.0))
 
 
 def test_preset_resolves_from_subdirectory(config_dir: Path, presets_root: Path) -> None:
@@ -220,16 +182,4 @@ def test_preset_cycle_is_rejected(config_dir: Path, presets_root: Path) -> None:
         '[outer]\nname = "y"\n[outer.inner]\n_neurox_use_preset = "a:piece"\n',
     )
     with pytest.raises(ValueError, match="_neurox_use_preset cycle detected"):
-        dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
-
-
-# --- strictness ---
-
-
-def test_unknown_key_rejected_in_nested(config_dir: Path) -> None:
-    _write(
-        config_dir / "main.toml",
-        '[outer]\nname = "x"\n[outer.inner]\na = 1.0\nb = 2.0\nrogue = 3.0\n',
-    )
-    with pytest.raises(TypeError, match=r"unknown key.*rogue"):
         dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")

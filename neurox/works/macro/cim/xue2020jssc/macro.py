@@ -42,14 +42,12 @@ _POLARITY_NUM = 2  # PWG, NWG per weight digit
 
 
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
-    # === Weight / input geometry ===
+    # === Digit geometry ===
 
     w_digit_num: int
     """Magnitude digits per weight."""
-
     w_digit_radix: int
     """Radix of the magnitude digits."""
-
     x_bit_num: int
     """Activation bits, processed LSB-first in serial WL phases."""
 
@@ -57,39 +55,37 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
     dswct_ratio_msb: float
     """MSB-leg mirror ratio the per-digit DSWCT ratios are derived downward from."""
-
     sc_ratio_msb: float
     """MSB-bit SINWP-SC ratio."""
+
+    # === Biases and supply ===
+
+    v_wl_on__V: float
+    """Digital word-line high level."""
+    vdd__V: float
+    """Core analog supply."""
 
     # === Timing ===
 
     t_sample__ns: float
     """Duration of each sampled input-bit phase."""
-
     t_settle__ns: float
     """Live-bit settle duration before SAR sensing begins."""
 
-    # === Core analog supply ===
-
-    v_wl_on__V: float
-    """Digital word-line high level."""
-
-    vdd__V: float
-    """Core analog supply."""
+    # === Dynamic energy ===
 
     pn_isub_energy_per_op__fJ: float
     """Data-independent energy of one PN-ISUB sign decision per readout-lane access."""
 
     # === Submodules ===
 
-    control_config: UnmodeledBlockConfig
-    tmcsa_config: TmcsaConfig
     array_config: XbarArray1t1rConfig
     cablc_config: VoltageDriverConfig
     cablc_vref_config: ReferenceConfig
     sl_driver_config: VoltageDriverConfig
-
+    tmcsa_config: TmcsaConfig
     tmcsa_iref_config: ReferenceConfig
+    control_config: UnmodeledBlockConfig
 
     @property
     def w_digit_n(self) -> int:
@@ -122,24 +118,33 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     def validate(self) -> None:
         super().validate()
 
-        # --- Analog transfer and timing ---
+        # --- Readout ratios ---
 
         self._require_pos(self.dswct_ratio_msb, "dswct_ratio_msb")
         self._require_pos(self.sc_ratio_msb, "sc_ratio_msb")
 
-        self._require_pos(self.t_sample__ns, "t_sample__ns")
-        self._require_non_neg(self.t_settle__ns, "t_settle__ns")
+        # --- Biases and supply ---
+
         self._require_pos(self.v_wl_on__V, "v_wl_on__V")
         self._require_pos(self.vdd__V, "vdd__V")
+
+        # --- Timing ---
+
+        self._require_pos(self.t_sample__ns, "t_sample__ns")
+        self._require_non_neg(self.t_settle__ns, "t_settle__ns")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.pn_isub_energy_per_op__fJ, "pn_isub_energy_per_op__fJ")
+
+        # --- Submodules ---
+
         if self.cablc_vref_config.shape != ():
             raise ValueError(f"require: cablc_vref_config.shape ({self.cablc_vref_config.shape}) == ()")
         cablc_v_ref__V = self.cablc_vref_config.values
         if isinstance(cablc_v_ref__V, tuple):
             raise TypeError("cablc_vref_config.values must be scalar")
         self._require_in_closed_interval(cablc_v_ref__V, "cablc_vref_config.values", 0.0, self.vdd__V)
-
-        # --- ADC reference and quantization modes ---
 
         want_taps = (1 << self.tmcsa_config.bits) - 1
         expected_shape = (len(self.rescale_factors), want_taps)
@@ -172,7 +177,7 @@ _Config = Xue2020JsscCimMacroConfig
 _Policy = Xue2020JsscCimMacroPolicy
 
 
-@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+@CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Xue2020JsscCimMacro(CimMacro):
     """Xue2020 SINWP 1T1R CIM sub-array."""
 
@@ -471,7 +476,7 @@ class Xue2020JsscCimMacro(CimMacro):
         i_dl = array_dcop.i_bl_port__uA.squeeze(self.array.row_dim).unflatten(-1, seat_axes)
 
         # CABLC bills the whole VDD·I input branch; the array bills node capacitance.
-        record_dynamic_energy = self._is_dynamic_energy_profile_active()
+        record_dynamic_energy = self._is_profiler_active()
 
         if record_dynamic_energy:
             self._record_cablc_dynamic_energy(i_dl, sample__ns=sample__ns, detect__ns=detect__ns)

@@ -16,20 +16,26 @@ from neurox.primitive.macro.cim import CimMacroConfig, CimMacroPolicy
 
 
 class CimUnitConfig(ConfigBase, ABC):
-    area_per_inst__um2: float
-    """Unit-local peripheral area, excluding child circuits."""
-    leakage_per_inst__uW: float
-    """Unit-local static leakage, excluding child circuits."""
+    # === Weight slicing ===
 
-    cim_macro_config: CimMacroConfig
-    phase_accumulator_config: AccumulatorConfig
     w_slice_num: int
     w_slice_encoding: Encoding | None
     """Positional encoding; `None` preserves w in one unsliced digit."""
+
+    # === Input slicing ===
+
     x_slice_num: int
     x_slice_encoding: Encoding | None
     """Positional encoding; `None` preserves x in one unsliced digit."""
+
+    # === Tiling ===
+
     tiling: TilingMode
+
+    # === Submodules ===
+
+    cim_macro_config: CimMacroConfig
+    phase_accumulator_config: AccumulatorConfig
     w_shift_adder_config: ShiftAdderConfig | None
     """Weight reconstruction circuit; `None` uses a functional sum without circuit cost or register wrap."""
     x_shift_adder_config: ShiftAdderConfig | None
@@ -37,12 +43,16 @@ class CimUnitConfig(ConfigBase, ABC):
 
     def validate(self) -> None:
         super().validate()
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+        # --- Weight slicing ---
+
         self._require_pos(self.w_slice_num, "w_slice_num")
-        self._require_pos(self.x_slice_num, "x_slice_num")
         if self.w_slice_encoding is None and self.w_slice_num != 1:
             raise ValueError("w_slice_encoding=None requires w_slice_num=1")
+
+        # --- Input slicing ---
+
+        self._require_pos(self.x_slice_num, "x_slice_num")
         if self.x_slice_encoding is None and self.x_slice_num != 1:
             raise ValueError("x_slice_encoding=None requires x_slice_num=1")
 
@@ -51,19 +61,15 @@ class CimUnitPolicy(PolicyBase, ABC):
     cim_macro_policy: CimMacroPolicy
 
 
+_Config = CimUnitConfig
+_Policy = CimUnitPolicy
+
+
 class CimUnit:
     """Local construction and precision-recovery helpers for macro-backed operators."""
 
-    config: CimUnitConfig
-    policy: CimUnitPolicy
-
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+    config: _Config
+    policy: _Policy
 
     # === Tools for subclass and internal use ===
 

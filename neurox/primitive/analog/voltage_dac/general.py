@@ -15,13 +15,21 @@ from .base import Vdac, VdacConfig, VdacPolicy
 
 
 class GeneralVdacConfig(VdacConfig):
+    # === Transfer ===
+
     code_to_signal: tuple[float, ...]
     """Voltage lookup table indexed by integer code: entry `i` is the nominal
     analog output [V] for digital code `i`, and the length fixes the code
     count."""
+
+    # === Nonidealities ===
+
     drive_thermal__V: float
     """Gaussian thermal noise σ added to each output sample after LUT
     lookup."""
+
+    # === Dynamic energy ===
+
     code_to_per_op_energy__fJ: tuple[float, ...]
     """Dynamic energy of converting ONE element, indexed by that element's
     code — parallel to `code_to_signal`, so each level states what driving it
@@ -30,8 +38,16 @@ class GeneralVdacConfig(VdacConfig):
     def validate(self) -> None:
         super().validate()
 
+        # --- Transfer ---
+
         self._require_non_empty(self.code_to_signal, "code_to_signal")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.drive_thermal__V, "drive_thermal__V")
+
+        # --- Dynamic energy ---
+
         self._require_same_len(
             self.code_to_per_op_energy__fJ,
             "code_to_per_op_energy__fJ",
@@ -51,7 +67,7 @@ _Config = GeneralVdacConfig
 _Policy = GeneralVdacPolicy
 
 
-@Vdac.register_impl(config_type=_Config, policy_type=_Policy)
+@Vdac.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class GeneralVdac(Vdac):
     """General voltage DAC model with a code-to-voltage LUT."""
 
@@ -85,14 +101,6 @@ class GeneralVdac(Vdac):
         )
 
     @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
-    @property
     def code_max(self) -> int:
         return len(self.config.code_to_signal) - 1
 
@@ -104,7 +112,7 @@ class GeneralVdac(Vdac):
             enabled=self.policy.drive_thermal,
         )
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             # Each element costs what its own level costs, so the energy LUT
             # is gathered exactly as the signal LUT is.
             self._record_dynamic_energy(self._code_to_per_op_energy__fJ[code.long()])

@@ -12,7 +12,7 @@ from typing import final
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
@@ -32,17 +32,27 @@ class DiffVadcRecord(AdcRecord):
 
 
 class DiffVadcConfig(ConfigBase, ABC):
+    # === Resolution ===
+
     bits: int
     """Physical output bit width."""
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
-    """Physical area per ADC instance."""
     leakage_per_inst__uW: float
-    """Static leakage power per ADC instance."""
 
     # === Required by base class ===
 
     def validate(self) -> None:
+        super().validate()
+
+        # --- Resolution ---
+
         self._require_in_closed_interval(self.bits, "bits", 1, 31)
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -56,15 +66,7 @@ _Config = DiffVadcConfig
 _Policy = DiffVadcPolicy
 
 
-class DiffVadc(
-    ModuleBase,
-    RegistryMixin[
-        "_Config",
-        "_Policy",
-        "DiffVadc",
-    ],
-    ABC,
-):
+class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
     """Base class for differential voltage-domain ADC implementations.
 
     A converter owns its transfer structure and never its reference values:
@@ -161,7 +163,7 @@ class DiffVadc(
             v_neg__V,
             v_refs__V=v_refs__V,
             active_bits=active_bits,
-            record_energy=self._is_dynamic_energy_profile_active(),
+            record_energy=self._is_profiler_active(),
         )
         code = code.int()
         if code.shape != v_pos__V.shape:

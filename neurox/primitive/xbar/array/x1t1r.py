@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin
-from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, DcopBase, PolicyBase, ProfileModule
 from neurox.execution.chunking import run_chunked
 from neurox.primitive.physics import e_cap_excursion__fJ
 from neurox.primitive.xbar.cell import (
@@ -33,11 +33,17 @@ from neurox.primitive.xbar.solver import (
 
 
 class XbarArray1t1rConfig(ConfigBase):
+    # === Layout pitch ===
+
     row_cell_space__um: float
     col_cell_space__um: float
 
+    # === Wire resistance ===
+
     bl_segment_r__MOhm: float
     sl_segment_r__MOhm: float
+
+    # === Node capacitance ===
 
     bl_node_c__fF: float
     """Total capacitance to ground seen at each cell's BL node."""
@@ -47,6 +53,8 @@ class XbarArray1t1rConfig(ConfigBase):
     """Total capacitance to ground seen at each cell's SL node."""
     wl_node_c__fF: float
     """Total capacitance to ground seen at each cell's WL node."""
+
+    # === Submodules ===
 
     cell_config: XbarCell1t1rConfig
     """Its concrete subclass selects the cell model."""
@@ -59,7 +67,7 @@ class XbarArray1t1rConfig(ConfigBase):
         self._require_pos(self.row_cell_space__um, "row_cell_space__um")
         self._require_pos(self.col_cell_space__um, "col_cell_space__um")
 
-        # --- Rail links ---
+        # --- Wire resistance ---
 
         self._require_pos(self.bl_segment_r__MOhm, "bl_segment_r__MOhm")
         self._require_pos(self.sl_segment_r__MOhm, "sl_segment_r__MOhm")
@@ -117,7 +125,7 @@ class _Outputs(TensorDataClassMixin, PyTreeDataClassMixin):
     trace: _Trace | None
 
 
-class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
+class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
     The final two grid axes follow the solver's `row_dim` and `col_dim`,
@@ -301,7 +309,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ModuleBase):
         sl_driver_snap: SLSnapT,
         record_trace: bool,
     ) -> tuple[_Dcop, _Trace | None]:
-        record_energy = self._is_dynamic_energy_profile_active()
+        record_energy = self._is_profiler_active()
         row_num = self._row_num
         row_dim = self.row_dim
         col_dim = self.col_dim

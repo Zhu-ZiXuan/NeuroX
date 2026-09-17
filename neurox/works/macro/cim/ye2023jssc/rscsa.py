@@ -9,15 +9,25 @@ from neurox.primitive.analog.current_adc import SarIadc, SarIadcConfig, SarIadcP
 
 
 class RsCsaIadcConfig(SarIadcConfig):
+    # === Timing ===
+
     init__ns: float
     """Additional duration of the first bit-decision phase."""
+
+    # === Dynamic energy ===
+
     energy_per_bit__fJ: float
     """Data-independent switching energy of one bit decision."""
 
     def validate(self) -> None:
         super().validate()
 
+        # --- Timing ---
+
         self._require_non_neg(self.init__ns, "init__ns")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_bit__fJ, "energy_per_bit__fJ")
 
 

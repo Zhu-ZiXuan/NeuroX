@@ -82,56 +82,25 @@ def test_encode_decode_roundtrip_inside_value_range(transcoder: Transcoder) -> N
     assert torch.equal(decoded, x)
 
 
-@pytest.mark.parametrize("transcoder_type", [TrueFormTranscoder, CanonicalTranscoder])
-def test_encode_inserts_digit_axis_at_requested_dim(transcoder_type: type[Transcoder]) -> None:
-    transcoder = transcoder_type(radix=4, digit_count=3)
-    x = torch.arange(8, dtype=torch.int32).reshape(2, 4)
-    digits = transcoder.encode(x, dim=1)
-    assert digits.shape == (2, 3, 4)
-    assert torch.equal(transcoder.decode(digits, dim=1), x)
+def test_canonical_carry_reaches_a_nonadjacent_high_digit() -> None:
+    transcoder = CanonicalTranscoder(radix=4, digit_count=4)
+    values = torch.tensor([63, -63, 0], dtype=torch.int32)
+    encoded = transcoder.encode(values)
+    expected = torch.tensor([[-1, 0, 0, 1], [1, 0, 0, -1], [0, 0, 0, 0]], dtype=torch.int32)
+    assert torch.equal(encoded, expected)
+    assert torch.equal(transcoder.decode(encoded), values)
 
 
-def _canonical_representable_range(radix: int, digits: int) -> tuple[int, int]:
-    max_abs = sum((radix - 1) * (radix**power) for power in range(digits - 1, -1, -2))
-    return -max_abs, max_abs
-
-
-class TestCanonicalEncoder:
-    def test_known_case_radix4(self) -> None:
-        min_val, max_val = _canonical_representable_range(radix=4, digits=4)
-        x = torch.tensor([63], dtype=torch.int32)
-
-        assert min_val <= int(x.item()) <= max_val, "input outside representable range"
-
-        tc = CanonicalTranscoder(radix=4, digit_count=4)
-        encoded = tc.encode(x)
-        expected = torch.tensor([[-1, 0, 0, 1]], dtype=torch.int32)
-
-        assert torch.equal(encoded, expected), f"unexpected encoding: expected {expected}, got {encoded}"
-        assert torch.equal(tc.decode(encoded), x), "decode does not match original input"
-
-    def test_zero_negatives_and_boundaries(self) -> None:
-        radix = 4
-        digits = 4
-        min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
-        x = torch.tensor([0, -1, -63, -15, min_val, max_val], dtype=torch.int32)
-
-        assert torch.all((x >= min_val) & (x <= max_val)), "input outside representable range"
-
-        tc = CanonicalTranscoder(radix=radix, digit_count=digits)
-        encoded = tc.encode(x)
-        decoded_x = tc.decode(encoded)
-        assert torch.equal(decoded_x, x), "round-trip failed for zero / negative inputs"
-        assert torch.all(encoded[0] == 0), "encoding of 0 must be all zeros"
-
-    @pytest.mark.parametrize("radix", [2, 3, 4, 8])
-    @pytest.mark.parametrize("digits", [4, 8])
-    def test_full_range_fuzzing(self, radix: int, digits: int) -> None:
-        min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
-        x = torch.randint(min_val, max_val + 1, size=(1000,), dtype=torch.int32)
-
-        tc = CanonicalTranscoder(radix=radix, digit_count=digits)
-        encoded = tc.encode(x)
-        decoded_x = tc.decode(encoded)
-
-        assert torch.equal(decoded_x, x.long()), f"fuzzing failed at radix={radix}, digits={digits}"
+@pytest.mark.parametrize("radix", [2, 3, 4, 8])
+@pytest.mark.parametrize("digits", [4, 8])
+def test_canonical_roundtrip_includes_signed_boundaries(radix: int, digits: int) -> None:
+    transcoder = CanonicalTranscoder(radix=radix, digit_count=digits)
+    lo, hi = transcoder.value_range
+    generator = torch.Generator().manual_seed(31)
+    values = torch.cat(
+        (
+            torch.tensor([lo, hi, 0, -1], dtype=torch.int32),
+            torch.randint(lo, hi + 1, size=(1000,), dtype=torch.int32, generator=generator),
+        )
+    )
+    assert torch.equal(transcoder.decode(transcoder.encode(values)), values)

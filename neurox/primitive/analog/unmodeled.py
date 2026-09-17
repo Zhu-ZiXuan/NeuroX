@@ -9,19 +9,30 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 
 
 class UnmodeledBlockConfig(ConfigBase):
+    # === Static PPA ===
+
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-    """Carries the block's whole standing bias power."""
+
+    # === Dynamic energy ===
+
     energy_per_op__fJ: float
     """Flat dynamic energy of one modeled operation."""
 
     def validate(self) -> None:
+        super().validate()
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 
 
@@ -33,7 +44,7 @@ _Config = UnmodeledBlockConfig
 _Policy = UnmodeledBlockPolicy
 
 
-class UnmodeledBlock(ModuleBase):
+class UnmodeledBlock(ProfileModule):
     """Circuit block represented by flat per-instance and per-operation PPA."""
 
     config: _Config
@@ -66,7 +77,7 @@ class UnmodeledBlock(ModuleBase):
     @torch.no_grad()
     def execute(self, shape: tuple[int, ...], *, enable: Tensor | None = None) -> None:
         """Record enabled operations in `shape`; `None` enables every position."""
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             energy = self._energy_per_op__fJ.expand(shape)
             if enable is not None:
                 energy = energy.where(enable, 0)

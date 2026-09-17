@@ -19,6 +19,8 @@ from .base import Conv2dUnit, Conv2dUnitConfig, Conv2dUnitPolicy
 
 
 class Conv2dCimUnitConfig(Conv2dUnitConfig, CimUnitConfig):
+    # === Input placement ===
+
     merge: bool
     """Whether short input tiles share a macro through separate input slots."""
 
@@ -31,7 +33,7 @@ _Config = Conv2dCimUnitConfig
 _Policy = Conv2dCimUnitPolicy
 
 
-@Conv2dUnit.register_impl(config_type=_Config, policy_type=_Policy)
+@Conv2dUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Conv2dCimUnit(CimUnit, Conv2dUnit):
     """CIM-backed convolution using one programmed kernel matrix."""
 

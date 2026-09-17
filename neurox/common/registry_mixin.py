@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import final
+from typing import Self, final
 
-from .module import ConfigBase, ModuleBase, PolicyBase
+from .module import ConfigBase, PolicyBase
 
 
-class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBase]:
+class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase]:
     """Dispatch a module family from concrete config and policy types.
 
     The class that first mixes this in owns one registry table keyed by
@@ -18,14 +18,14 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
     implementations before resolving their config and policy pairs.
 
     Mix this in on the family base class, parameterized with the family's
-    abstract config, policy, and module types, and decorate each concrete
-    implementation with `register_impl` for the pair it serves. The
-    family base must expose a public classmethod that builds what
-    `_lookup_impl` returns, since callers of the family never reach the
-    registry themselves.
+    config and policy types, and decorate each concrete implementation with
+    the family base's `register_neurox_impl` for the pair it serves. Registration and
+    lookup are called on that base, so `Self` denotes the dispatched family.
+    The family base exposes the public classmethod that constructs the result
+    of `_lookup_impl`; implementations supply the execution behavior.
     """
 
-    _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[ModuleT]]
+    _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[Self]]
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -39,12 +39,12 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     @classmethod
     @final
-    def register_impl(
+    def register_neurox_impl(
         cls,
         *,
         config_type: type[ConfigT],
         policy_type: type[PolicyT],
-    ) -> Callable[[type[ModuleT]], type[ModuleT]]:
+    ) -> Callable[[type[Self]], type[Self]]:
         """Bind one concrete config-policy pair to a module class.
 
         Returns:
@@ -59,7 +59,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
         key = (config_type, policy_type)
         registry = cls._module_registry
 
-        def _decorator(module_type: type[ModuleT]) -> type[ModuleT]:
+        def _decorator(module_type: type[Self]) -> type[Self]:
             existing = registry.get(key)
             if existing is not None and existing is not module_type:
                 raise TypeError(
@@ -75,7 +75,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
 
     @classmethod
     @final
-    def _lookup_impl(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
+    def _lookup_impl(cls, *, config: ConfigT, policy: PolicyT) -> type[Self]:
         """Return the module class selected by concrete config and policy types.
 
         Only the types select; the instances are never read.

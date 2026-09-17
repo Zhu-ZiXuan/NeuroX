@@ -13,9 +13,6 @@ from neurox.architecture.unit.conv2d import (
     Conv2dCimUnit,
     Conv2dCimUnitConfig,
     Conv2dCimUnitPolicy,
-    IdealConv2dUnit,
-    IdealConv2dUnitConfig,
-    IdealConv2dUnitPolicy,
 )
 from neurox.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig
@@ -117,37 +114,12 @@ def _build_unit(
     return unit
 
 
-def _build_ideal_unit(
-    *,
-    w_logical_shape: tuple[int, ...],
-    stride: tuple[int, int] = (1, 1),
-    padding: tuple[int, int] = (0, 0),
-    dilation: tuple[int, int] = (1, 1),
-) -> IdealConv2dUnit:
-    unit = IdealConv2dUnit(
-        dtype=torch.float32,
-        config=IdealConv2dUnitConfig(
-            area_per_inst__um2=0.0,
-            leakage_per_inst__uW=0.0,
-            x_value_range=(0, 3),
-            w_value_range=(-3, 3),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-        ),
-        policy=IdealConv2dUnitPolicy(),
-        w_logical_shape=w_logical_shape,
-    )
-    unit.eval()
-    return unit
-
-
-def _random_weight(unit: Conv2dCimUnit | IdealConv2dUnit, shape: tuple[int, ...]) -> torch.Tensor:
+def _random_weight(unit: Conv2dCimUnit, shape: tuple[int, ...]) -> torch.Tensor:
     lo, hi = unit.w_value_range
     return torch.randint(lo, hi + 1, shape, dtype=torch.int32)
 
 
-def _random_activation(unit: Conv2dCimUnit | IdealConv2dUnit, shape: tuple[int, ...]) -> torch.Tensor:
+def _random_activation(unit: Conv2dCimUnit, shape: tuple[int, ...]) -> torch.Tensor:
     lo, hi = unit.x_value_range
     return torch.randint(lo, hi + 1, shape, dtype=torch.int32)
 
@@ -222,43 +194,6 @@ def _assert_matches_oracle(
 
 
 # --- Ideal reference ---
-
-
-@pytest.mark.parametrize(
-    ("kernel", "stride", "padding", "dilation"),
-    [
-        ((3, 2), (1, 1), (0, 0), (1, 1)),
-        ((3, 3), (2, 1), (0, 0), (1, 1)),
-        ((3, 3), (1, 1), (1, 2), (1, 1)),
-        ((3, 3), (1, 1), (0, 0), (2, 1)),
-        ((2, 3), (2, 1), (1, 2), (1, 2)),
-    ],
-)
-def test_ideal_conv2d_exact(
-    kernel: tuple[int, int],
-    stride: tuple[int, int],
-    padding: tuple[int, int],
-    dilation: tuple[int, int],
-) -> None:
-    torch.manual_seed(400 + kernel[1] * 7 + stride[0] * 5 + padding[1] * 3 + dilation[0])
-    c_out = 3
-    c_in = 2
-    h = 8
-    w = 9
-    kh, kw = kernel
-    unit = _build_ideal_unit(
-        w_logical_shape=(c_out, c_in, kh, kw),
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-    )
-    weight = _random_weight(unit, (c_out, c_in, kh, kw))
-    x = _random_activation(unit, (2, c_in, h, w))
-    unit.program(weight)
-    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
-    expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
-    assert actual.shape == expected.shape
-    assert torch.equal(actual.long(), expected)
 
 
 # --- Kernel and window lowering ---

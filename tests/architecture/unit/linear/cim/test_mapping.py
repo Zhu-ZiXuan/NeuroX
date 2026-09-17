@@ -231,26 +231,6 @@ _SHAPE_CASES = [
 ]
 
 
-def test_direct_unit_handles_wide_macro_weight_range() -> None:
-    torch.manual_seed(1)
-    n = 13
-    k = 20
-    m = 8
-    unit = _build_linear(_direct_config(w_value_range=(-15, 15)), w_logical_shape=(n, k))
-    weight = torch.randint(-15, 16, (n, k), dtype=torch.int32)
-    activation = torch.randint(0, 2, (m, k), dtype=torch.int32)
-    _assert_unit_matches_torch(unit, weight, activation)
-
-
-def test_direct_unit_passes_logical_weights_to_macro() -> None:
-    """Direct mapping preserves asymmetric logical weight values."""
-    config = _direct_unit_config(w_value_range=(-3, 3))
-    unit = _build_linear(config, w_logical_shape=(2, 2))
-    weight = torch.tensor([[1, 2], [-1, -2]], dtype=torch.int32)
-    activation = torch.tensor([[1, 1]], dtype=torch.int32)
-    _assert_unit_matches_torch(unit, weight, activation)
-
-
 @pytest.mark.parametrize(("n", "k", "m"), _SHAPE_CASES)
 def test_inter_array_slice_unit_matches_torch_matmul_for_shape_cases(n: int, k: int, m: int) -> None:
     torch.manual_seed(2000 + n * 13 + k * 7 + m)

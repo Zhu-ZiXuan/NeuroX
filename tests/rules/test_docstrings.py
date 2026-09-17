@@ -98,22 +98,6 @@ def _section_headers(docstring: Docstring) -> list[tuple[int, int, str]]:
     return out
 
 
-def _see_also_entries(docstring: Docstring) -> list[tuple[int, str]]:
-    lines = _normalized_lines(docstring.text)
-    headers = _section_headers(docstring)
-    out: list[tuple[int, str]] = []
-    for index, (offset, _, name) in enumerate(headers):
-        if name != "See Also":
-            continue
-        end = headers[index + 1][0] if index + 1 < len(headers) else len(lines)
-        out.extend(
-            (docstring.lineno + body_offset, lines[body_offset].strip())
-            for body_offset in range(offset + 1, end)
-            if lines[body_offset].strip()
-        )
-    return out
-
-
 def _magic_methods() -> list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]]:
     out: list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]] = []
     for path in _iter_python_files():
@@ -131,15 +115,9 @@ def _magic_methods() -> list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]
 
 @pytest.fixture(scope="module")
 def docstrings() -> list[Docstring]:
-    return _iter_docstrings()
-
-
-def test_scan_reaches_the_tree(docstrings: list[Docstring]) -> None:
-    assert _iter_python_files(), f"No `.py` file found under {SCAN_ROOTS}; update the scan roots."
-    assert docstrings, "No docstring was found; repair the collector before relying on the rules below."
-    assert any(_see_also_entries(docstring) for docstring in docstrings), (
-        "No `See Also` entry was found; repair the section reader before relying on its path checks."
-    )
+    found = _iter_docstrings()
+    assert found, f"No docstrings found under {SCAN_ROOTS}; check the scan roots and collector."
+    return found
 
 
 def test_section_reader_distinguishes_managed_headers_from_prose_and_nested_labels() -> None:

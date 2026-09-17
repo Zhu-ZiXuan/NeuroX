@@ -3,12 +3,57 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import final
 
 from torch import Tensor
 
+from neurox.common.module import ConfigBase, ProfileModule
 
-class UnitBase(ABC):
-    """Value-domain and execution-metadata interfaces shared by operator families."""
+
+class UnitConfig(ConfigBase, ABC):
+    """Unit-local peripheral costs, excluding independently profiled child circuits."""
+
+    # === Static PPA ===
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
+    # === Required by base class ===
+
+    def validate(self) -> None:
+        super().validate()
+
+        # --- Static PPA ---
+
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+
+_Config = UnitConfig
+
+
+class UnitBase(ProfileModule, ABC):
+    """Profiled integer operators with shared value-domain and execution metadata.
+
+    Every implementation, including an ideal operator, retains the unit's
+    local static-cost contract. Child circuits report their costs separately.
+    """
+
+    config: _Config
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    # === For subclass to implement or override ===
 
     @property
     @abstractmethod

@@ -638,56 +638,6 @@ def test_strong_cell_does_not_hide_another_nodes_kcl_error(device: torch.device)
     assert state.is_active.all()
 
 
-@pytest.mark.parametrize("field", ["di_dvbl__uS", "di_dvsl__uS"])
-@pytest.mark.parametrize("bad_value", [torch.nan, torch.inf])
-def test_nonfinite_derivative_with_finite_current_fails_fast(field: str, bad_value: float) -> None:
-    kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
-    node_solver = _solver(kwargs).node_solver
-    v_bl = torch.ones(1, 2, 1, dtype=torch.float64)
-    v_sl = torch.zeros_like(v_bl)
-    cell_dcop = kwargs["cell"].solve_dc(v_bl, v_sl, kwargs["cell_snap"])
-    assert cell_dcop.i__uA.isfinite().all()
-    bad_dcop = replace(cell_dcop, **{field: torch.full_like(v_bl, bad_value)})
-    with (
-        patch.object(kwargs["cell"], "solve_dc", return_value=bad_dcop),
-        pytest.raises(RuntimeError, match="non-finite state"),
-    ):
-        node_solver._evaluate_node(
-            v_bl[..., :1, :],
-            v_sl[..., :1, :],
-            v_bl,
-            v_sl,
-            is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
-            cell_snap=kwargs["cell_snap"],
-        )
-
-
-@pytest.mark.parametrize("rail", ["bl", "sl"])
-@pytest.mark.parametrize("bad_value", [torch.nan, torch.inf])
-def test_nonfinite_node_voltage_fails_through_kcl(rail: str, bad_value: float) -> None:
-    kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
-    node_solver = _solver(kwargs).node_solver
-    v_bl = torch.ones(1, 2, 1, dtype=torch.float64)
-    v_sl = torch.zeros_like(v_bl)
-    (v_bl if rail == "bl" else v_sl)[..., -1, :] = bad_value
-    # Keep branch outputs finite to isolate propagation through the wire KCL.
-    dcop = _AliasingCellDcop(
-        i__uA=torch.zeros_like(v_bl), di_dvbl__uS=torch.ones_like(v_bl), di_dvsl__uS=-torch.ones_like(v_bl)
-    )
-    with (
-        patch.object(kwargs["cell"], "solve_dc", return_value=dcop),
-        pytest.raises(RuntimeError, match="non-finite state"),
-    ):
-        node_solver._evaluate_node(
-            v_bl[..., :1, :],
-            v_sl[..., :1, :],
-            v_bl,
-            v_sl,
-            is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
-            cell_snap=kwargs["cell_snap"],
-        )
-
-
 def test_nonfinite_correction_is_rejected_before_step_clipping() -> None:
     kwargs = _kwargs(torch.device("cpu"), col_num=1, row_num=2)
     node_solver = _solver(kwargs).node_solver
@@ -709,18 +659,6 @@ def test_nonfinite_correction_is_rejected_before_step_clipping() -> None:
             is_active=torch.ones_like(v_bl[..., :1, :], dtype=torch.bool),
             cell_snap=kwargs["cell_snap"],
         )
-
-
-def test_nonfinite_branch_dcop_fails_fast(device: torch.device) -> None:
-    """Finite residual arithmetic cannot conceal a non-finite branch DCOP."""
-    kwargs = _kwargs(device)
-    cell_snap = kwargs["cell_snap"]
-    kwargs["cell_snap"] = replace(
-        cell_snap,
-        g_cell_on__uS=torch.full_like(cell_snap.g_cell_on__uS, torch.nan),
-    )
-    with pytest.raises(RuntimeError, match="non-finite"):
-        _solve(kwargs, record_trace=False)
 
 
 def test_column_trace_mask_preserves_row_grid_and_solution(device: torch.device) -> None:

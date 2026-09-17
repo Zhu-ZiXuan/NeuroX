@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from neurox.common.module import ModuleBase
+from neurox.common.module import ModuleBase, ProfileModule
 
 from .profiler import EnergyRecord, Profiler
 
@@ -93,7 +93,7 @@ class Reporter:
                     "or one instance is bound at both locations, so re-run stamp_names(model) on the model "
                     "being reported and bind one instance per location"
                 )
-            if module.is_profile_target:
+            if isinstance(module, ProfileModule):
                 static_entries.append(
                     StaticEntry(
                         qualified_name=name,

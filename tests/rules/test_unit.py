@@ -32,17 +32,10 @@ STANDARD_UNIT_ATOMS = (
 # Each entry groups one module's stable code bindings whose well-formed expressions contain
 # nonstandard atoms.
 NONSTANDARD_UNIT_GRANTS: dict[str, tuple[str, ...]] = {
-    # SI constants retain their own SI units; consumers rescale them at the boundary where needed.
-    "neurox/primitive/physics.py": (
-        "ELEM_CHARGE__fC",
-        "K_BOLTZMANN__fJ_per_K",
-        "EPS_0__fF_per_um",
-    ),
     # PDK configuration quotes the foundry units without converting its human-facing surface.
     "neurox/primitive/device/mosfet.py": (
         "MosfetConfig.mu0__cm2_per_V_s",
         "MosfetConfig.A_vt__mV_um",
-        "Mosfet._on_temperature_changed.nominal_mu__cm2_per_V_s",
     ),
 }
 

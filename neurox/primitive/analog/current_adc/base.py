@@ -12,7 +12,7 @@ from typing import final
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
 from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
@@ -30,17 +30,27 @@ class IadcRecord(AdcRecord):
 
 
 class IadcConfig(ConfigBase, ABC):
+    # === Resolution ===
+
     bits: int
     """Physical maximum conversion resolution, from 1 to 31 bits."""
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
-    """Physical area per ADC instance."""
     leakage_per_inst__uW: float
-    """Static leakage power per ADC instance."""
 
     # === Required by base class ===
 
     def validate(self) -> None:
+        super().validate()
+
+        # --- Resolution ---
+
         self._require_in_closed_interval(self.bits, "bits", 1, 31)
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -54,7 +64,7 @@ _Config = IadcConfig
 _Policy = IadcPolicy
 
 
-class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
+class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
     """Base class for single-ended current ADCs with injected references.
 
     The base owns the `bits` contract and nothing else about the call. How
@@ -152,7 +162,7 @@ class Iadc(ModuleBase, RegistryMixin["_Config", "_Policy", "Iadc"], ABC):
             i_in__uA,
             i_refs__uA,
             active_bits=active_bits,
-            record_energy=self._is_dynamic_energy_profile_active(),
+            record_energy=self._is_profiler_active(),
         )
         code = code.int()
         if code.shape != i_in__uA.shape:

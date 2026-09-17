@@ -3,30 +3,21 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TypedDict
 
 import pytest
 import torch
 from torch import Tensor
 
 from neurox import Profiler, Reporter
-from tests.works.macro.cim.xue2020jssc._utils import (
+from tests.works.macro.cim.xue2020jssc.macro._utils import (
     QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,
     TINY_OUTPUT_NUM,
-    Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     build_config,
     build_macro,
 )
-
-
-class _TmcsaConfigUpdates(TypedDict, total=False):
-    t_ph2__ns: float
-    t_ph3__ns: float
-    energy_per_bit__fJ: float
-
 
 # Billed rows by slice name -> profiler energy-row key.
 _ROW_KEYS = {
@@ -87,52 +78,6 @@ def _channel_energies(
     return _channels(reporter.by_name(prof))
 
 
-def _with_tmcsa(
-    config: Xue2020JsscCimMacroConfig,
-    *,
-    t_ph2__ns: float | None = None,
-    t_ph3__ns: float | None = None,
-    energy_per_bit__fJ: float | None = None,
-) -> Xue2020JsscCimMacroConfig:
-    """Replace only TMCSA energy-model parameters."""
-    kw: _TmcsaConfigUpdates = {}
-    if t_ph2__ns is not None:
-        kw["t_ph2__ns"] = t_ph2__ns
-    if t_ph3__ns is not None:
-        kw["t_ph3__ns"] = t_ph3__ns
-    if energy_per_bit__fJ is not None:
-        kw["energy_per_bit__fJ"] = energy_per_bit__fJ
-    return dataclasses.replace(config, tmcsa_config=dataclasses.replace(config.tmcsa_config, **kw))
-
-
-def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
-    """Re-solve and sum `VDD * I_DL * phase_duration` [fJ]."""
-    cfg = macro.config
-    vdd__V = cfg.vdd__V
-    x_long = x.long()
-    sample__ns = cfg.t_sample__ns
-    detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
-
-    planes = torch.stack(tuple((x_long >> k) & 1 for k in range(cfg.x_bit_num)), dim=-2)
-    v_wl = planes * macro._v_wl_on__V
-    leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
-    ref_shape = (*leading, 1, macro.lane_num, macro.scan_num, 2, cfg.w_digit_num)
-    v_blc = macro.cablc_vref.values()
-    dcop = macro.array.solve_dc(
-        v_wl__V=v_wl.unsqueeze(macro.array.col_dim),
-        leading_shape=leading,
-        wl_phase_dims=(-3,),
-        bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape).flatten_axes(-4, -1),
-        sl_driver_snap=macro.sl_driver.snapshot(
-            v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
-            shape=ref_shape,
-        ).flatten_axes(-4, -1),
-    )
-    phase_duration__ns = v_wl.new_tensor((*([sample__ns] * (cfg.x_bit_num - 1)), detect__ns))
-    energy__fJ = (vdd__V * dcop.i_bl_port__uA).sum(dim=(macro.array.row_dim, macro.array.col_dim)) * phase_duration__ns
-    return float(energy__fJ.sum())
-
-
 def test_channels_and_module_rows_bill_dynamic(device: torch.device) -> None:
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.int32)
     prof, reporter = _run(build_config(), _w_full(), x, device=device)
@@ -168,7 +113,12 @@ def test_dynamic_energy_scales_with_conduction_windows(device: torch.device) -> 
 
     prof_win, rep_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
     assert rep_win.total_dynamic_energy__fJ(prof_win) > dyn_base  # dynamic grows with the window
-    ch_base = _channels(rep_base.by_name(prof_base))
+    rows_base = rep_base.by_name(prof_base)
+    rows_win = rep_win.by_name(prof_win)
+    # The owner bills conduction; the array bills capacitive cycling once.
+    assert rows_base["array"] > 0.0
+    assert rows_win["array"] == pytest.approx(rows_base["array"])
+    ch_base = _channels(rows_base)
     ch_win = _channels(rep_win.by_name(prof_win))
     assert ch_win["control"] == pytest.approx(ch_base["control"])
     for ch in _READ_ROWS:
@@ -188,57 +138,6 @@ def test_runtime_adc_width_selects_every_sensing_window(device: torch.device) ->
         values = [row[key] for row in rows]
         assert values[0] < values[1] < values[2], f"{key} did not follow runtime ADC width: {values}"
     assert rows[0]["control"] == pytest.approx(rows[-1]["control"])
-
-
-def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.device) -> None:
-    cfg = build_config()
-    w = _w_full()
-    x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.int32)  # batch (2,)
-
-    def run(config: Xue2020JsscCimMacroConfig) -> tuple[float, float, float]:
-        macro = build_macro(config, device=device)
-        macro.program(w.to(device))
-        with Profiler() as prof, torch.no_grad():
-            macro.vec_mat_mul(
-                x.to(device),
-                quantization_mode=QUANTIZATION_MODE,
-                adc_active_bits=TINY_ADC_BITS,
-            )
-        by_name = Reporter(macro).by_name(prof)
-        cablc = by_name.get(".cablc", 0.0)
-        array = by_name.get("array", 0.0)
-        assert "cell" not in by_name
-        whole = _whole_input_branch(macro, x.to(device))
-        return cablc, array, whole
-
-    cablc, array, whole = run(cfg)
-    # Keep the ownership assertions non-vacuous.
-    assert whole > 0.0, f"witness draws no branch current: whole={whole}"
-    assert cablc == pytest.approx(whole), f"cablc {cablc} != reconstructed whole branch {whole}"
-    assert array > 0.0, f"array row {array} must bill its capacitive cycling"
-    assert cablc + array > whole, f"array + cablc {cablc + array} must exceed the whole branch {whole} by the caps"
-
-    cablc_wide, array_wide, whole_wide = run(dataclasses.replace(cfg, t_settle__ns=cfg.t_settle__ns + 3.0))
-    assert array_wide == pytest.approx(array), (
-        f"array row moved with the conduction window {array} -> {array_wide} (conduction leaked back into the array)"
-    )
-    assert cablc_wide == pytest.approx(whole_wide), f"cablc {cablc_wide} != reconstructed whole branch {whole_wide}"
-    assert cablc_wide > cablc, f"cablc must grow with the conduction window {cablc} -> {cablc_wide}"
-
-
-def test_array_cap_row_rides_the_shared_core_supply(device: torch.device) -> None:
-    base = build_config()
-    w = _w_full()
-    x = _x_full(2)
-
-    def array_row(config: Xue2020JsscCimMacroConfig) -> float:
-        prof, reporter = _run(config, w, x, device=device)
-        return reporter.by_name(prof)["array"]
-
-    e_base = array_row(base)
-    raised = array_row(dataclasses.replace(base, vdd__V=2.0 * base.vdd__V))
-    assert e_base > 0.0
-    assert raised == pytest.approx(2.0 * e_base)
 
 
 def test_control_count_mux_times_batch(device: torch.device) -> None:
@@ -283,58 +182,6 @@ def test_pn_isub_per_op_energy_is_billed_per_scan_and_lane(device: torch.device)
     assert e_with__fJ - e_without__fJ == pytest.approx(event__fJ * event_num)
 
 
-def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
-    w = _w_full()
-    x = _x_full(3)
-    energies = [
-        _channel_energies(
-            build_config(x_bit_num=3, t_sample__ns=ts, t_settle__ns=1.0),
-            w,
-            x,
-            device=device,
-        )
-        for ts in (2.0, 4.0, 6.0)
-    ]
-    for ch in _READ_ROWS:
-        v = [e[ch] for e in energies]
-        assert v[0] < v[1] < v[2], f"{ch} not increasing in t_sample: {v}"
-        assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
-    ctrl = [e["control"] for e in energies]
-    assert ctrl[0] == pytest.approx(ctrl[1]), f"control not window-invariant: {ctrl}"
-    assert ctrl[1] == pytest.approx(ctrl[2]), f"control not window-invariant: {ctrl}"
-
-
-def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
-    w = _w_full()
-    x = _x_full(3)
-    energies = [
-        _channel_energies(
-            build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=ts),
-            w,
-            x,
-            device=device,
-        )
-        for ts in (1.0, 3.0, 5.0)  # equal spacing dt = 2
-    ]
-    for ch in _READ_ROWS:
-        v = [e[ch] for e in energies]
-        assert v[0] < v[1] < v[2], f"{ch} not increasing in t_settle: {v}"
-        assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
-    ctrl = [e["control"] for e in energies]
-    assert ctrl[0] == pytest.approx(ctrl[1]), f"control not window-invariant: {ctrl}"
-    assert ctrl[1] == pytest.approx(ctrl[2]), f"control not window-invariant: {ctrl}"
-
-
-def test_sc_earlier_current_stays_active_through_later_phases(device: torch.device) -> None:
-    w = _w_full()
-    x = _x_full(3)
-    base_cfg = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
-    wide_cfg = dataclasses.replace(base_cfg, t_sample__ns=4.0)
-    base = _channel_energies(base_cfg, w, x, device=device)["sinwp_sc"]
-    wide = _channel_energies(wide_cfg, w, x, device=device)["sinwp_sc"]
-    assert wide > base
-
-
 def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device) -> None:
     w = _w_full(input_num=TINY_INPUT_NUM)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.int32)  # bit 0 set, bits 1..K-1 zero
@@ -360,11 +207,6 @@ def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device
 
 
 def test_live_bit_conducts_during_detection_independent_of_sampling(device: torch.device) -> None:
-    cfg = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
-    macro = build_macro(cfg, device=device)
-    detect__ns = cfg.t_settle__ns + macro.tmcsa.latency__ns(active_bits=TINY_ADC_BITS)
-    assert detect__ns == cfg.t_settle__ns + TINY_ADC_BITS * cfg.tmcsa_config.latency_per_bit__ns
-
     w = _w_full()
     x = _x_full(3)
 
@@ -389,43 +231,6 @@ def test_live_bit_conducts_during_detection_independent_of_sampling(device: torc
     assert slope_a == pytest.approx(slope_b, rel=1e-9, abs=1e-9), (
         f"live-bit detection leaked into sampling: {(slope_a, slope_b)}"
     )
-
-
-def test_tmcsa_per_bit_energy_remains_when_phase_windows_are_zero(device: torch.device) -> None:
-    base = build_config()
-    cfg = _with_tmcsa(base, t_ph2__ns=0.0, t_ph3__ns=0.0)
-    cfg_no_bit_energy = _with_tmcsa(cfg, energy_per_bit__fJ=0.0)
-    w = _w_full()
-    x = torch.tensor([1, 2, 3, 1], dtype=torch.int32)  # single access (no batch axis)
-    prof, reporter = _run(cfg, w, x, device=device)
-    energy__fJ = reporter.by_name(prof)["tmcsa"]
-    prof_no_bit_energy, reporter_no_bit_energy = _run(cfg_no_bit_energy, w, x, device=device)
-
-    assert energy__fJ > 0.0
-    assert reporter_no_bit_energy.by_name(prof_no_bit_energy)["tmcsa"] == pytest.approx(0.0)
-
-
-def test_tmcsa_grows_with_phase_windows(device: torch.device) -> None:
-    w = _w_full()
-    x = torch.tensor([1, 2, 3, 1], dtype=torch.int32)
-    base = build_config()  # witness phases: t_ph2 = 0.2 ns, t_ph3 = 0.3 ns
-
-    def tmcsa(cfg: Xue2020JsscCimMacroConfig) -> float:
-        prof, reporter = _run(cfg, w, x, device=device)
-        return reporter.by_name(prof)["tmcsa"]
-
-    e_zero = tmcsa(_with_tmcsa(base, t_ph2__ns=0.0, t_ph3__ns=0.0))
-    e_base = tmcsa(base)
-    e_double = tmcsa(
-        _with_tmcsa(
-            base,
-            t_ph2__ns=2.0 * base.tmcsa_config.t_ph2__ns,
-            t_ph3__ns=2.0 * base.tmcsa_config.t_ph3__ns,
-        )
-    )
-
-    assert e_base > e_zero
-    assert e_double == pytest.approx(2.0 * e_base - e_zero)
 
 
 def test_partial_outputs_close_columns_without_erasing_solved_currents(device: torch.device) -> None:

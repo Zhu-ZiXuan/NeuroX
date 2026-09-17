@@ -186,7 +186,6 @@ def test_direct_layout_times_the_phase_accumulator() -> None:
             phase__ns=phase__ns,
         )
     )
-    unit = unit
     assert unit.merge.merge_step_num == _BLOCK_STEP_NUM
     assert unit.input_activation.input_phase_num == 1
     assert unit.x_slicer.slice_num == 1
@@ -213,33 +212,6 @@ def test_phase_accumulator_runs_once_per_arrival() -> None:
             )
         )
         return unit.latency__ns((_W_SHAPE[1], 1, 1), adc_active_bits=_ADC_BITS)
-
-    single = _build_pointwise(
-        _unit_config(
-            w_slice_num=1,
-            w_slice_encoding=None,
-            w_shift_adder_config=None,
-            tiling=TilingMode.SLICE_PLANES,
-            x_slice_num=1,
-            x_slice_encoding=None,
-            x_shift_adder_config=None,
-            max_active_num=4,
-        )
-    )
-    doubled = _build_pointwise(
-        _unit_config(
-            w_slice_num=1,
-            w_slice_encoding=None,
-            w_shift_adder_config=None,
-            tiling=TilingMode.SLICE_PLANES,
-            x_slice_num=1,
-            x_slice_encoding=None,
-            x_shift_adder_config=None,
-            max_active_num=2,
-        )
-    )
-    assert single.input_activation.input_phase_num == 1
-    assert doubled.input_activation.input_phase_num == 2
 
     assert _phase_only(2) == pytest.approx(2.0 * _phase_only(4))
 
@@ -269,7 +241,6 @@ def test_inter_layout_recombines_once_per_step_it_closes() -> None:
             phase__ns=phase__ns,
         )
     )
-    unit = unit
     assert unit.x_slicer.slice_num == x_slice_num
     assert unit.merge.merge_step_num == _BLOCK_STEP_NUM
     assert unit.tiling.logical_tile_output_num == _OUTPUT_NUM
@@ -319,7 +290,6 @@ def test_intra_layout_recombines_over_the_ports_one_aggregation_leaves() -> None
             max_active_num=4,
         )
     )
-    unit = unit
     assert unit.tiling.logical_tile_output_num == _INTRA_AGGREGATED_PORT_NUM
     assert unit.merge.merge_step_num == _BLOCK_STEP_NUM
 

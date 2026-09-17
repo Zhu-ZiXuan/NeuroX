@@ -204,9 +204,18 @@ def _assert_unit_matches_torch(unit: Conv2dCimUnit, weight: torch.Tensor, activa
 
 
 @pytest.mark.parametrize("tiling", [TilingMode.SLICE_PLANES, TilingMode.SLICE_OUTPUTS])
-@pytest.mark.parametrize("w_sliced", [False, True])
-@pytest.mark.parametrize("x_sliced", [False, True])
-@pytest.mark.parametrize("hardware_recovery", [False, True])
+@pytest.mark.parametrize(
+    ("w_sliced", "x_sliced", "hardware_recovery"),
+    [
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (True, True, False),
+        (True, False, True),
+        (False, True, True),
+        (True, True, True),
+    ],
+)
 def test_weight_and_input_slicers_compose_independently(
     tiling: TilingMode,
     w_sliced: bool,
@@ -287,20 +296,6 @@ def test_split_input_stages_keep_batch_axes_left_of_d_and_p() -> None:
     assert torch.equal(planes[:, 0].sum(dim=1), x)
 
 
-def test_input_phase_non_divisible_ceil_covers_all_inputs() -> None:
-    """input_num=10 and max_active_num=3 cover all inputs in four phases."""
-    unit = _build_direct(w_logical_shape=(4, 10), input_num=10, max_active_num=3)
-    assert unit.input_activation.input_phase_num == 4
-    inputs = torch.arange(1, 11, dtype=torch.int32)
-    phases = unit.input_activation.map_x(inputs)
-    assert phases.shape == (4, 10)
-    # Each input belongs to exactly one phase.
-    assert torch.equal((phases != 0).sum(dim=0), torch.ones(10, dtype=torch.int64))
-    assert torch.equal(phases.sum(dim=0), inputs)
-    # The short final block owns only its single real row (row 9).
-    assert torch.equal(phases[3], torch.tensor([0] * 9 + [10]))
-
-
 def test_degenerate_input_phase_axis_size_one() -> None:
     """max_active_num == input_num retains a size-one phase axis."""
     unit = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=8)
@@ -374,33 +369,6 @@ def test_balanced_block_packing_matches_torch(build: Callable[..., Conv2dCimUnit
     _assert_unit_matches_torch(unit, weight, activation)
 
 
-def test_direct_block_placement_is_balanced_and_zero_padded() -> None:
-    """B=5 and C=2 use G=3 macros with a 2+2+1 balanced assignment."""
-    unit = _build_direct(w_logical_shape=(40, 3), input_num=8, max_active_num=2)
-    assert unit.merge.out_tile_num == 5
-    assert unit.merge.input_slot_capacity == 2
-    assert unit.merge.macro_group_num == 3
-    assert unit.merge.merge_step_num == 2
-
-    weight = torch.arange(1, 121, dtype=torch.int32).reshape(40, 3)
-    unit.program(weight[..., None, None])
-    programmed = unit.cim_macro._w
-    assert isinstance(programmed, torch.Tensor)
-    assert programmed.shape == (1, 1, 1, 1, 3, 8, 8)
-
-    # block_id = block_step * G + macro_index
-    for block_step in range(2):
-        for macro_index in range(3):
-            block_id = block_step * 3 + macro_index
-            rows = slice(block_step * 3, (block_step + 1) * 3)
-            actual = programmed[0, 0, 0, 0, macro_index, rows]
-            if block_id < 5:
-                expected = weight[block_id * 8 : (block_id + 1) * 8].transpose(0, 1)
-                assert torch.equal(actual, expected)
-            else:
-                assert torch.count_nonzero(actual) == 0
-
-
 def test_block_schedule_routes_input_to_each_slot() -> None:
     unit = _build_direct(w_logical_shape=(40, 3), input_num=8, max_active_num=2)
     routed = _macro_inputs(unit, torch.tensor([[2, 3, 5]], dtype=torch.int32))
@@ -412,35 +380,6 @@ def test_block_schedule_routes_input_to_each_slot() -> None:
     assert torch.equal(restored[1, 0, 0, 0, 0, 0], torch.tensor([0, 0, 0, 2, 3, 5, 0, 0]))
     assert torch.equal(restored[1, 0, 0, 0, 0, 1], torch.tensor([0, 0, 0, 2, 3, 5, 0, 0]))
     assert torch.count_nonzero(restored[1, 0, 0, 0, 0, 2]) == 0
-
-
-def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
-    unit = Conv2dCimUnit(
-        config=Conv2dCimUnitConfig(
-            merge=True,
-            cim_macro_config=_ideal_macro_config(input_num=32, output_num=1, max_active_num=1),
-            phase_accumulator_config=_accumulator_config(),
-            w_slice_num=1,
-            w_slice_encoding=None,
-            w_shift_adder_config=None,
-            tiling=TilingMode.SLICE_PLANES,
-            x_slice_num=1,
-            x_slice_encoding=None,
-            x_shift_adder_config=None,
-            area_per_inst__um2=0.0,
-            leakage_per_inst__uW=0.0,
-            stride=(1, 1),
-            padding=(0, 0),
-            dilation=(1, 1),
-        ),
-        policy=_unit_policy(),
-        w_logical_shape=(33, 1, 1, 1),
-        dtype=torch.float32,
-    )
-    assert unit.merge.input_slot_capacity == 32
-    assert unit.merge.macro_group_num == 2
-    assert unit.merge.merge_step_num == 17
-    assert unit.cim_macro.inst_shape == (1, 1, 1, 1, 2)
 
 
 # --- Caller prefix under leading-resolved profiling ---

@@ -16,12 +16,12 @@ The device, analog, digital, and macro models under `neurox.primitive` are what 
 
 ## Extension SPI
 
-- **Module root** — inherit `neurox.common.module.ModuleBase` and use `ConfigBase` and `PolicyBase` for its configuration and policy.
-- **Family dispatch** — inherit `neurox.common.registry_mixin.RegistryMixin` and register implementations with `register_impl`.
+- **Module families** — inherit `neurox.common.module.ProfileModule` or `NonProfileModule`; both share the `ModuleBase` lifecycle. Use `ConfigBase` and `PolicyBase` for the family's configuration and policy.
+- **Family dispatch** — inherit `neurox.common.registry_mixin.RegistryMixin` and register implementations with the family's `register_neurox_impl` decorator.
 - **Serialization and validation** — use `neurox.common.serialize_mixin.SerializeMixin`, `neurox.common.validate_mixin.ValidateMixin`, and the functions in `neurox.common.serialize`.
 - **Cross-module data** — inherit `neurox.common.module.SnapBase` for snapshots and `DcopBase` for DC operating points.
 - **Recording** — inherit `neurox.common.recorder.RecorderBase` and `RecordBase`.
-- **Operator interfaces** — `neurox.architecture.unit.UnitBase` defines shared metadata interfaces. `LinearUnit` and `Conv2dUnit` define and register their operator implementations; `CimUnit` provides local CIM implementation helpers.
+- **Operator interfaces** — `neurox.architecture.unit.UnitBase` and `UnitConfig` define shared operator metadata and local static costs. `LinearUnit` and `Conv2dUnit` define and register their operator implementations; `CimUnit` provides local CIM implementation helpers.
 - **Digit encoding** — use `neurox.encoding.Transcoder.from_encoding` to select a transcoder.
 
 System composition, physical-state lifetimes, and accounting responsibilities are described in [System design](../system_design/README.md).

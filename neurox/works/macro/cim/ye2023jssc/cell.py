@@ -18,8 +18,12 @@ from neurox.primitive.xbar.cell import (
 
 
 class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
+    # === State selection ===
+
     v_x_on_threshold__V: float
     """Internal-node threshold separating the HRS and LRS T2 lookup values."""
+
+    # === T2 currents ===
 
     i_t2_leak__uA: float
     """Unit-width T2 leakage while its TBL is selected."""
@@ -29,8 +33,13 @@ class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
     def validate(self) -> None:
         super().validate()
 
+        # --- State selection ---
+
         self._require_len(self.g_cell_off_table__uS, "g_cell_off_table__uS", 2)
         self._require_non_neg(self.v_x_on_threshold__V, "v_x_on_threshold__V")
+
+        # --- T2 currents ---
+
         self._require_non_neg(self.i_t2_leak__uA, "i_t2_leak__uA")
         self._require_non_neg(self.i_t2_unit_signal__uA, "i_t2_unit_signal__uA")
 

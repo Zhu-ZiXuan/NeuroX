@@ -14,20 +14,29 @@ from neurox.primitive.physics import e_charge__fJ, q_conduction__fC
 
 
 class TmcsaConfig(SarIadcConfig):
+    # === Timing ===
+
     t_ph2__ns: float
     """PH2 conduction duration of one decision step."""
-
     t_ph3__ns: float
     """PH3 conduction duration of one decision step."""
+
+    # === Dynamic energy ===
 
     energy_per_bit__fJ: float
     """Data-independent switching energy of one output bit per instance."""
 
     def validate(self) -> None:
         super().validate()
+
+        # --- Timing ---
+
         self._require_non_neg(self.t_ph2__ns, "t_ph2__ns")
         self._require_non_neg(self.t_ph3__ns, "t_ph3__ns")
         self._require_le(self.t_ph2__ns + self.t_ph3__ns, "t_ph2__ns + t_ph3__ns", self.latency_per_bit__ns)
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_bit__fJ, "energy_per_bit__fJ")
 
 

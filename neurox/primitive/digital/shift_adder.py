@@ -13,14 +13,21 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class ShiftAdderConfig(DigitalConfig):
+    # === Arithmetic ===
+
     bit_width: int
     """Signed output bit width; the result wraps modulo `2^bit_width` into
     `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""
 
-    energy_per_op__fJ: float
-    """Dynamic energy per digit leg of one output."""
+    # === Timing ===
+
     latency_per_op__ns: float
     """Positional-sum window of one shift-add."""
+
+    # === Dynamic energy ===
+
+    energy_per_op__fJ: float
+    """Dynamic energy per digit leg of one output."""
 
     def validate(self) -> None:
         super().validate()
@@ -29,10 +36,13 @@ class ShiftAdderConfig(DigitalConfig):
 
         self._require_pos(self.bit_width, "bit_width")
 
-        # --- PPA ---
+        # --- Timing ---
+
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+
+        # --- Dynamic energy ---
 
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 _Config = ShiftAdderConfig
@@ -73,14 +83,6 @@ class ShiftAdder(DigitalBase):
             torch.tensor([scale**i for i in range(digit_count)]),
         )
 
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
     def latency__ns(self) -> float:
         """Latency of one positional-sum evaluation."""
         return self.config.latency_per_op__ns
@@ -117,7 +119,7 @@ class ShiftAdder(DigitalBase):
             # register range; folded in before it, the total would be clipped each call.
             y = y + init_val
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
             self._record_dynamic_energy(e_op__fJ.expand(x.shape))
         return y

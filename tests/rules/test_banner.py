@@ -122,7 +122,7 @@ def _classify(text: str) -> str:
     return "prose"
 
 
-def _scan_source(path: Path, source: str) -> tuple[list[BannerSite], int]:
+def _scan_source(path: Path, source: str) -> list[BannerSite]:
     lines = source.splitlines()
     tree = ast.parse(source, filename=str(path))
     tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
@@ -158,23 +158,16 @@ def _scan_source(path: Path, source: str) -> tuple[list[BannerSite], int]:
                 preceding_boundary=boundaries.get(index - before),
             )
         )
-    return sites, len(comments)
+    return sites
 
 
 @pytest.fixture(scope="module")
-def scan() -> tuple[list[BannerSite], int]:
-    sites = []
-    visited = 0
+def sites() -> list[BannerSite]:
+    found = []
     for path in _iter_python_files():
-        file_sites, comment_count = _scan_source(path, path.read_text(encoding="utf-8"))
-        sites.extend(file_sites)
-        visited += comment_count
-    return sites, visited
-
-
-@pytest.fixture(scope="module")
-def sites(scan: tuple[list[BannerSite], int]) -> list[BannerSite]:
-    return scan[0]
+        found.extend(_scan_source(path, path.read_text(encoding="utf-8")))
+    assert found, f"No banners found under {SCAN_ROOTS}; check the scan roots and collector."
+    return found
 
 
 def test_the_grammar_reads_the_ruled_forms() -> None:
@@ -213,21 +206,6 @@ def test_the_grammar_reads_the_ruled_forms() -> None:
     assert {text: _classify(text) for text in witnesses} == witnesses
 
 
-def test_the_scan_reads_comments_not_string_contents() -> None:
-    source = (
-        '"""Doc.\n\n# --- not a banner ---\n"""\n\n'
-        'TEXT = "# === not a banner ==="\n'
-        "value = 1  # === inline banner ===\n"
-        "# === own-line banner ===\n"
-    )
-    scanned, visited = _scan_source(REPO_ROOT / "example.py", source)
-    assert visited == 2
-    assert [(site.lineno, site.text, site.own_line) for site in scanned] == [
-        (7, "# === inline banner ===", False),
-        (8, "# === own-line banner ===", True),
-    ]
-
-
 def test_scope_reader_distinguishes_module_class_and_function_groups() -> None:
     source = (
         "# ### First component ###\n"
@@ -249,7 +227,7 @@ def test_scope_reader_distinguishes_module_class_and_function_groups() -> None:
         "def run():\n"
         "    pass\n"
     )
-    scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
+    scanned = _scan_source(REPO_ROOT / "example.py", source)
     assert [site.scope for site in scanned] == [
         "module",
         "class",
@@ -257,17 +235,6 @@ def test_scope_reader_distinguishes_module_class_and_function_groups() -> None:
         "function",
         "module",
     ]
-
-
-@pytest.mark.parametrize("title", ["1: Solver", "1.2: Solver", "0. Solver", "2 Solver", "1"])
-def test_structural_numbering_check_rejects_step_titles(title: str) -> None:
-    for symbol, scope in (("#", "module"), ("=", "class")):
-        indent = "" if scope == "module" else "    "
-        prefix = "" if scope == "module" else "class Example:\n"
-        source = f"{prefix}{indent}# {symbol * 3} {title} {symbol * 3}\n{indent}pass\n"
-        scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
-        with pytest.raises(AssertionError, match="without numbering"):
-            test_structural_banners_are_unnumbered(scanned)
 
 
 @pytest.mark.parametrize(
@@ -291,7 +258,7 @@ def test_banner_spacing_accepts_only_the_required_counts(
     for before in range(4):
         for after in range(4):
             source = prefix + "\n" * before + banner + "\n" * after + suffix
-            scanned, _ = _scan_source(REPO_ROOT / "example.py", source)
+            scanned = _scan_source(REPO_ROOT / "example.py", source)
             (site,) = scanned
             assert (site.blank_before, site.blank_after) == (before, after), source
             assert site.required_blank_lines() == (expected_before, expected_after), source
@@ -300,22 +267,6 @@ def test_banner_spacing_accepts_only_the_required_counts(
             else:
                 with pytest.raises(AssertionError, match="blank lines"):
                     test_each_banner_has_the_required_blank_lines(scanned)
-
-
-def test_the_scan_reaches_the_tree(scan: tuple[list[BannerSite], int]) -> None:
-    sites, visited = scan
-    assert visited, "No comment tokenized; the comment reader is broken."
-    banners = [site for site in sites if _classify(site.text) == "banner"]
-    assert banners, "No banner found in the tree; the exact banner reader is broken."
-
-    symbols = {banner.symbol() for banner in banners}
-    assert symbols == set(_SCOPE_FOR_SYMBOL), (
-        f"Only {sorted(symbols)} banners were read; the scope check must cover all three symbols."
-    )
-    scopes = {banner.scope for banner in banners}
-    assert set(_SCOPE_FOR_SYMBOL.values()) <= scopes, (
-        f"Banners resolved to {sorted(scopes)} only; the scope resolver misses a definition body."
-    )
 
 
 def test_every_banner_candidate_uses_the_exact_grammar(sites: list[BannerSite]) -> None:

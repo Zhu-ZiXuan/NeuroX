@@ -22,10 +22,15 @@ from neurox.common.module import ConfigBase
 
 
 class StuckAtFaultConfig(ConfigBase):
+    # === Fault probabilities ===
+
     p_at_min: float
     p_at_max: float
 
     def validate(self) -> None:
+
+        # --- Fault probabilities ---
+
         self._require_non_neg(self.p_at_min, "p_at_min")
         self._require_non_neg(self.p_at_max, "p_at_max")
         self._require_lt(self.p_at_min + self.p_at_max, "p_at_min + p_at_max", 1.0)
@@ -68,12 +73,17 @@ def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) 
 
 
 class StateDependentGaussianConfig(ConfigBase):
+    # === Noise scale ===
+
     sigma_slope: float
     """Linear growth of the noise σ per unit of `|x|`."""
     sigma_intercept: float
     """Base σ at `|x| = 0`."""
 
     def validate(self) -> None:
+
+        # --- Noise scale ---
+
         self._require_non_neg(self.sigma_slope, "sigma_slope")
         self._require_non_neg(self.sigma_intercept, "sigma_intercept")
 
@@ -92,10 +102,15 @@ def apply_state_dependent_gaussian(
 
 
 class LognormalConfig(ConfigBase):
+    # === Noise scale ===
+
     sigma: float
     """Standard deviation of the underlying normal, not of the multiplicative factor."""
 
     def validate(self) -> None:
+
+        # --- Noise scale ---
+
         self._require_non_neg(self.sigma, "sigma")
 
 
@@ -107,19 +122,30 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
 
 class StateDependentLognormalConfig(ConfigBase):
-    sigma_slope: float
-    """Amount the noise σ falls as the normalised state rises from 0 to 1."""
-    sigma_intercept: float
-    """Base σ at the min state (normalised state 0)."""
+    # === State range ===
+
     min_val: float
     """Lower bound of the state-normalisation range."""
     max_val: float
     """Upper bound of the state-normalisation range."""
 
+    # === Noise scale ===
+
+    sigma_slope: float
+    """Amount the noise σ falls as the normalised state rises from 0 to 1."""
+    sigma_intercept: float
+    """Base σ at the min state (normalised state 0)."""
+
     def validate(self) -> None:
+
+        # --- State range ---
+
+        self._require_gt(self.max_val, "max_val", self.min_val)
+
+        # --- Noise scale ---
+
         self._require_non_neg(self.sigma_slope, "sigma_slope")
         self._require_non_neg(self.sigma_intercept, "sigma_intercept")
-        self._require_gt(self.max_val, "max_val", self.min_val)
 
 
 def apply_state_dependent_lognormal(
@@ -137,10 +163,15 @@ def apply_state_dependent_lognormal(
 
 
 class GammaConfig(ConfigBase):
+    # === Distribution ===
+
     shape_k: float
     scale_theta: float
 
     def validate(self) -> None:
+
+        # --- Distribution ---
+
         self._require_pos(self.shape_k, "shape_k")
         self._require_pos(self.scale_theta, "scale_theta")
 
@@ -156,21 +187,38 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
 
 
 class StateDependentGammaConfig(ConfigBase):
-    k_slope: float
-    """Rate at which the Gamma shape k varies with normalised state."""
-    k_intercept: float
-    """Gamma shape k at the min state (normalised state 0)."""
-    theta: float
-    """Scale parameter, held constant across all states."""
+    # === State range ===
+
     min_val: float
     """Lower bound of the state-normalisation range."""
     max_val: float
     """Upper bound of the state-normalisation range."""
 
+    # === Distribution shape ===
+
+    k_slope: float
+    """Rate at which the Gamma shape k varies with normalised state."""
+    k_intercept: float
+    """Gamma shape k at the min state (normalised state 0)."""
+
+    # === Distribution scale ===
+
+    theta: float
+    """Scale parameter, held constant across all states."""
+
     def validate(self) -> None:
-        self._require_pos(self.k_intercept, "k_intercept")
-        self._require_pos(self.theta, "theta")
+
+        # --- State range ---
+
         self._require_gt(self.max_val, "max_val", self.min_val)
+
+        # --- Distribution shape ---
+
+        self._require_pos(self.k_intercept, "k_intercept")
+
+        # --- Distribution scale ---
+
+        self._require_pos(self.theta, "theta")
 
 
 def apply_state_dependent_gamma(
@@ -212,14 +260,25 @@ def apply_state_dependent_gamma(
 
 
 class TelegraphConfig(ConfigBase):
+    # === Amplitude distribution ===
+
     amplitude_mean: float
     amplitude_std: float
     """Standard deviation of the Gaussian amplitude draw."""
+
+    # === State probability ===
+
     p_high_state: float
     """Probability that a cell sits in the high RTN state."""
 
     def validate(self) -> None:
+
+        # --- Amplitude distribution ---
+
         self._require_non_neg(self.amplitude_std, "amplitude_std")
+
+        # --- State probability ---
+
         self._require_in_closed_interval(self.p_high_state, "p_high_state", 0.0, 1.0)
 
 

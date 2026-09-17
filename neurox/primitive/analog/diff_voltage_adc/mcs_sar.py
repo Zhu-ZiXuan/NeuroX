@@ -21,17 +21,28 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class McsSarDiffVadcConfig(DiffVadcConfig):
-    latency_per_bit__ns: float
-    """SAR comparator clock period; latency at `active_bits` is
-    `(active_bits + 1) · latency_per_bit`."""
+    # === CDAC ===
+
     c_unit__fF: float
     """CDAC unit capacitance the binary weights multiply."""
+
+    # === Nonidealities ===
+
     cap_mismatch_sigma_relative: float
     """Per-unit-cap relative Pelgrom σ."""
     comparator_offset_sigma__V: float
     """Static Gaussian σ on the comparator threshold."""
     comparator_thermal_noise_sigma__V: float
     """Per-cycle Gaussian σ for thermal comparator noise, quoted at 300 K."""
+
+    # === Timing ===
+
+    latency_per_bit__ns: float
+    """SAR comparator clock period; latency at `active_bits` is
+    `(active_bits + 1) · latency_per_bit`."""
+
+    # === Dynamic energy ===
+
     energy_per_op__fJ: float
     """Data-independent energy charged once per conversion."""
     energy_per_bit__fJ: float
@@ -41,19 +52,25 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
     def validate(self) -> None:
         super().validate()
 
-        # --- Topology and timing ---
+        # --- Resolution ---
 
         self._require_ge(self.bits, "bits", 2)
-        self._require_pos(self.latency_per_bit__ns, "latency_per_bit__ns")
 
-        # --- CDAC and comparator ---
+        # --- CDAC ---
 
         self._require_pos(self.c_unit__fF, "c_unit__fF")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
         self._require_non_neg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
         self._require_non_neg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
 
-        # --- Energy ---
+        # --- Timing ---
+
+        self._require_pos(self.latency_per_bit__ns, "latency_per_bit__ns")
+
+        # --- Dynamic energy ---
 
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.energy_per_bit__fJ, "energy_per_bit__fJ")
@@ -74,7 +91,7 @@ _Config = McsSarDiffVadcConfig
 _Policy = McsSarDiffVadcPolicy
 
 
-@DiffVadc.register_impl(config_type=_Config, policy_type=_Policy)
+@DiffVadc.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class McsSarDiffVadc(DiffVadc):
     """V_cm-based (MCS) differential SAR voltage ADC.
 

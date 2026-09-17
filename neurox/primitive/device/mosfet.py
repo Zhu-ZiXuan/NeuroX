@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from typing import ClassVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, NonProfileModule, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 
@@ -30,23 +29,24 @@ __all__ = [
 
 
 class MosfetConfig(ConfigBase):
+    # === Process ===
+
     T_nom__K: float
     """Reference temperature at which `mu0__cm2_per_V_s` and `vth0__V` are stated."""
     c_ox__fF_per_um2: float
     """Gate-oxide capacitance per unit gate area."""
-
     mu0__cm2_per_V_s: float
     """Low-field carrier mobility."""
     ute: float
     """Mobility temperature exponent."""
-
     vth0__V: float
     """Threshold voltage at `T_nom__K`."""
     kt1__V: float
     """Threshold voltage temperature coefficient."""
-
     n_factor: float
     """Subthreshold swing coefficient."""
+
+    # === Mismatch ===
 
     A_vt__mV_um: float
     """Pelgrom V_th matching coefficient."""
@@ -100,15 +100,13 @@ _Dcop = MosfetDcop
 _Snap = MosfetSnap
 
 
-class Mosfet(ModuleBase, ABC):
+class Mosfet(NonProfileModule, ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
         W__um: Channel width.
         L__um: Channel length.
     """
-
-    is_profile_target: ClassVar[bool] = False
 
     config: _Config
     policy: _Policy

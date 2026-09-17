@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from neurox import Profiler, Reporter
-from tests.works.macro.cim.xue2020jssc._utils import (
+from tests.works.macro.cim.xue2020jssc.macro._utils import (
     MAG_MAX,
     QUANTIZATION_MODE,
     TINY_ADC_BITS,
@@ -20,9 +20,6 @@ from tests.works.macro.cim.xue2020jssc._utils import (
     probe_i_sub_grid,
     with_ref_levels,
 )
-
-_POLARITY_NUM = 2
-_FLOAT_TOLERANCE = {"rtol": 1.0e-10, "atol": 1.0e-12}
 
 
 def _mixed_weight(input_num: int, output_num: int) -> Tensor:

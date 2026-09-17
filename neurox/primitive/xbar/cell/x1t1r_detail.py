@@ -208,29 +208,34 @@ class _Solver:
 
 
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
-    rram_config: RramConfig
-    nmos_config: MosfetConfig
-
-    state_to_g_map__uS: tuple[float, ...]
-    """Strictly increasing programmed conductance by state."""
+    # === Access transistor ===
 
     access_nmos_W__um: float
     access_nmos_L__um: float
 
+    # === Conductance states ===
+
     rram_g_max__uS: float
     """Programmable ceiling above `rram_config.g_min__uS`."""
+    state_to_g_map__uS: tuple[float, ...]
+    """Strictly increasing programmed conductance by state."""
+
+    # === Submodules ===
+
+    rram_config: RramConfig
+    nmos_config: MosfetConfig
 
     def validate(self) -> None:
         super().validate()
 
-        # --- Access transistor and RRAM window ---
+        # --- Access transistor ---
 
         self._require_pos(self.access_nmos_W__um, "access_nmos_W__um")
         self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
+
+        # --- Conductance states ---
+
         self._require_gt(self.rram_g_max__uS, "rram_g_max__uS", self.rram_config.g_min__uS)
-
-        # --- State map ---
-
         self._require_min_len(self.state_to_g_map__uS, "state_to_g_map__uS", 2)
         self._require_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
         self._require_ge(self.state_to_g_map__uS[0], "state_to_g_map__uS[0]", self.rram_config.g_min__uS)
@@ -254,7 +259,7 @@ _Snap = XbarCell1t1rDetailSnap
 XbarCell1t1rDetailTrace = _Trace
 
 
-@XbarCell1t1r.register_impl(config_type=_Config, policy_type=_Policy)
+@XbarCell1t1r[_Snap].register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
     """Nonlinear RRAM-NMOS branch condensed at its access node."""
 

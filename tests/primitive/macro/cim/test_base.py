@@ -1,8 +1,7 @@
-"""Output-scale contracts of the CIM-macro base."""
+"""Ideal-twin conversion and lane scheduling owned by the CIM-macro base."""
 
 from __future__ import annotations
 
-import pytest
 import torch
 from torch import Tensor
 
@@ -82,17 +81,6 @@ class _StubMacro(CimMacro):
         return 0.0
 
 
-class _InterleavedMacro(_StubMacro):
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        indices = torch.arange(self.output_num, device=effective_output_num.device)
-        indices = indices.view(self.scan_num, self.lane_num).transpose(-2, -1)
-        return indices < effective_output_num[..., None, None]
-
-    def _vec_mat_mul_impl(self, x, *, leading_shape, quantization_mode, adc_active_bits, phase_mask):
-        readout = x[..., : self.output_num].unflatten(-1, (self.scan_num, self.lane_num)).transpose(-2, -1)
-        return readout.transpose(-2, -1).flatten(-2).expand(*leading_shape, self.output_num)
-
-
 def _stub_macro(
     *,
     factors: tuple[float, ...] = (1.0, 0.5),
@@ -167,69 +155,9 @@ def test_effective_outputs_broadcast_and_mask_in_logical_order(device: torch.dev
     assert torch.equal(actual, x.where(torch.arange(4, device=device) < counts.unsqueeze(-1), 0))
 
 
-@pytest.mark.parametrize("counts", [2, [1, 3], [[0], [2], [4]]])
-def test_counts_broadcast_over_caller_and_instance_axes(counts, device: torch.device) -> None:
-    macro = _stub_macro(input_num=4, inst_shape=(2,)).to(device)
-    x = torch.arange(1, 5, device=device).expand(3, 1, 4)
-    counts = torch.tensor(counts, device=device)
-    x = x.clone()
-    x[0] = 0
-    actual = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None, effective_output_num=counts)
-    expected = x.expand(3, 2, 4).where(torch.arange(4, device=device) < counts.unsqueeze(-1), 0)
-    assert torch.equal(actual, expected)
-
-
-@pytest.mark.parametrize("shape", [(3, 2), (1, 1, 2)])
-def test_counts_cannot_enlarge_the_input_schedule(shape, device: torch.device) -> None:
-    macro = _stub_macro(input_num=4, inst_shape=(2,)).to(device)
-    x = torch.ones(1, 2, 4, device=device, dtype=torch.int32)
-    counts = torch.ones(shape, device=device, dtype=torch.int64)
-    with pytest.raises(ValueError, match="without expanding"):
-        macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None, effective_output_num=counts)
-
-
-def test_impl_receives_original_input_and_complete_leading_shape(monkeypatch, device: torch.device) -> None:
-    macro = _stub_macro(input_num=4, inst_shape=(2,)).to(device)
-    x = torch.arange(1, 5, device=device).expand(3, 1, 4)
-    impl = macro._vec_mat_mul_impl
-
-    def inspect_input(value, *, leading_shape, **kwargs):
-        assert value is x
-        assert leading_shape == (3, 2)
-        return impl(value, leading_shape=leading_shape, **kwargs)
-
-    monkeypatch.setattr(macro, "_vec_mat_mul_impl", inspect_input)
-    actual = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None)
-    assert torch.equal(actual, x.expand(3, 2, 4))
-
-
 def test_latency_uses_longest_lane_not_total_output_count(device: torch.device, monkeypatch) -> None:
     macro = _stub_macro(input_num=4, lane_num=2, scan_num=2).to(device)
     monkeypatch.setattr(macro, "_latency_per_scan__ns", lambda **kwargs: 3.0)
     counts = torch.arange(5, device=device)
     actual = macro.latency__ns(adc_active_bits=None, effective_output_num=counts)
     assert torch.equal(actual, torch.tensor([0, 3, 6, 6, 6], device=device))
-
-
-def test_subclass_restores_interleaved_readouts_to_logical_order(device: torch.device) -> None:
-    template = _stub_macro(input_num=6, lane_num=2, scan_num=3, inst_shape=(2,))
-    macro = _InterleavedMacro(config=template.config, policy=template.policy, inst_shape=(2,), dtype=torch.float32).to(
-        device
-    )
-    x = torch.arange(1, 7, device=device).expand(3, 2, 6)
-    counts = torch.tensor([[0, 1], [2, 3], [5, 6]], device=device)
-    x = x.clone()
-    x[0, 0] = 0
-    actual = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None, effective_output_num=counts)
-    assert torch.equal(actual, x.where(torch.arange(6, device=device) < counts.unsqueeze(-1), 0))
-
-
-def test_zero_output_count_rejects_nonzero_input() -> None:
-    macro = _stub_macro(input_num=4, inst_shape=(2,))
-    x = torch.ones((3, 1, 4), dtype=torch.int32)
-    counts = torch.tensor([1, 0])
-    with (
-        torch.compiler.set_stance("force_eager"),
-        pytest.raises(RuntimeError, match="zero effective_output_num requires zero input"),
-    ):
-        macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None, effective_output_num=counts)

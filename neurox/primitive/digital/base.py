@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 from abc import ABC
+from typing import final
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 
 
 class DigitalConfig(ConfigBase, ABC):
+    """Configuration shared by integer-exact circuit blocks."""
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
-    """Silicon area of one fabricated instance."""
     leakage_per_inst__uW: float
-    """Static leakage power of one fabricated instance."""
 
     # === Required by base class ===
 
     def validate(self) -> None:
+        super().validate()
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -28,7 +35,7 @@ _Config = DigitalConfig
 _Policy = DigitalPolicy
 
 
-class DigitalBase(ModuleBase, ABC):
+class DigitalBase(ProfileModule, ABC):
     """Base for digital, integer-exact circuit blocks.
 
     Operands share a caller-selected integer dtype, which arithmetic and
@@ -50,3 +57,15 @@ class DigitalBase(ModuleBase, ABC):
 
     def __init__(self, *, config: _Config, policy: _Policy, inst_shape: tuple[int, ...]) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
+    # === Required by base class ===
+
+    @property
+    @final
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    @final
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW

@@ -26,7 +26,7 @@ Applies to foundational electrical models such as devices and other primitive I/
 Use the common checklist, then:
 
 - Use the family's config and policy role types. Add specialized descendants only when the primitive introduces fields or a distinct dispatch identity; do not create empty per-class types merely to match its name. Declare no per-instance area / leakage fields, as the owner budgets them.
-- Implement the primitive as a `ModuleBase` leaf that stays a non-reporter: its area and leakage are counted once at the owner, and it emits no dynamic event of its own. Declare the profile-target class variable as [code_style](../conventions/code_style.md) prescribes.
+- Inherit the electrical family's `NonProfileModule` base, keeping its accounting boundary.
 - Follow the physical-state and lifecycle contracts in [physical_state](../system_design/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
 - Export the public class and role dataclasses from the owning package.
@@ -39,7 +39,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 Use the common checklist, then:
 
 - Use or extend the subsystem config and policy bases. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
-- Inherit `ModuleBase` and use its `ProfileMixin` hooks.
+- Inherit the circuit family's `ProfileModule` base and use its energy-emission hooks.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy for quantities this leaf owns through `_record_dynamic_energy`.
 - Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract.
@@ -54,7 +54,7 @@ Applies when adding a dispatchable abstract family.
 Use the common checklist, then:
 
 - Define the config and policy role types that form the family dispatch key; an empty marker is appropriate when its type identity distinguishes the family even though it has no fields.
-- Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent.
+- Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent. Select `ProfileModule` or `NonProfileModule` on the family base; implementations retain that identity.
 - State the family's extension contract in the abstract base's docstring before adding concrete members, and add the family Reference document when the shared science is substantial.
 - Keep shared method docstrings on the abstract declaration.
 - Add at least one concrete member or document why the base is introduced ahead of implementations.

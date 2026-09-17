@@ -13,13 +13,20 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class SubtractorConfig(DigitalConfig):
+    # === Arithmetic ===
+
     bit_width: int
     """Nominal output bit width; sizes the PPA, no wrap is applied."""
 
-    energy_per_op__fJ: float
-    """Dynamic energy per output element."""
+    # === Timing ===
+
     latency_per_op__ns: float
     """Combinational window of one subtract."""
+
+    # === Dynamic energy ===
+
+    energy_per_op__fJ: float
+    """Dynamic energy per output element."""
 
     def validate(self) -> None:
         super().validate()
@@ -28,10 +35,13 @@ class SubtractorConfig(DigitalConfig):
 
         self._require_pos(self.bit_width, "bit_width")
 
-        # --- PPA ---
+        # --- Timing ---
+
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+
+        # --- Dynamic energy ---
 
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 _Config = SubtractorConfig
@@ -53,14 +63,6 @@ class Subtractor(DigitalBase):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
     def latency__ns(self) -> float:
         """Combinational latency of one subtract."""
         return self.config.latency_per_op__ns
@@ -75,7 +77,7 @@ class Subtractor(DigitalBase):
             `a - b`, unwrapped and unsaturated.
         """
         y = a - b
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=y.device)
             self._record_dynamic_energy(e_op__fJ.expand(y.shape))
         return y

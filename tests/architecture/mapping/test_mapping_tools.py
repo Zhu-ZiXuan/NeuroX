@@ -81,6 +81,7 @@ def test_mapping_tools_recover_each_precision_slice(
         pytest.param(10, 2, 8, 2, (2, 1, 5, 4, 2, 3), id="balanced-padded-group"),
         pytest.param(10, 3, 8, 4, (3, 1, 3, 2, 2, 2), id="output-and-group-padding"),
         pytest.param(176, 25, 128, 16, (25, 1, 11, 5, 3, 4), id="large-balanced-case"),
+        pytest.param(33, 1, 32, 1, (1, 1, 33, 32, 2, 17), id="seventeen-plus-sixteen"),
     ],
 )
 def test_mapping_tools_cover_geometry_cases(

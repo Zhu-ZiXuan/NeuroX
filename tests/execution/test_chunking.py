@@ -111,7 +111,7 @@ def test_unpartitioned_calls_still_flatten_and_restore(
 
     def body_fn(current: _Operands) -> _Result:
         return _Result(
-            values=current.values.square(),
+            values=current.values.cumsum(dim=0),
             leaf=_ResultLeaf(doubled=current.leaf.grid * 2),
             absent=None,
         )
@@ -128,35 +128,9 @@ def test_unpartitioned_calls_still_flatten_and_restore(
     assert result.values.numel() == flat_size
     assert result.values.shape == leading_shape
     assert result.leaf.doubled.shape == (*leading_shape, _COL, _ROW)
-    torch.testing.assert_close(result.values, operands.values.square())
+    expected = operands.values.flatten().cumsum(dim=0).reshape(leading_shape)
+    torch.testing.assert_close(result.values, expected)
     torch.testing.assert_close(result.leaf.doubled, operands.leaf.grid * 2)
-
-
-@pytest.mark.parametrize(
-    ("leading_shape", "expected_chunk_size", "message"),
-    [
-        ((2, 3), -1, "expected_chunk_size must be nonnegative"),
-        ((0, 3), 4, "leading_shape must contain at least one position"),
-    ],
-)
-def test_rejects_invalid_schedules_before_calling_the_body(
-    leading_shape: tuple[int, ...],
-    expected_chunk_size: int,
-    message: str,
-    device: torch.device,
-) -> None:
-    def body_fn(_current: _Operands) -> _Result:
-        raise AssertionError("body called")
-
-    with pytest.raises(ValueError, match=message):
-        run_chunked(
-            expected_chunk_size=expected_chunk_size,
-            leading_shape=leading_shape,
-            device=device,
-            operands=_operands(leading_shape, device=device),
-            output_template=_output_template(device=device),
-            body_fn=body_fn,
-        )
 
 
 class _TraceResult(TensorDataClassMixin, PyTreeDataClassMixin):

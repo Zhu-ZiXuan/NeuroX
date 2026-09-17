@@ -15,21 +15,37 @@ from .base import Idac, IdacConfig, IdacPolicy
 
 
 class GeneralIdacConfig(IdacConfig):
+    # === Transfer ===
+
     code_to_signal: tuple[float, ...]
     """Current lookup table indexed by integer code: entry `i` is the nominal
     analog output [uA] for digital code `i`, and the length fixes the code
     count."""
+
+    # === Nonidealities ===
+
     drive_thermal__uA: float
     """Signal-independent Gaussian output-noise σ added to each output sample
     after LUT lookup."""
+
+    # === Dynamic energy ===
+
     energy_per_op__fJ: float
     """Dynamic energy of converting one element, flat across codes."""
 
     def validate(self) -> None:
         super().validate()
 
+        # --- Transfer ---
+
         self._require_non_empty(self.code_to_signal, "code_to_signal")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.drive_thermal__uA, "drive_thermal__uA")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 
 
@@ -42,7 +58,7 @@ _Config = GeneralIdacConfig
 _Policy = GeneralIdacPolicy
 
 
-@Idac.register_impl(config_type=_Config, policy_type=_Policy)
+@Idac.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class GeneralIdac(Idac):
     """General current DAC model — code-to-current LUT plus signal-independent output noise."""
 
@@ -69,14 +85,6 @@ class GeneralIdac(Idac):
         self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
 
     @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
-    @property
     def code_max(self) -> int:
         return len(self.config.code_to_signal) - 1
 
@@ -87,7 +95,7 @@ class GeneralIdac(Idac):
             enabled=self.policy.drive_thermal,
         )
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=signal.device)
             self._record_dynamic_energy(e_op__fJ.expand(signal.shape))
 

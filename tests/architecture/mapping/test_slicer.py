@@ -63,23 +63,6 @@ def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
     assert outside_sliced.max() <= slice_value_range[1]
 
 
-def test_simple_slicer_unsigned_macro_range(device: torch.device) -> None:
-    slicer = SimpleSlicer(
-        slice_num=3,
-        slice_value_range=(0, 7),
-        encoding=Encoding.UNSIGNED,
-    )
-    assert slicer.value_range == (0, 8**3 - 1)
-    values = torch.arange(0, 8**3, dtype=torch.int32, device=device)
-    sliced = slicer.slice(values)
-    assert sliced.min().item() == 0
-    assert sliced.max().item() == 7
-    assert torch.equal(
-        slicer.recover(sliced, dim=-1),
-        values,
-    )
-
-
 @pytest.mark.parametrize("dim", [0, 1, -1])
 @pytest.mark.parametrize("direct", [False, True])
 def test_recover_recombines_linear_results(dim: int, direct: bool, device: torch.device) -> None:

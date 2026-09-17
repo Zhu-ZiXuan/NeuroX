@@ -6,7 +6,7 @@ import pytest
 import torch.nn as nn
 
 from neurox import check_unique_binding, stamp_names
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, NonProfileModule, PolicyBase
 
 
 class _Config(ConfigBase):
@@ -17,7 +17,7 @@ class _Policy(PolicyBase):
     pass
 
 
-class _Node(ModuleBase):
+class _Node(NonProfileModule):
     """NeuroX module that may hold NeuroX children."""
 
     def __init__(self, *children: nn.Module) -> None:
@@ -33,44 +33,19 @@ class _Owner(nn.Module):
         self.leaf = node
 
 
-def test_a_stamp_is_the_walks_own_name() -> None:
-    """The name is the attribute path the model's traversal composes, verbatim."""
+def test_stamping_tracks_nested_paths_rewiring_and_a_new_root() -> None:
     inner = _Node()
     model = _Owner(_Node(inner))
     stamp_names(model)
     assert model.leaf.qualified_name == "leaf"
     assert inner.qualified_name == "leaf.children_.0"
 
-
-def test_stamping_against_another_root_overwrites_the_earlier_name() -> None:
-    node = _Node()
-    stamp_names(_Owner(node))
-    assert node.qualified_name == "leaf"
-    stamp_names(node)
-    assert node.qualified_name == ""
-
-
-def test_a_restamp_renames_a_model_rewired_after_it_was_named() -> None:
-    model = _Owner(_Node())
+    model.leaf = inner
     stamp_names(model)
-    probe = _Node()
-    model.leaf = probe
-    stamp_names(model)
-    assert probe.qualified_name == "leaf"
+    assert inner.qualified_name == "leaf"
 
-
-def test_one_instance_at_two_locations_is_an_error() -> None:
-    """A physical module sits in one place, so a shared instance is refused rather than given one name."""
-    shared = _Node()
-
-    class _Host(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.left = shared
-            self.right = shared
-
-    with pytest.raises(ValueError, match="bound at both"):
-        stamp_names(_Host())
+    stamp_names(inner)
+    assert inner.qualified_name == ""
 
 
 def test_duplicate_bindings_can_be_checked_before_stamping() -> None:

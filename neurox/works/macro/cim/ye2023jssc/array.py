@@ -29,15 +29,21 @@ from .cell import (
 
 
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
-    cell_config: Ye2023Jssc2t1rCellConfig
+    # === Node capacitance ===
 
     t2_gate_unit_c__fF: float
     """T2 gate capacitance at unit width."""
     tbl_node_unit_c__fF: float
     """Effective total capacitance to ground at a unit-width T2's TBL node."""
 
+    # === Submodules ===
+
+    cell_config: Ye2023Jssc2t1rCellConfig
+
     def validate(self) -> None:
         super().validate()
+
+        # --- Node capacitance ---
 
         self._require_non_neg(self.t2_gate_unit_c__fF, "t2_gate_unit_c__fF")
         self._require_non_neg(self.tbl_node_unit_c__fF, "tbl_node_unit_c__fF")

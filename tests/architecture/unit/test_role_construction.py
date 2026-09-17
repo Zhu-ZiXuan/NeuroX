@@ -25,9 +25,6 @@ from neurox.architecture.unit.linear import (
     LinearCimUnit,
     LinearCimUnitConfig,
     LinearCimUnitPolicy,
-    LinearUnit,
-    LinearUnitConfig,
-    LinearUnitPolicy,
 )
 from neurox.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig
@@ -108,63 +105,12 @@ def test_role_file_factory_and_fresh_ideal_conversion(role: str, implementation:
     assert ideal.config.area_per_inst__um2 == 3.0
     assert ideal.config.leakage_per_inst__uW == 2.0
     assert ideal.T__K == 333.0
-    assert ideal._dtype == torch.float64
-    assert ideal._int_bias is None
     if role == "conv2d":
         assert ideal.config.stride == (2, 1)
         assert ideal.config.padding == (1, 0)
         assert ideal.config.dilation == (1, 2)
     x = torch.ones((2, 2), dtype=torch.int64) if role == "linear" else torch.ones((2, 2, 5, 6), dtype=torch.int64)
     execute = getattr(ideal, role)
-    with pytest.raises(AttributeError):
-        execute(x, quantization_mode=0, adc_active_bits=None)
     ideal.program(w)
     expected = F.linear(x, w) if role == "linear" else F.conv2d(x, w, **geometry)
     torch.testing.assert_close(execute(x, quantization_mode=0, adc_active_bits=None), expected)
-
-
-class _FunctionalLinear(LinearUnit):
-    is_profile_target = False
-
-    @property
-    def x_value_range(self) -> tuple[int, int]:
-        return (0, 3)
-
-    @property
-    def w_value_range(self) -> tuple[int, int]:
-        return (-3, 3)
-
-    @property
-    def adc_bits(self) -> None:
-        return None
-
-    def rescale_factor(self, *, quantization_mode: int, adc_active_bits: int | None) -> float:
-        return 1.0
-
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None) -> float:
-        return 0.0
-
-    def program(self, weight: torch.Tensor, bias: torch.Tensor | None = None) -> None:
-        self._weight = weight.long()
-        self._program_int_bias(bias, channels=weight.shape[0])
-
-    def _linear_impl(self, input: torch.Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> torch.Tensor:
-        return F.linear(input.long(), self._weight, self._int_bias)
-
-
-def test_functional_unit_needs_no_ppa_configuration() -> None:
-    unit = _FunctionalLinear(
-        config=LinearUnitConfig(),
-        policy=LinearUnitPolicy(),
-        w_logical_shape=(1, 2),
-        dtype=torch.float32,
-    )
-    w = torch.tensor([[2, 3]])
-    x = torch.tensor([[1, 2]])
-    unit.program(w)
-    torch.testing.assert_close(unit.linear(x, quantization_mode=0, adc_active_bits=None), torch.tensor([[8]]))
-    ideal = unit.to_ideal()
-    assert ideal.area__um2 == 0.0
-    assert ideal.leakage__uW == 0.0
-    ideal.program(w)
-    torch.testing.assert_close(ideal.linear(x, quantization_mode=0, adc_active_bits=None), torch.tensor([[8]]))

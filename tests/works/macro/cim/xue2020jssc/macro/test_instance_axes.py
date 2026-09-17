@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 
 from neurox import Profiler, Reporter
-from tests.works.macro.cim.xue2020jssc._utils import (
+from tests.works.macro.cim.xue2020jssc.macro._utils import (
     QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,

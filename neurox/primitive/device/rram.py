@@ -6,12 +6,10 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, NonProfileModule, PolicyBase, SnapBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -32,23 +30,31 @@ __all__ = [
 
 
 class RramConfig(ConfigBase):
+    # === Conductance and I-V ===
+
     g_min__uS: float
     """Strictly positive programmable floor; the ceiling is supplied per instance."""
-
     nonlinearity_alpha: float
     """Hyperbolic-sine I-V nonlinearity factor [1/V]; `0` makes the cell ohmic."""
+
+    # === Programming variation ===
+
+    prog_gamma: StateDependentGammaConfig
+
+    # === Retention drift ===
 
     drift_decay_rate: float
     """Power-law drift exponent."""
     drift_t0: float
     """Reference time [s] for the retained drift law."""
 
+    # === Read noise ===
+
     read_thermal__uS: float
     """Gaussian read-noise σ."""
-
-    prog_gamma: StateDependentGammaConfig
-
     read_telegraph: TelegraphConfig
+
+    # === Stuck-at faults ===
 
     stuck_at: StuckAtFaultConfig
 
@@ -59,10 +65,13 @@ class RramConfig(ConfigBase):
         self._require_pos(self.g_min__uS, "g_min__uS")
         self._require_non_neg(self.nonlinearity_alpha, "nonlinearity_alpha")
 
-        # --- Drift and noise ---
+        # --- Retention drift ---
 
         self._require_non_neg(self.drift_decay_rate, "drift_decay_rate")
         self._require_pos(self.drift_t0, "drift_t0")
+
+        # --- Read noise ---
+
         self._require_non_neg(self.read_thermal__uS, "read_thermal__uS")
 
 
@@ -97,7 +106,7 @@ _Dcop = RramDcop
 _Snap = RramSnap
 
 
-class Rram(ModuleBase):
+class Rram(NonProfileModule):
     """Stateful programmable-conductance RRAM model.
 
     Programming variation is applied by `program()` and read variation by
@@ -107,8 +116,6 @@ class Rram(ModuleBase):
         g_max__uS: Maximum programmable conductance; both bounds must be
             normal values representable by `dtype`.
     """
-
-    is_profile_target: ClassVar[bool] = False
 
     config: _Config
     policy: _Policy

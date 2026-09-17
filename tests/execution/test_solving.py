@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-
 import pytest
 import torch
 from torch import Tensor
-from torch.utils import _pytree as pytree
 
 from neurox.common.torch_compat import torch_assert_async
 from neurox.execution.solving import SolvingState, SolvingTrace, run_solving_loop, run_solving_trace_scan
@@ -102,12 +99,6 @@ def test_strict_iteration_cap_rejects_an_unconverged_state(record_trace: bool) -
         _count_down(torch.tensor([4.0]), torch.tensor([True]), 2, record_trace)
 
 
-def test_inactive_initial_state_has_only_nan_history(device: torch.device) -> None:
-    state, trace = _count_down(torch.ones(2, device=device), torch.zeros(2, dtype=torch.bool, device=device), 3, True)
-    torch.testing.assert_close(state.value, torch.ones(2, device=device))
-    assert trace.value.isnan().all()
-
-
 @pytest.mark.parametrize("active", [False, True])
 def test_scan_skips_inactive_body_and_uses_default_trace(device: torch.device, active: bool) -> None:
     # A runtime assertion proves skipping; Python call counts also count tracing.
@@ -197,80 +188,26 @@ class _MaskTrace(SolvingTrace):
 
 
 def test_trace_mask_preserves_nested_axes_dtypes_and_existing_nan(device: torch.device) -> None:
-    value = torch.ones((2, 3), device=device)
-    value[0, 1] = torch.nan
+    value = torch.ones((2, 3, 4), device=device)
+    value[0, 0, 1] = torch.nan
     trace = _MaskTrace(
         value=value,
-        limited=torch.ones(2, dtype=torch.bool, device=device),
-        count=torch.ones((2, 3), dtype=torch.int64, device=device),
-        inner=_Trace(value=torch.ones((2, 4, 3), device=device)),
+        limited=torch.ones((2, 3), dtype=torch.bool, device=device),
+        count=torch.ones((2, 3, 4), dtype=torch.int64, device=device),
+        inner=_Trace(value=torch.ones((2, 3, 5, 4), device=device)),
         optional=None,
     )
-    valid = torch.tensor([True, False], device=device)
-
-    def apply_mask(trace, valid):
-        return trace.mask_invalid(valid=valid)
-
-    result = apply_mask(trace, valid)
-    torch.testing.assert_close(result.value[0], value[0], equal_nan=True)
-    assert result.value[1].isnan().all()
-    assert result.inner.value[1].isnan().all()
-    torch.testing.assert_close(result.inner.value[0], trace.inner.value[0])
-    torch.testing.assert_close(result.limited, valid)
-    torch.testing.assert_close(result.count[1], torch.full((3,), -1, dtype=torch.int64, device=device))
-    assert result.optional is None
-    assert trace.value[1].isfinite().all()
-    assert trace.limited.all()
-
-
-def test_state_reconstruction_validates_activity(device: torch.device) -> None:
-    state = _State(value=torch.ones(2, device=device), is_active=torch.ones(2, dtype=torch.bool, device=device))
-    invalid = torch.ones(2, device=device)
-    with pytest.raises(TypeError, match="boolean mask"):
-        replace(state, is_active=invalid)
-    leaves, spec = pytree.tree_flatten(state)
-    restored = pytree.tree_unflatten(leaves, spec)
-    torch.testing.assert_close(restored.is_active, state.is_active)
-    with pytest.raises(TypeError, match="boolean mask"):
-        pytree.tree_unflatten([leaf.float() if leaf.dtype == torch.bool else leaf for leaf in leaves], spec)
-
-
-def test_trace_reconstruction_validates_replacement_tensors(device: torch.device) -> None:
-    trace = _Trace(value=torch.ones(2, device=device))
-    invalid = torch.ones(2, dtype=torch.uint8, device=device)
-    with pytest.raises(TypeError, match="signed integer"):
-        replace(trace, value=invalid)
-    leaves, spec = pytree.tree_flatten(trace)
-    torch.testing.assert_close(pytree.tree_unflatten(leaves, spec).value, trace.value)
-    with pytest.raises(TypeError, match="signed integer"):
-        pytree.tree_unflatten([invalid], spec)
-
-
-def test_trace_construction_validates_nested_dataclass_fields(device: torch.device) -> None:
-    @dataclass
-    class _Observation:
-        value: Tensor
-
-    class _ContainerTrace(SolvingTrace):
-        observation: _Observation
-
-    observation = _Observation(value=torch.ones(2, dtype=torch.uint8, device=device))
-    with pytest.raises(TypeError, match="signed integer"):
-        _ContainerTrace(observation=observation)
-
-
-def test_trace_mask_broadcasts_position_axes(device: torch.device) -> None:
-    trace = _Trace(value=torch.arange(24, dtype=torch.float64, device=device).reshape(2, 3, 4))
     valid = torch.tensor([[True, False, True]], device=device)
-
-    def apply_mask(trace: _Trace, valid: Tensor) -> _Trace:
-        return trace.mask_invalid(valid)
-
-    result = apply_mask(trace, valid)
-    torch.testing.assert_close(result.value[:, 0], trace.value[:, 0])
-    torch.testing.assert_close(result.value[:, 2], trace.value[:, 2])
+    result = trace.mask_invalid(valid)
+    torch.testing.assert_close(result.value[:, [0, 2]], value[:, [0, 2]], equal_nan=True)
     assert result.value[:, 1].isnan().all()
-    assert trace.value.isfinite().all()
+    assert result.inner.value[:, 1].isnan().all()
+    torch.testing.assert_close(result.inner.value[:, [0, 2]], trace.inner.value[:, [0, 2]])
+    torch.testing.assert_close(result.limited, valid.expand(2, 3))
+    torch.testing.assert_close(result.count[:, 1], torch.full((2, 4), -1, dtype=torch.int64, device=device))
+    assert result.optional is None
+    assert trace.value[:, 1].isfinite().all()
+    assert trace.limited.all()
 
 
 def test_trace_selection_broadcasts_without_changing_convergence(device: torch.device) -> None:

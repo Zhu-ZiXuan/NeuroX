@@ -19,6 +19,8 @@ from .x1t1r import (
 
 
 class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
+    # === State tables ===
+
     g_cell_off_table__uS: tuple[float, ...]
     """Per-state BL-to-SL branch chord conductance `g_cell__uS = I / (v_bl_op__V
     - v_sl_op__V)` at the calibration operating point with the WL off, indexed by
@@ -33,11 +35,15 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
     vx_ratio_on_table: tuple[float, ...]
     """The same drop fraction with the WL on."""
 
+    # === Word-line threshold ===
+
     v_wl_on_threshold__V: float
     """Analog WL level above which the access device counts as on."""
 
     def validate(self) -> None:
         super().validate()
+
+        # --- State tables ---
 
         self._require_non_empty(self.g_cell_off_table__uS, "g_cell_off_table__uS")
         self._require_same_len(
@@ -58,7 +64,6 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
             self.g_cell_off_table__uS,
             "g_cell_off_table__uS",
         )
-
         for state_idx, entry in enumerate(self.g_cell_off_table__uS):
             self._require_non_neg(entry, f"g_cell_off_table__uS[{state_idx}]")
         for state_idx, entry in enumerate(self.g_cell_on_table__uS):
@@ -90,7 +95,7 @@ _Policy = XbarCell1t1rLinearPolicy
 _Snap = XbarCell1t1rLinearSnap
 
 
-@XbarCell1t1r.register_impl(config_type=_Config, policy_type=_Policy)
+@XbarCell1t1r[_Snap].register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
     config: _Config
     policy: _Policy

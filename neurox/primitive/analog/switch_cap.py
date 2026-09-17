@@ -9,32 +9,50 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.primitive.physics import thermal_fluctuation_energy__fJ
 
 
 class SwitchCapConfig(ConfigBase):
+    # === Capacitance ===
+
     c_unit__fF: float
     """Capacitance of the weight-1 cap the bank's weights multiply."""
+
+    # === Nonidealities ===
+
     cap_mismatch_sigma_relative: float
     """Per-unit-cap Pelgrom relative σ."""
-    energy_per_sample_overhead__fJ: float
-    """Switching overhead billed once per whole-bank sample."""
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
-    def validate(self) -> None:
+    # === Dynamic energy ===
 
-        # --- Capacitance and mismatch ---
+    energy_per_sample_overhead__fJ: float
+    """Switching overhead billed once per whole-bank sample."""
+
+    def validate(self) -> None:
+        super().validate()
+
+        # --- Capacitance ---
 
         self._require_pos(self.c_unit__fF, "c_unit__fF")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
-        # --- PPA ---
+        # --- Static PPA ---
 
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
 
 
@@ -49,7 +67,7 @@ _Config = SwitchCapConfig
 _Policy = SwitchCapPolicy
 
 
-class SwitchCap(ModuleBase):
+class SwitchCap(ProfileModule):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
@@ -139,7 +157,7 @@ class SwitchCap(ModuleBase):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             # Shape: [..., cap] -> [...]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
             # The cap axis is already summed above; the collector sums the

@@ -12,15 +12,15 @@ from typing import TYPE_CHECKING, final
 import torch
 from torch import Tensor
 
-from neurox.architecture.unit.base import UnitBase
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.architecture.unit.base import UnitBase, UnitConfig
+from neurox.common.module import PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealLinearUnit
 
 
-class LinearUnitConfig(ConfigBase, ABC):
+class LinearUnitConfig(UnitConfig, ABC):
     pass
 
 
@@ -28,11 +28,15 @@ class LinearUnitPolicy(PolicyBase, ABC):
     pass
 
 
-class LinearUnit(RegistryMixin["LinearUnitConfig", "LinearUnitPolicy", "LinearUnit"], UnitBase, ModuleBase, ABC):
+_Config = LinearUnitConfig
+_Policy = LinearUnitPolicy
+
+
+class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC):
     """Interface for an integer `torch.nn.functional.linear` replacement."""
 
-    config: LinearUnitConfig
-    policy: LinearUnitPolicy
+    config: _Config
+    policy: _Policy
 
     # === Programmed state ===
 
@@ -41,8 +45,8 @@ class LinearUnit(RegistryMixin["LinearUnitConfig", "LinearUnitPolicy", "LinearUn
     def __init__(
         self,
         *,
-        config: LinearUnitConfig,
-        policy: LinearUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
@@ -58,8 +62,8 @@ class LinearUnit(RegistryMixin["LinearUnitConfig", "LinearUnitPolicy", "LinearUn
     def from_config(
         cls,
         *,
-        config: LinearUnitConfig,
-        policy: LinearUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> LinearUnit:
@@ -72,16 +76,15 @@ class LinearUnit(RegistryMixin["LinearUnitConfig", "LinearUnitPolicy", "LinearUn
         """Construct a fresh ideal linear unit with the same logical parameters.
 
         Preserve value ranges, weight shape, dtype, temperature and unit-local
-        static PPA. Units that report no own PPA yield zero area and leakage.
-        Weights, bias and child circuits are not copied.
+        static PPA. Weights, bias and child circuits are not copied.
         """
         from .ideal import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 
         config = IdealLinearUnitConfig(
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
-            area_per_inst__um2=self.area__um2 if self.is_profile_target else 0.0,
-            leakage_per_inst__uW=self.leakage__uW if self.is_profile_target else 0.0,
+            area_per_inst__um2=self.area__um2,
+            leakage_per_inst__uW=self.leakage__uW,
         )
         ideal = IdealLinearUnit(
             config=config,

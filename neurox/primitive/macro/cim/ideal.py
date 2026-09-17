@@ -21,6 +21,8 @@ from .base import (
 
 
 class IdealCimMacroConfig(CimMacroConfig):
+    # === Digit geometry ===
+
     w_digit_num: int
     """Weight digits in the physical twin."""
     w_digit_radix: int
@@ -33,10 +35,16 @@ class IdealCimMacroConfig(CimMacroConfig):
     """Input-digit radix in the physical twin."""
     x_encoding: Encoding
     """Input encoding in the physical twin."""
+
+    # === Value ranges ===
+
     x_value_range: tuple[int, int]
     """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
     """Inclusive integer weight range; `(0, 0)` is rejected."""
+
+    # === Quantization ===
+
     adc_bits: int
     """Maximum selectable virtual ADC resolution."""
     quantization_scheme: CimMacroQuantizationScheme
@@ -93,7 +101,7 @@ _Config = IdealCimMacroConfig
 _Policy = IdealCimMacroPolicy
 
 
-@CimMacro.register_impl(config_type=_Config, policy_type=_Policy)
+@CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealCimMacro(CimMacro):
     """Ideal macro VMM whose highest precision is the exact integer result."""
 

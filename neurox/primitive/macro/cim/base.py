@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, final, overload
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
 from neurox.encoding import Encoding, Transcoder
@@ -30,28 +30,28 @@ class CimMacroQuantizationScheme(Enum):
 
 
 class CimMacroConfig(ConfigBase, ABC):
+    # === Port geometry ===
+
     input_num: int
     """Logical input capacity fixed by the macro hardware."""
-
     lane_num: int
     """Parallel readout-circuit groups along the logical output direction."""
-
     scan_num: int
     """Serial output positions served by each readout group."""
-
     max_active_num: int
     """Maximum number of input positions one conversion may select; positions
     outside the selected set must be zero."""
+
+    # === Output scales ===
 
     rescale_factors: tuple[float, ...]
     """MAC units represented by one output code at `adc_bits`, indexed by
     `quantization_mode`."""
 
-    area_per_inst__um2: float
-    """Macro-owned area per instance, excluding profiled child modules."""
+    # === Static PPA ===
 
+    area_per_inst__um2: float
     leakage_per_inst__uW: float
-    """Macro-owned leakage per instance, excluding profiled child modules."""
 
     # === Public API ===
 
@@ -64,6 +64,7 @@ class CimMacroConfig(ConfigBase, ABC):
     # === Required by base class ===
 
     def validate(self) -> None:
+        super().validate()
 
         # --- Port geometry ---
 
@@ -86,7 +87,7 @@ class CimMacroConfig(ConfigBase, ABC):
         for index, factor in enumerate(self.rescale_factors):
             self._require_pos(factor, f"rescale_factors[{index}]")
 
-        # --- PPA ---
+        # --- Static PPA ---
 
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
@@ -137,11 +138,7 @@ _Config = CimMacroConfig
 _Policy = CimMacroPolicy
 
 
-class CimMacro(
-    ModuleBase,
-    RegistryMixin["_Config", "_Policy", "CimMacro"],
-    ABC,
-):
+class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
     """Abstract base class for a CIM macro.
 
     The macro closes the analog domain: analog signals and analog

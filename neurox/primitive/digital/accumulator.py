@@ -13,14 +13,21 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class AccumulatorConfig(DigitalConfig):
+    # === Arithmetic ===
+
     bit_width: int
     """Signed output bit width; the result wraps modulo `2^bit_width` into
     `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""
 
-    energy_per_op__fJ: float
-    """Dynamic energy per operand element folded into the sum."""
+    # === Timing ===
+
     latency_per_op__ns: float
     """Reduction window of one accumulate."""
+
+    # === Dynamic energy ===
+
+    energy_per_op__fJ: float
+    """Dynamic energy per operand element folded into the sum."""
 
     def validate(self) -> None:
         super().validate()
@@ -29,10 +36,13 @@ class AccumulatorConfig(DigitalConfig):
 
         self._require_pos(self.bit_width, "bit_width")
 
-        # --- PPA ---
+        # --- Timing ---
+
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+
+        # --- Dynamic energy ---
 
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 _Config = AccumulatorConfig
@@ -54,14 +64,6 @@ class Accumulator(DigitalBase):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
     def latency__ns(self) -> float:
         """Latency of one accumulator evaluation."""
         return self.config.latency_per_op__ns
@@ -80,7 +82,7 @@ class Accumulator(DigitalBase):
         full = 1 << bw
         y = (x.sum(dim, dtype=x.dtype) + half) % full - half
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
             self._record_dynamic_energy(e_op__fJ.expand(x.shape))
         return y

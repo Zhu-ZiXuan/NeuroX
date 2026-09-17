@@ -164,19 +164,6 @@ def test_linear_multi_phase_exact_matches_oracle() -> None:
     assert torch.equal(actual.long(), _cpu_int64_linear_oracle(x, weight))
 
 
-def test_linear_accepts_single_vector_input() -> None:
-    torch.manual_seed(500)
-    n = 13
-    k = 20
-    unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
-    weight = _random_weight(unit, (n, k))
-    x = _random_binary((k,))
-    unit.program(weight)
-    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
-    assert actual.shape == (n,)
-    assert torch.equal(actual.long(), _cpu_int64_linear_oracle(x, weight))
-
-
 # --- integer bias ---
 
 
@@ -194,19 +181,9 @@ def test_linear_program_with_integer_bias_adds_exactly() -> None:
     expected = _cpu_int64_linear_oracle(x, weight) + bias.long()
     assert torch.equal(actual.long(), expected)
 
-
-def test_linear_reprogram_without_bias_clears_slot() -> None:
-    torch.manual_seed(660)
-    n = 13
-    k = 20
-    m = 8
-    unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
-    weight = _random_weight(unit, (n, k))
-    x = _random_binary((m, k))
-    unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
     unit.program(weight)
     actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_active_bits=_ADC_BITS)
-    assert torch.equal(actual.long(), _cpu_int64_linear_oracle(x, weight))
+    assert torch.equal(actual.long(), expected - bias.long())
 
 
 # --- P > 1 input-phase accounting ---

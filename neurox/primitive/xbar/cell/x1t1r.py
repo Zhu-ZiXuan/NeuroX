@@ -7,12 +7,12 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import Any
 
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from neurox.common.module import ConfigBase, DcopBase, NonProfileModule, PolicyBase, SnapBase
 from neurox.common.registry_mixin import RegistryMixin
 
 
@@ -46,17 +46,7 @@ _Snap = XbarCell1t1rSnap
 _Dcop = XbarCell1t1rDcop
 
 
-class XbarCell1t1r[SnapT: _Snap](
-    ModuleBase,
-    RegistryMixin[
-        _Config,
-        _Policy,
-        "XbarCell1t1r[Any]",
-    ],
-    ABC,
-):
-    is_profile_target: ClassVar[bool] = False
-
+class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Policy], ABC):
     config: _Config
     policy: _Policy
 

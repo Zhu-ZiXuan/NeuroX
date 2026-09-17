@@ -12,15 +12,17 @@ from typing import TYPE_CHECKING, final
 import torch
 from torch import Tensor
 
-from neurox.architecture.unit.base import UnitBase
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.architecture.unit.base import UnitBase, UnitConfig
+from neurox.common.module import PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealConv2dUnit
 
 
-class Conv2dUnitConfig(ConfigBase, ABC):
+class Conv2dUnitConfig(UnitConfig, ABC):
+    # === Convolution geometry ===
+
     stride: tuple[int, int]
     """Output step `(s_h, s_w)`."""
     padding: tuple[int, int]
@@ -31,26 +33,32 @@ class Conv2dUnitConfig(ConfigBase, ABC):
     def validate(self) -> None:
         super().validate()
 
+        # --- Convolution geometry ---
+
         self._require_pos(self.stride[0], "stride[0]")
         self._require_pos(self.stride[1], "stride[1]")
-        self._require_pos(self.dilation[0], "dilation[0]")
-        self._require_pos(self.dilation[1], "dilation[1]")
         self._require_non_neg(self.padding[0], "padding[0]")
         self._require_non_neg(self.padding[1], "padding[1]")
+        self._require_pos(self.dilation[0], "dilation[0]")
+        self._require_pos(self.dilation[1], "dilation[1]")
 
 
 class Conv2dUnitPolicy(PolicyBase, ABC):
     pass
 
 
-class Conv2dUnit(RegistryMixin["Conv2dUnitConfig", "Conv2dUnitPolicy", "Conv2dUnit"], UnitBase, ModuleBase, ABC):
+_Config = Conv2dUnitConfig
+_Policy = Conv2dUnitPolicy
+
+
+class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC):
     """Interface for an integer `torch.nn.functional.conv2d` replacement.
 
     Grouped convolution is not supported.
     """
 
-    config: Conv2dUnitConfig
-    policy: Conv2dUnitPolicy
+    config: _Config
+    policy: _Policy
 
     # === Programmed state ===
 
@@ -59,8 +67,8 @@ class Conv2dUnit(RegistryMixin["Conv2dUnitConfig", "Conv2dUnitPolicy", "Conv2dUn
     def __init__(
         self,
         *,
-        config: Conv2dUnitConfig,
-        policy: Conv2dUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
@@ -76,8 +84,8 @@ class Conv2dUnit(RegistryMixin["Conv2dUnitConfig", "Conv2dUnitPolicy", "Conv2dUn
     def from_config(
         cls,
         *,
-        config: Conv2dUnitConfig,
-        policy: Conv2dUnitPolicy,
+        config: _Config,
+        policy: _Policy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> Conv2dUnit:
@@ -90,16 +98,16 @@ class Conv2dUnit(RegistryMixin["Conv2dUnitConfig", "Conv2dUnitPolicy", "Conv2dUn
         """Construct a fresh ideal conv2d unit with the same logical parameters.
 
         Preserve value ranges, weight shape, dtype, temperature and unit-local
-        static PPA, plus convolution geometry. Units that report no own PPA yield
-        zero area and leakage. Weights, bias and child circuits are not copied.
+        static PPA, plus convolution geometry. Weights, bias and child circuits
+        are not copied.
         """
         from .ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
 
         config = IdealConv2dUnitConfig(
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
-            area_per_inst__um2=self.area__um2 if self.is_profile_target else 0.0,
-            leakage_per_inst__uW=self.leakage__uW if self.is_profile_target else 0.0,
+            area_per_inst__um2=self.area__um2,
+            leakage_per_inst__uW=self.leakage__uW,
             stride=self.config.stride,
             padding=self.config.padding,
             dilation=self.config.dilation,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.primitive.nonideality import apply_relative_gaussian
 
 type FloatArray = float | tuple[FloatArray, ...]
@@ -33,11 +33,19 @@ def _array_shape(value: FloatArray, *, path: str) -> tuple[int, ...]:
 
 
 class ReferenceConfig(ConfigBase):
+    # === Reference values ===
+
     values: FloatArray
     """Nominal scalar or rectangular tuple tree. Axis meanings and units belong
     to the owner."""
+
+    # === Fabrication variation ===
+
     tolerance_sigma_relative: float
     """Relative per-instance initial-accuracy sigma, sampled at fabrication."""
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     """All standing power of the physical reference generator."""
@@ -48,8 +56,17 @@ class ReferenceConfig(ConfigBase):
         return _array_shape(self.values, path="values")
 
     def validate(self) -> None:
+
+        # --- Reference values ---
+
         _array_shape(self.values, path="values")
+
+        # --- Fabrication variation ---
+
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
+
+        # --- Static PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -63,7 +80,7 @@ _Config = ReferenceConfig
 _Policy = ReferencePolicy
 
 
-class Reference(ModuleBase):
+class Reference(ProfileModule):
     """Return one fabricated tensor without interpreting its axes or units."""
 
     config: _Config

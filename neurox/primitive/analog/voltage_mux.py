@@ -9,36 +9,54 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.primitive.nonideality import apply_gaussian
 
 
 class VmuxConfig(ConfigBase):
+    # === Multiplexing ===
+
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
     """Nominal transport gain, before the per-instance mismatch."""
+
+    # === Nonidealities ===
+
     mux_gain_mismatch_sigma_relative: float
     """Per-instance fractional gain-mismatch σ; flat, not area-scaled."""
     mux_noise_sigma__V: float
     """σ of the additive voltage noise drawn per access."""
-    energy_per_access__fJ: float
+
+    # === Static PPA ===
+
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
-    def validate(self) -> None:
+    # === Dynamic energy ===
 
-        # --- Gain and noise ---
+    energy_per_access__fJ: float
+
+    def validate(self) -> None:
+        super().validate()
+
+        # --- Multiplexing ---
 
         self._require_pos(self.mux_ratio, "mux_ratio")
         self._require_pos(self.mux_gain, "mux_gain")
+
+        # --- Nonidealities ---
+
         self._require_non_neg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
         self._require_non_neg(self.mux_noise_sigma__V, "mux_noise_sigma__V")
 
-        # --- PPA ---
+        # --- Static PPA ---
 
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+        # --- Dynamic energy ---
+
         self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
 
 
@@ -53,7 +71,7 @@ _Config = VmuxConfig
 _Policy = VmuxPolicy
 
 
-class Vmux(ModuleBase):
+class Vmux(ProfileModule):
     """Single-ended N:1 voltage transport with gain, noise, and PPA."""
 
     config: _Config
@@ -117,7 +135,7 @@ class Vmux(ModuleBase):
             enabled=self.policy.mux_noise,
         )
 
-        if self._is_dynamic_energy_profile_active():
+        if self._is_profiler_active():
             e_access__fJ = torch.full(
                 (), self.config.energy_per_access__fJ, dtype=torch.float32, device=v_muxed__V.device
             )

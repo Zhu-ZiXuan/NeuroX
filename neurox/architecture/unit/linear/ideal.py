@@ -10,20 +10,12 @@ from .base import LinearUnit, LinearUnitConfig, LinearUnitPolicy
 
 
 class IdealLinearUnitConfig(LinearUnitConfig):
-    area_per_inst__um2: float
-    """Unit-local peripheral area, excluding child circuits."""
-    leakage_per_inst__uW: float
-    """Unit-local static leakage, excluding child circuits."""
+    # === Value ranges ===
 
     x_value_range: tuple[int, int]
     """Inclusive integer activation range."""
     w_value_range: tuple[int, int]
     """Inclusive integer weight range."""
-
-    def validate(self) -> None:
-        super().validate()
-        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 class IdealLinearUnitPolicy(LinearUnitPolicy):
@@ -34,7 +26,7 @@ _Config = IdealLinearUnitConfig
 _Policy = IdealLinearUnitPolicy
 
 
-@LinearUnit.register_impl(config_type=_Config, policy_type=_Policy)
+@LinearUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealLinearUnit(LinearUnit):
     """Integer linear evaluation through `torch.nn.functional.linear`.
 
@@ -63,14 +55,6 @@ class IdealLinearUnit(LinearUnit):
             w_logical_shape=w_logical_shape,
             dtype=dtype,
         )
-
-    @property
-    def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
 
     @property
     def w_value_range(self) -> tuple[int, int]:

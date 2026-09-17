@@ -15,23 +15,27 @@ from .base import Iadc, IadcConfig, IadcPolicy
 
 
 class SarIadcConfig(IadcConfig):
-    latency_per_bit__ns: float
-    """Scheduled duration of one bit-decision phase."""
+    # === Nonidealities ===
 
     comparator_offset_sigma__uA: float
     """Static input-referred comparator-offset σ. Positive offset raises the
     reference-side threshold."""
 
+    # === Timing ===
+
+    latency_per_bit__ns: float
+    """Scheduled duration of one bit-decision phase."""
+
     def validate(self) -> None:
         super().validate()
-
-        # --- Timing ---
-
-        self._require_non_neg(self.latency_per_bit__ns, "latency_per_bit__ns")
 
         # --- Nonidealities ---
 
         self._require_non_neg(self.comparator_offset_sigma__uA, "comparator_offset_sigma__uA")
+
+        # --- Timing ---
+
+        self._require_non_neg(self.latency_per_bit__ns, "latency_per_bit__ns")
 
 
 class SarIadcPolicy(IadcPolicy):
@@ -43,7 +47,7 @@ _Config = SarIadcConfig
 _Policy = SarIadcPolicy
 
 
-@Iadc.register_impl(config_type=_Config, policy_type=_Policy)
+@Iadc.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class SarIadc(Iadc):
     """Current ADC using a binary search over injected references.
 

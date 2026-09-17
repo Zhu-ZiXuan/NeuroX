@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Self, dataclass_transform, final
 
@@ -11,8 +11,9 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.api.profiler import Profiler
+
 from .dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin, map_single_tensor_fields
-from .profile_mixin import ProfileMixin
 from .serialize_mixin import SerializeMixin
 from .validate_mixin import ValidateMixin
 
@@ -113,7 +114,7 @@ class DcopBase(TensorDataClassMixin):
     pass
 
 
-class ModuleBase(nn.Module, ProfileMixin, ABC):
+class ModuleBase(nn.Module, ABC):
     """Base for config- and policy-managed physical modules.
 
     Construct the owned module tree, place it on its device, then fabricate and
@@ -140,6 +141,11 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
     updates the subtree names; rebuilding from configuration requires a new
     fabrication and programming lifecycle.
 
+    A family inherits either `ProfileModule` or `NonProfileModule`; its
+    implementations retain that accounting identity, including ideal models.
+    An instance with neither or both identities is rejected. Both branches
+    participate in the same naming, fabrication, and temperature walks.
+
     Args:
         inst_shape: Hardware-instance shape. Physical axes encode multiplicity;
             singleton axes may reserve positions for runtime broadcasting.
@@ -154,6 +160,8 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
         policy: PolicyBase,
         inst_shape: tuple[int, ...],
     ) -> None:
+        if isinstance(self, ProfileModule) == isinstance(self, NonProfileModule):
+            raise TypeError(f"{type(self).__qualname__} must inherit exactly one of ProfileModule and NonProfileModule")
         nn.Module.__init__(self)
         if any(size <= 0 for size in inst_shape):
             raise ValueError(f"inst_shape extents must be positive; got {inst_shape}")
@@ -207,8 +215,6 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
         for _, child in neurox_children(self):
             child.fabricate()
 
-    # === Required by base class ===
-
     @property
     @final
     def inst_count(self) -> int:
@@ -250,6 +256,92 @@ class ModuleBase(nn.Module, ProfileMixin, ABC):
     @final
     def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
         nn.Module.register_buffer(self, name, tensor, persistent=False)
+
+
+class ProfileModule(ModuleBase):
+    """Physical-module family with independently reported local costs.
+
+    Families implement both per-instance static properties, either from
+    configuration or from their own physical model. The public properties
+    scale them by `inst_count` and exclude independently profiled children.
+    Operations submit only the dynamic energy this module owns; collection
+    does not change electrical behavior. No dynamic event is required for an
+    operation with no modeled switching cost.
+    """
+
+    # === Public API ===
+
+    @property
+    @final
+    def area__um2(self) -> float:
+        return self._area_per_inst__um2 * self.inst_count
+
+    @property
+    @final
+    def leakage__uW(self) -> float:
+        return self._leakage_per_inst__uW * self.inst_count
+
+    # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def _area_per_inst__um2(self) -> float:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def _leakage_per_inst__uW(self) -> float:
+        raise NotImplementedError
+
+    # === Tools for subclass and internal use ===
+
+    @final
+    def _is_profiler_active(self) -> bool:
+        return Profiler.active()
+
+    @final
+    def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
+        """Submit this call's local dynamic energy to the active profiler.
+
+        Outside a profiling context nothing is submitted. Compute billed
+        energy under `torch.no_grad()` or an equivalent guard.
+
+        Preserve the caller's leading axes at their full extents; reassemble
+        chunked results before submitting them. The profiler retains those
+        axes and sums all trailing axes, so include each billed physical
+        instance and access exactly once. Constant energy may be expanded
+        from a scalar without materializing the billed layout.
+
+        Args:
+            dynamic_energy__fJ: Energy over the caller's full leading extents
+                and billed trailing axes. Expanded views are supported;
+                singleton dimensions do not request implicit broadcasting.
+                Shape: `[*caller_leading, ...]`.
+            channel: Optional virtual submodule to bill under.
+
+        Raises:
+            RuntimeError: The emitter carries no name stamp while a profiler
+                is collecting.
+        """
+        ledger = Profiler.current()
+        if ledger is None:
+            return
+        Profiler.submit(
+            ledger.lay_out(
+                qualified_name=self.qualified_name,
+                dynamic_energy__fJ=dynamic_energy__fJ,
+                channel=channel,
+            )
+        )
+
+
+class NonProfileModule(ModuleBase):
+    """Physical-module family without independent PPA reporting.
+
+    Its physical costs are accounted for by an owner or outside the model's
+    scope. It exposes no static-cost or energy-emission interface. Profiled
+    children still report their own costs when held below this node.
+    """
 
 
 def neurox_roots(model: nn.Module) -> list[ModuleBase]:

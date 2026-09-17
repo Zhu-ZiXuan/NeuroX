@@ -6,12 +6,10 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import torch
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.module import ConfigBase, NonProfileModule, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
 __all__ = [
@@ -22,13 +20,20 @@ __all__ = [
 
 
 class SelectorConfig(ConfigBase):
+    # === Threshold ===
+
     vth_nominal__V: float
     """Threshold voltage shared across all cells before mismatch."""
+
+    # === Mismatch ===
 
     vth_mismatch__V: float
     """Standard deviation of the additive Gaussian threshold mismatch."""
 
     def validate(self) -> None:
+
+        # --- Mismatch ---
+
         self._require_non_neg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
@@ -41,10 +46,8 @@ _Config = SelectorConfig
 _Policy = SelectorPolicy
 
 
-class Selector(ModuleBase):
+class Selector(NonProfileModule):
     """OTS selector with static per-cell V_th mismatch."""
-
-    is_profile_target: ClassVar[bool] = False
 
     config: _Config
     policy: _Policy
