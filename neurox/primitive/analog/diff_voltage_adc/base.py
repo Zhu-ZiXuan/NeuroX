@@ -31,7 +31,7 @@ class DiffVadcRecord(AdcRecord):
         return self.v_pos__V - self.v_neg__V
 
 
-class DiffVadcConfig(ConfigBase, ABC):
+class DiffVadcConfig(ConfigBase, base_only=True):
     # === Resolution ===
 
     bits: int
@@ -57,7 +57,7 @@ class DiffVadcConfig(ConfigBase, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class DiffVadcPolicy(PolicyBase, ABC):
+class DiffVadcPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -66,7 +66,7 @@ _Config = DiffVadcConfig
 _Policy = DiffVadcPolicy
 
 
-class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
+class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Base class for differential voltage-domain ADC implementations.
 
     A converter owns its transfer structure and never its reference values:

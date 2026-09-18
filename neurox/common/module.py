@@ -13,6 +13,7 @@ from torch import Tensor
 
 from neurox.api.profiler import Profiler
 
+from .base_only_mixin import BaseOnlyMixin
 from .dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin, map_single_tensor_fields
 from .serialize_mixin import SerializeMixin
 from .validate_mixin import ValidateMixin
@@ -23,7 +24,7 @@ DEFAULT_T__K: float = 300.0
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)
 @dataclass(frozen=True, kw_only=True)
-class ConfigBase(SerializeMixin, ValidateMixin, ABC):
+class ConfigBase(BaseOnlyMixin, SerializeMixin, ValidateMixin, base_only=True):
     """Base for immutable module configurations.
 
     A subclass declares its fields as annotations without initial values, and
@@ -32,8 +33,8 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
     `validate`.
     """
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
+    def __init_subclass__(cls, *, base_only: bool = False, **kwargs: object) -> None:
+        super().__init_subclass__(base_only=base_only, **kwargs)
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
         for name in cls.__annotations__:
@@ -57,7 +58,7 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)
 @dataclass(frozen=True, kw_only=True)
-class PolicyBase(SerializeMixin, ValidateMixin, ABC):
+class PolicyBase(BaseOnlyMixin, SerializeMixin, ValidateMixin, base_only=True):
     """Base for immutable module runtime policies.
 
     A subclass declares its fields as annotations without initial values, and
@@ -66,8 +67,8 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
     `validate`.
     """
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
+    def __init_subclass__(cls, *, base_only: bool = False, **kwargs: object) -> None:
+        super().__init_subclass__(base_only=base_only, **kwargs)
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
         for name in cls.__annotations__:
@@ -89,7 +90,7 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
         """
 
 
-class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
+class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
     """Registered snapshot PyTree with tensor transforms under one per-call layout."""
 
     # === Public API ===
@@ -110,11 +111,11 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin):
         return map_single_tensor_fields(lambda t: t.index_select(dim, index), self)
 
 
-class DcopBase(TensorDataClassMixin):
+class DcopBase(TensorDataClassMixin, BaseOnlyMixin, base_only=True):
     pass
 
 
-class ModuleBase(nn.Module, ABC):
+class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     """Base for config- and policy-managed physical modules.
 
     Construct the owned module tree, place it on its device, then fabricate and
@@ -258,7 +259,7 @@ class ModuleBase(nn.Module, ABC):
         nn.Module.register_buffer(self, name, tensor, persistent=False)
 
 
-class ProfileModule(ModuleBase):
+class ProfileModule(ModuleBase, ABC, base_only=True):
     """Physical-module family with independently reported local costs.
 
     Families implement both per-instance static properties, either from
@@ -335,7 +336,7 @@ class ProfileModule(ModuleBase):
         )
 
 
-class NonProfileModule(ModuleBase):
+class NonProfileModule(ModuleBase, base_only=True):
     """Physical-module family without independent PPA reporting.
 
     Its physical costs are accounted for by an owner or outside the model's

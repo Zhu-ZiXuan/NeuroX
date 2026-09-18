@@ -54,6 +54,7 @@ Applies when adding a dispatchable abstract family.
 Use the common checklist, then:
 
 - Define the config and policy role types that form the family dispatch key; an empty marker is appropriate when its type identity distinguishes the family even though it has no fields.
+- Declare inheritance-only module, config, and policy classes with `base_only=True`; concrete implementations omit the declaration. Use `ABC` for actual abstract interfaces.
 - Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent. Select `ProfileModule` or `NonProfileModule` on the family base; implementations retain that identity.
 - State the family's extension contract in the abstract base's docstring before adding concrete members, and add the family Reference document when the shared science is substantial.
 - Keep shared method docstrings on the abstract declaration.

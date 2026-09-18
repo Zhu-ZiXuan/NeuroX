@@ -27,8 +27,8 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase]:
 
     _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[Self]]
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
         # Descendants reuse the family table; resetting it would discard registrations.
         for ancestor in cls.__mro__[1:]:
             if "_module_registry" in ancestor.__dict__:

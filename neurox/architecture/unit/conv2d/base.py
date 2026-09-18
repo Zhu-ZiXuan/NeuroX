@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .ideal import IdealConv2dUnit
 
 
-class Conv2dUnitConfig(UnitConfig, ABC):
+class Conv2dUnitConfig(UnitConfig, base_only=True):
     # === Convolution geometry ===
 
     stride: tuple[int, int]
@@ -43,7 +43,7 @@ class Conv2dUnitConfig(UnitConfig, ABC):
         self._require_pos(self.dilation[1], "dilation[1]")
 
 
-class Conv2dUnitPolicy(PolicyBase, ABC):
+class Conv2dUnitPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -51,7 +51,7 @@ _Config = Conv2dUnitConfig
 _Policy = Conv2dUnitPolicy
 
 
-class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC):
+class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
     """Interface for an integer `torch.nn.functional.conv2d` replacement.
 
     Grouped convolution is not supported.

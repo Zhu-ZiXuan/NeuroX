@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,7 +12,7 @@ from neurox.common.serialize import ConfigDict
 from neurox.common.serialize_mixin import SerializeMixin
 
 
-class _ConfigFamily(ConfigBase, ABC):
+class _ConfigFamily(ConfigBase, base_only=True):
     pass
 
 
@@ -24,7 +23,7 @@ class _Config(_ConfigFamily):
         self._require_non_neg(self.value, "value")
 
 
-class _PolicyFamily(PolicyBase, ABC):
+class _PolicyFamily(PolicyBase, base_only=True):
     pass
 
 
@@ -71,6 +70,7 @@ def test_nested_discriminators_resolve_only_within_the_declared_family() -> None
     run = _Run.from_dict(data)
     assert isinstance(run.configuration, _Config)
     assert isinstance(run.policy, _Policy)
+    assert run.to_dict() == data
 
     data["configuration"] = {"_neurox_class": "_Policy", "count": 3}
     with pytest.raises(TypeError):

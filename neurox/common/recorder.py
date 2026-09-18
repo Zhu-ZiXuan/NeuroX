@@ -10,7 +10,6 @@ is not thread-local, and two threads recording at once would share one book.
 
 from __future__ import annotations
 
-from abc import ABC
 from collections.abc import Callable
 from types import TracebackType
 from typing import Any, ClassVar, Self, cast, final
@@ -18,10 +17,11 @@ from typing import Any, ClassVar, Self, cast, final
 import torch
 from torch import Tensor
 
+from .base_only_mixin import BaseOnlyMixin
 from .dataclass_mixin import TensorDataClassMixin, map_single_tensor_fields
 
 
-class RecordBase(TensorDataClassMixin):
+class RecordBase(TensorDataClassMixin, BaseOnlyMixin, base_only=True):
     """One item a side channel collects.
 
     `TensorDataClassMixin` fixes how a subclass declares its fields and settles
@@ -68,7 +68,7 @@ class RecordBase(TensorDataClassMixin):
         return rebuilt if changed else self
 
 
-class RecorderBase[RecordT: RecordBase](ABC):
+class RecorderBase[RecordT: RecordBase](BaseOnlyMixin, base_only=True):
     """Collect one family's records while its context is open.
 
     Each direct subclass opens a family and binds its record type. The family
@@ -99,13 +99,12 @@ class RecorderBase[RecordT: RecordBase](ABC):
     _active_recorder: ClassVar[RecorderBase[Any] | None]
 
     def __init__(self, *, sync_device: torch.device | None = None) -> None:
-        self._root()  # a bare RecorderBase instance owns no slot to collect into
         self._sync_device = sync_device
         self.__records: list[RecordT] = []
         self.__pending_records: list[RecordT] = []
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
+    def __init_subclass__(cls, *, base_only: bool = False, **kwargs: object) -> None:
+        super().__init_subclass__(base_only=base_only, **kwargs)
         if RecorderBase in cls.__bases__:
             cls._family_root = cls
             cls._active_recorder = None

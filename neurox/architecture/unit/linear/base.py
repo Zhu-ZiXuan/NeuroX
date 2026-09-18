@@ -20,11 +20,11 @@ if TYPE_CHECKING:
     from .ideal import IdealLinearUnit
 
 
-class LinearUnitConfig(UnitConfig, ABC):
+class LinearUnitConfig(UnitConfig, base_only=True):
     pass
 
 
-class LinearUnitPolicy(PolicyBase, ABC):
+class LinearUnitPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -32,7 +32,7 @@ _Config = LinearUnitConfig
 _Policy = LinearUnitPolicy
 
 
-class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC):
+class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
     """Interface for an integer `torch.nn.functional.linear` replacement."""
 
     config: _Config

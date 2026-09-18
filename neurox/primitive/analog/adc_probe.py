@@ -9,7 +9,7 @@ from torch import Tensor
 from neurox.common.recorder import RecordBase, RecorderBase
 
 
-class AdcRecord(RecordBase, ABC):
+class AdcRecord(RecordBase, ABC, base_only=True):
     # === For subclass to implement or override ===
 
     @abstractmethod

@@ -29,7 +29,7 @@ class CimMacroQuantizationScheme(Enum):
     SIGN_MAGNITUDE = "sign_magnitude"
 
 
-class CimMacroConfig(ConfigBase, ABC):
+class CimMacroConfig(ConfigBase, ABC, base_only=True):
     # === Port geometry ===
 
     input_num: int
@@ -130,7 +130,7 @@ class CimMacroConfig(ConfigBase, ABC):
         raise NotImplementedError
 
 
-class CimMacroPolicy(PolicyBase, ABC):
+class CimMacroPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -138,7 +138,7 @@ _Config = CimMacroConfig
 _Policy = CimMacroPolicy
 
 
-class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
+class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Abstract base class for a CIM macro.
 
     The macro closes the analog domain: analog signals and analog

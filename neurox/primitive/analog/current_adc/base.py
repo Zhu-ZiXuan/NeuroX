@@ -29,7 +29,7 @@ class IadcRecord(AdcRecord):
         return self.i_in__uA
 
 
-class IadcConfig(ConfigBase, ABC):
+class IadcConfig(ConfigBase, base_only=True):
     # === Resolution ===
 
     bits: int
@@ -55,7 +55,7 @@ class IadcConfig(ConfigBase, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class IadcPolicy(PolicyBase, ABC):
+class IadcPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -64,7 +64,7 @@ _Config = IadcConfig
 _Policy = IadcPolicy
 
 
-class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
+class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Base class for single-ended current ADCs with injected references.
 
     The base owns the `bits` contract and nothing else about the call. How

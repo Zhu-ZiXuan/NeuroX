@@ -25,7 +25,7 @@ class _OtherPolicy(_Policy):
 
 
 def test_config_and_policy_both_select_family_members() -> None:
-    class Family(NonProfileModule, RegistryMixin[_Config, _Policy]):
+    class Family(NonProfileModule, RegistryMixin[_Config, _Policy], base_only=True):
         pass
 
     @Family.register_neurox_impl(config_type=_Config, policy_type=_Policy)
@@ -43,13 +43,16 @@ def test_config_and_policy_both_select_family_members() -> None:
     assert Family._lookup_impl(config=_Config(), policy=_Policy()) is First
     assert Family._lookup_impl(config=_OtherConfig(), policy=_Policy()) is Second
     assert Family._lookup_impl(config=_Config(), policy=_OtherPolicy()) is Third
+    implementation = Family._lookup_impl(config=_OtherConfig(), policy=_Policy())
+    instance = implementation(config=_OtherConfig(), policy=_Policy(), inst_shape=())
+    assert type(instance) is Second
 
 
 def test_family_bindings_are_independent_and_conflicts_preserve_the_first_registration() -> None:
-    class Family(NonProfileModule, RegistryMixin[_Config, _Policy]):
+    class Family(NonProfileModule, RegistryMixin[_Config, _Policy], base_only=True):
         pass
 
-    class OtherFamily(NonProfileModule, RegistryMixin[_Config, _Policy]):
+    class OtherFamily(RegistryMixin[_Config, _Policy], NonProfileModule, base_only=True):
         pass
 
     @Family.register_neurox_impl(config_type=_Config, policy_type=_Policy)

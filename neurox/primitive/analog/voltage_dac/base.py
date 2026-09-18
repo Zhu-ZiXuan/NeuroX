@@ -16,7 +16,7 @@ from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 
 
-class VdacConfig(ConfigBase, ABC):
+class VdacConfig(ConfigBase, base_only=True):
     # === Static PPA ===
 
     area_per_inst__um2: float
@@ -33,7 +33,7 @@ class VdacConfig(ConfigBase, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class VdacPolicy(PolicyBase, ABC):
+class VdacPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -41,7 +41,7 @@ _Config = VdacConfig
 _Policy = VdacPolicy
 
 
-class Vdac(ProfileModule, RegistryMixin[_Config, _Policy], ABC):
+class Vdac(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Base class for voltage-domain DAC implementations.
 
     A converter reports no duration; conversion settles within an externally

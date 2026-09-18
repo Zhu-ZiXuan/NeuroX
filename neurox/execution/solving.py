@@ -8,6 +8,7 @@ from typing import Self, final
 import torch
 from torch import Tensor
 
+from neurox.common.base_only_mixin import BaseOnlyMixin
 from neurox.common.dataclass_mixin import (
     PyTreeDataClassMixin,
     TensorDataClassMixin,
@@ -27,7 +28,7 @@ __all__ = [
 ]
 
 
-class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin):
+class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
     """Registered numerical state whose positions report whether they remain active.
 
     Excluded positions are inactive. Numerical failures raise rather than
@@ -56,7 +57,7 @@ class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin):
         return self.is_active.any()
 
 
-class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin):
+class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
     """Registered observation or history with trailing iteration axes.
 
     A history has the same concrete type as one observation. Each enclosing

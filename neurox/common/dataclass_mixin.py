@@ -35,14 +35,14 @@ class TensorDataClassMixin:
     class-initialization hooks, so they can inspect the complete fields.
     """
 
-    def __init_subclass__(cls) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
         for name in cls.__annotations__:
             if name in cls.__dict__:
                 raise TypeError(f"{cls.__qualname__}.{name} carries an initial value; declare the annotation alone")
         dataclasses.dataclass(eq=False, frozen=True, kw_only=True)(cls)
-        super().__init_subclass__()
+        super().__init_subclass__(**kwargs)
 
 
 class PyTreeDataClassMixin:
@@ -58,8 +58,8 @@ class PyTreeDataClassMixin:
     also be registered to expose their fields to PyTree traversal.
     """
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
         torch.export.register_dataclass(cls)
 
 

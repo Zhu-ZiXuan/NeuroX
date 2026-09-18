@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
 import typing
-from abc import ABC
 from collections.abc import Mapping
 from dataclasses import MISSING, Field, fields, is_dataclass
 from enum import Enum
@@ -207,26 +205,19 @@ def _coerce_primitive(value: ConfigValue, tp: _PrimitiveType) -> bool | int | fl
 def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     """Build a dataclass instance from a mapping.
 
-    Nested dataclass and `Enum` fields are resolved recursively. A top-level
-    `_neurox_class` discriminator dispatches to the named subclass of `cls`; it
-    resolves only within `cls` and its subclasses, so the receiver bounds what
-    the data can construct. The abstract-base rejection applies wherever such a
-    base appears: as `cls` itself, as the class a discriminator names, or as a
-    base-typed nested field.
+    `_neurox_class` selects `cls` or one of its descendants; without it, the
+    target is `cls`. Nested dataclass and `Enum` fields are resolved recursively.
+    Field conversion is followed by normal construction of the selected class,
+    including its validation hooks.
 
     Returns:
         Instance of `cls`, or of its named subclass.
 
     Raises:
-        TypeError: `cls` is not a dataclass, `data` names a `_neurox_class` that
-            is neither `cls` nor a subclass of it, `data` carries a key that
-            matches no field of the resolved class, `data` omits a field the
-            resolved class declares without a default, a value does not match its
-            field's declared primitive type (only an `int` widens to a `float`),
-            or the resolved class is an abstract config base (declares `ABC` as
-            a direct base or has unimplemented abstract methods) rather than a
-            concrete class. A concrete class stays buildable even when
-            subclasses of it exist elsewhere.
+        TypeError: `cls` is not a dataclass, the discriminator cannot resolve
+            within its hierarchy, a key is unknown, a required field is missing,
+            or a field value has an incompatible type. Primitive conversion
+            permits only widening an `int` to a `float`.
     """
     return _dataclass_from_config_dict(cls, normalize_config_dict(data))
 
@@ -245,12 +236,6 @@ def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
         if concrete is not cls:
             filtered = {k: v for k, v in data.items() if k != CLASS_DISCRIMINATOR}
             return _dataclass_from_config_dict(concrete, filtered)
-    if ABC in cls.__bases__ or inspect.isabstract(cls):
-        descendants = sorted(_recursive_dataclass_descendants(cls))
-        raise TypeError(
-            f"{cls.__name__} is an abstract config base; select a concrete subclass "
-            f"via the _neurox_class discriminator (one of: {descendants or '<none>'})"
-        )
 
     # --- 2: validate keys against the resolved class ---
 

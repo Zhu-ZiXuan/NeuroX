@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from abc import ABC
 from typing import final
 
 from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 
 
-class DigitalConfig(ConfigBase, ABC):
+class DigitalConfig(ConfigBase, base_only=True):
     """Configuration shared by integer-exact circuit blocks."""
 
     # === Static PPA ===
@@ -35,7 +34,7 @@ _Config = DigitalConfig
 _Policy = DigitalPolicy
 
 
-class DigitalBase(ProfileModule, ABC):
+class DigitalBase(ProfileModule, base_only=True):
     """Base for digital, integer-exact circuit blocks.
 
     Operands share a caller-selected integer dtype, which arithmetic and

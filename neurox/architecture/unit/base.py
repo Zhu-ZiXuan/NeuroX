@@ -10,7 +10,7 @@ from torch import Tensor
 from neurox.common.module import ConfigBase, ProfileModule
 
 
-class UnitConfig(ConfigBase, ABC):
+class UnitConfig(ConfigBase, base_only=True):
     """Unit-local peripheral costs, excluding independently profiled child circuits."""
 
     # === Static PPA ===
@@ -32,7 +32,7 @@ class UnitConfig(ConfigBase, ABC):
 _Config = UnitConfig
 
 
-class UnitBase(ProfileModule, ABC):
+class UnitBase(ProfileModule, ABC, base_only=True):
     """Profiled integer operators with shared value-domain and execution metadata.
 
     Every implementation, including an ideal operator, retains the unit's

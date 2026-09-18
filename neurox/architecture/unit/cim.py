@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from abc import ABC
 from typing import final
 
 from torch import Tensor
@@ -15,7 +14,7 @@ from neurox.primitive.digital import AccumulatorConfig, DigitalPolicy, ShiftAdde
 from neurox.primitive.macro.cim import CimMacroConfig, CimMacroPolicy
 
 
-class CimUnitConfig(ConfigBase, ABC):
+class CimUnitConfig(ConfigBase, base_only=True):
     # === Weight slicing ===
 
     w_slice_num: int
@@ -57,7 +56,7 @@ class CimUnitConfig(ConfigBase, ABC):
             raise ValueError("x_slice_encoding=None requires x_slice_num=1")
 
 
-class CimUnitPolicy(PolicyBase, ABC):
+class CimUnitPolicy(PolicyBase, base_only=True):
     cim_macro_policy: CimMacroPolicy
 
 

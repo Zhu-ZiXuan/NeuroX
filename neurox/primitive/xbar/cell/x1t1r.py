@@ -16,11 +16,11 @@ from neurox.common.module import ConfigBase, DcopBase, NonProfileModule, PolicyB
 from neurox.common.registry_mixin import RegistryMixin
 
 
-class XbarCell1t1rConfig(ConfigBase, ABC):
+class XbarCell1t1rConfig(ConfigBase, base_only=True):
     pass
 
 
-class XbarCell1t1rPolicy(PolicyBase, ABC):
+class XbarCell1t1rPolicy(PolicyBase, base_only=True):
     pass
 
 
@@ -46,7 +46,7 @@ _Snap = XbarCell1t1rSnap
 _Dcop = XbarCell1t1rDcop
 
 
-class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Policy], ABC):
+class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     config: _Config
     policy: _Policy
 

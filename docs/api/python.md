@@ -17,6 +17,7 @@ The device, analog, digital, and macro models under `neurox.primitive` are what 
 ## Extension SPI
 
 - **Module families** — inherit `neurox.common.module.ProfileModule` or `NonProfileModule`; both share the `ModuleBase` lifecycle. Use `ConfigBase` and `PolicyBase` for the family's configuration and policy.
+- **Construction constraints** — the shared `neurox.common.base_only_mixin.BaseOnlyMixin` rejects construction of classes declared with `base_only=True`. Each subclass defaults to constructible unless declared base-only again; Python's abstract-method restrictions still apply. Module, config, policy, and common data bases already provide this mechanism.
 - **Family dispatch** — inherit `neurox.common.registry_mixin.RegistryMixin` and register implementations with the family's `register_neurox_impl` decorator.
 - **Serialization and validation** — use `neurox.common.serialize_mixin.SerializeMixin`, `neurox.common.validate_mixin.ValidateMixin`, and the functions in `neurox.common.serialize`.
 - **Cross-module data** — inherit `neurox.common.module.SnapBase` for snapshots and `DcopBase` for DC operating points.

@@ -100,7 +100,7 @@ _Dcop = MosfetDcop
 _Snap = MosfetSnap
 
 
-class Mosfet(NonProfileModule, ABC):
+class Mosfet(NonProfileModule, ABC, base_only=True):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
