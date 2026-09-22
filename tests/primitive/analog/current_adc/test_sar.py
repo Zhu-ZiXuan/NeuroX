@@ -40,12 +40,12 @@ def test_lowered_bits_equal_the_full_width_code_shifted(device: torch.device, bi
     i_in = torch.arange(-0.5, 2 * (1 << bits) + 0.5, 0.25, dtype=torch.float64, device=device)
     i_in = i_in.unsqueeze(-1).expand(-1, 2)
 
-    full = adc.convert(i_in, refs, active_bits=bits)
+    full = adc.convert(i_in, i_refs__uA=refs, active_bits=bits)
     # Count reached taps independently of the binary search, including exact ties.
     expected = (i_in.unsqueeze(-1) >= refs).sum(dim=-1)
     assert torch.equal(full, expected)
     for active_bits in range(1, bits):
-        code = adc.convert(i_in, refs, active_bits=active_bits)
+        code = adc.convert(i_in, i_refs__uA=refs, active_bits=active_bits)
         assert torch.equal(code, full >> (bits - active_bits))
 
 
@@ -55,6 +55,6 @@ def test_positive_comparator_offset_raises_reference_threshold(device: torch.dev
 
     i_in = torch.tensor([4.0, 4.24, 4.25], dtype=torch.float64, device=device)
     refs = torch.arange(1, 8, dtype=torch.float64, device=device)
-    code = adc.convert(i_in, refs, active_bits=1)
+    code = adc.convert(i_in, i_refs__uA=refs, active_bits=1)
 
     assert torch.equal(code, torch.tensor([0, 0, 1], device=device))

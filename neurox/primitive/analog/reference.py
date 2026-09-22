@@ -117,7 +117,7 @@ class Reference(ProfileModule):
         values = self._nominal_values.clone().expand((*self.inst_shape, *self.config.shape))
         self._values = apply_relative_gaussian(
             values,
-            self.config.tolerance_sigma_relative,
+            sigma_relative=self.config.tolerance_sigma_relative,
             enabled=self.policy.tolerance,
         )
 

@@ -91,12 +91,12 @@ class GeneralIdac(Idac):
     def _convert_impl(self, code: Tensor) -> Tensor:
         signal = apply_gaussian(
             self._code_to_signal[code.long()],
-            self.config.drive_thermal__uA,
+            sigma=self.config.drive_thermal__uA,
             enabled=self.policy.drive_thermal,
         )
 
         if self._is_profiler_active():
-            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=signal.device)
-            self._record_dynamic_energy(e_op__fJ.expand(signal.shape))
+            energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            self._record_dynamic_energy(energy__fJ.expand(signal.shape))
 
         return signal

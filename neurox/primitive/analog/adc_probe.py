@@ -74,8 +74,9 @@ class DiffVadcRecord(AdcRecord):
 class AdcProber(RecorderBase[AdcRecord, AdcRecord, list[AdcRecord]]):
     """Keep individual ADC input records in submission order across contexts.
 
-    Records retain their original shapes and types; separate contexts need not
-    submit matching counts or layouts.
+    Records retain detached copies with their original shapes and types;
+    separate contexts need not submit matching counts or layouts. Runtime
+    submission keeps the growing collection outside compiled execution.
     """
 
     @property
@@ -86,29 +87,26 @@ class AdcProber(RecorderBase[AdcRecord, AdcRecord, list[AdcRecord]]):
         """
         return self._history_records
 
-    def submit_current(self, *, i_in__uA: Tensor) -> None:
-        """Collect current inputs, preserving their shape and detaching autograd.
+    @RecorderBase.submission
+    def submit_current(self, i_in__uA: Tensor) -> None:
+        """Collect detached copies of current inputs, preserving their shape.
 
         Raises:
             RuntimeError: This instance is not the active ADC prober.
         """
-        self._submit_record(IadcRecord(i_in__uA=i_in__uA.detach()))
+        self._submit_record(IadcRecord(i_in__uA=i_in__uA.detach().clone()))
 
+    @RecorderBase.submission
     def submit_diff_voltage(self, *, v_pos__V: Tensor, v_neg__V: Tensor) -> None:
         """Collect both voltage inputs separately, preserving their shapes.
 
-        Both tensors are detached from autograd. Their difference is computed
-        only when a consumer calls the record's `input_value` method.
+        Both tensors are detached and copied on their original devices. Their
+        difference is computed only when a consumer calls `input_value`.
 
         Raises:
             RuntimeError: This instance is not the active ADC prober.
         """
-        self._submit_record(
-            DiffVadcRecord(
-                v_pos__V=v_pos__V.detach(),
-                v_neg__V=v_neg__V.detach(),
-            )
-        )
+        self._submit_record(DiffVadcRecord(v_pos__V=v_pos__V.detach().clone(), v_neg__V=v_neg__V.detach().clone()))
 
     # === Tools for subclass and internal use ===
 

@@ -64,7 +64,7 @@ def test_bias_is_per_output_and_reprogramming_can_clear_it(
         dtype=torch.float32,
     ).to(device)
     expected = (x.cpu().long() @ weight.cpu().long().T).to(device)
-    unit.program(weight, bias)
+    unit.program(weight, bias=bias)
     actual = unit.linear(x, quantization_mode=0, adc_active_bits=None)
     torch.testing.assert_close(actual, expected + bias)
 
@@ -77,7 +77,7 @@ def test_bias_is_per_output_and_reprogramming_can_clear_it(
     assert unit.latency__ns(x.shape, adc_active_bits=None) == one_vector__ns
 
     unit.set_profile_leading_rank(len(batch))
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         unit.linear(x, quantization_mode=0, adc_active_bits=None)

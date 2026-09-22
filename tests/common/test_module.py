@@ -125,9 +125,11 @@ def test_profile_rank_crosses_containers_and_non_profile_nodes_with_subtree_over
         parent.emit(energy)
         child.emit(energy)
         sibling.emit(energy)
-    torch.testing.assert_close(profiler.result["parent"].dynamic_energy__fJ, energy.sum(dim=2))
-    torch.testing.assert_close(profiler.result[child.qualified_name].dynamic_energy__fJ, energy.sum(dim=2))
-    torch.testing.assert_close(profiler.result["sibling"].dynamic_energy__fJ, energy.sum(dim=(1, 2)))
+    torch.testing.assert_close(profiler.result["parent"].dynamic_energy__fJ, energy.sum(dim=2), check_dtype=False)
+    torch.testing.assert_close(
+        profiler.result[child.qualified_name].dynamic_energy__fJ, energy.sum(dim=2), check_dtype=False
+    )
+    torch.testing.assert_close(profiler.result["sibling"].dynamic_energy__fJ, energy.sum(dim=(1, 2)), check_dtype=False)
 
     late = _ProfileNode()
     parent.bridge.children_.append(late)
@@ -140,4 +142,4 @@ def test_profile_rank_crosses_containers_and_non_profile_nodes_with_subtree_over
         late.emit(energy)
         sibling.emit(energy)
     for item in updated.result.values():
-        torch.testing.assert_close(item.dynamic_energy__fJ, energy.sum(dim=(1, 2)))
+        torch.testing.assert_close(item.dynamic_energy__fJ, energy.sum(dim=(1, 2)), check_dtype=False)

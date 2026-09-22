@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from .base import Conv2dUnit, Conv2dUnitConfig, Conv2dUnitPolicy
@@ -28,11 +27,7 @@ _Policy = IdealConv2dUnitPolicy
 
 @Conv2dUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealConv2dUnit(Conv2dUnit):
-    """Integer convolution evaluation through `torch.nn.functional.conv2d`.
-
-    Args:
-        w_logical_shape: Logical kernel shape `(C_out, C_in/groups, kh, kw)` bound to `program(...)`.
-    """
+    """Exact int64 convolution on the programmed device."""
 
     config: _Config
     policy: _Policy
@@ -82,7 +77,6 @@ class IdealConv2dUnit(Conv2dUnit):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> float:
-        del quantization_mode, adc_active_bits
         return 1.0
 
     def latency__ns(
@@ -101,6 +95,7 @@ class IdealConv2dUnit(Conv2dUnit):
     def program(
         self,
         weight: Tensor,
+        *,
         bias: Tensor | None = None,
     ) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
@@ -115,12 +110,17 @@ class IdealConv2dUnit(Conv2dUnit):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> Tensor:
-        return F.conv2d(
-            input.long(),
-            self._weight,
-            self._int_bias,
-            stride=self.stride,
-            padding=self.padding,
-            dilation=self.dilation,
-            groups=self.groups,
-        )
+        unbatched = input.ndim == 3
+        x = input.unsqueeze(0) if unbatched else input
+        self._conv2d_out_hw(x.shape[-2], x.shape[-1])
+        # CUDA convolution backends do not support int64. Keep the reduction on device.
+        windows = self._conv2d_windows(x.long())
+        # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, H_out, W_out, group, K]
+        windows = windows.unflatten(-3, (self.groups, self._w_logical_shape[1])).flatten(-3)
+        # Shape: [C_out, C_in/group, kh, kw] -> [group, C_out/group, K]
+        weight = self._weight.flatten(1).unflatten(0, (self.groups, self._w_logical_shape[0] // self.groups))
+        # Shape: [B, H_out, W_out, group, C_out/group, K] -> [B, C_out, H_out, W_out]
+        output: Tensor = (windows.unsqueeze(-2) * weight).sum(dim=-1, dtype=torch.int64).flatten(-2).movedim(-1, 1)
+        if self._int_bias is not None:
+            output = output + self._int_bias.view(-1, 1, 1)
+        return output.squeeze(0) if unbatched else output

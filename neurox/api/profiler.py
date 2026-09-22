@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from itertools import count
+from typing import Literal, cast
+from weakref import WeakValueDictionary
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
 from neurox.common.dataclass_mixin import TensorDataClassMixin
-from neurox.common.module import neurox_profile_modules
+from neurox.common.module import ProfileModule, neurox_profile_modules
 from neurox.common.recorder import RecorderBase
 
 from .function import stamp_names
+
+_source_ids = count()
+_sources: WeakValueDictionary[int, ProfileModule] = WeakValueDictionary()
 
 
 @dataclass(eq=False, kw_only=True)
@@ -90,8 +95,10 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         on_repeat: `"sum"` adds same-name energy contributions elementwise,
             requiring equal shapes; `"replace"` retains the last contribution.
             This policy does not combine independent unit calls or sum time.
-        sync_device: Destination for newly completed energy and duration tensors;
-            `None` retains each tensor on its current device.
+        sync_device: Destination for completed energy and duration tensors.
+            `None` selects the default device at construction. Submissions stay
+            on their original devices until context exit; all completed fields
+            share this destination before reporting.
 
     Raises:
         ValueError: Context-exit validation finds incompatible summed shapes or
@@ -105,12 +112,25 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         on_repeat: Literal["sum", "replace"] = "sum",
         sync_device: torch.device | None = None,
     ) -> None:
-        super().__init__(sync_device=sync_device)
+        super().__init__(sync_device=torch.get_default_device() if sync_device is None else sync_device)
         self._concat_dim = concat_dim
         self._on_repeat = on_repeat
         self._static_data: dict[str, _StaticItem] = {}
 
     # === Public API ===
+
+    @staticmethod
+    def register_source(source: ProfileModule) -> Tensor:
+        """Bind a module to a weakly held, runtime-resolved name source.
+
+        Call outside compilation during construction or after copying. Keep
+        the returned scalar int64 identity on CPU as ordinary host metadata;
+        it is independent of module device placement. Submission resolves the
+        module's current stamped name without specializing on that string.
+        """
+        identity = next(_source_ids)
+        _sources[identity] = source
+        return torch.tensor(identity, dtype=torch.int64, device="cpu")
 
     @property
     def on_repeat(self) -> Literal["sum", "replace"]:
@@ -214,32 +234,48 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
             for _, module in neurox_profile_modules(model)
         }
 
+    @RecorderBase.submission
     def submit_dynamic_energy(
         self,
         *,
-        name: str,
+        name: str | None = None,
         dynamic_energy__fJ: Tensor,
         channel: str | None = None,
+        source: Tensor | None = None,
     ) -> None:
         """Buffer energy already reduced to the emitter's observation axes.
 
+        Retain a detached copy without changing dtype or device. Device
+        synchronization occurs at context exit. Names passed explicitly here
+        specialize compiled callers; module emission resolves names at runtime.
+
         Args:
             name: Emitter's full stamped module path; empty for the named root.
+                Supply exactly one of `name` and `source`.
             dynamic_energy__fJ: Contributions for corresponding basic operations.
                 No additional axes are reduced by the profiler.
                 Shape: `[*measurement]`.
             channel: Optional billing segment under the emitter; a matching
                 real child receives the contribution in its existing row.
+            source: CPU identity from `register_source`, resolved at runtime.
 
         Raises:
-            ValueError: The supplied channel is empty or contains a dot.
+            ValueError: The supplied channel is empty or contains a dot, or
+                exactly one of `name` and `source` was not supplied.
         """
         if channel is not None and (not channel or "." in channel):
             raise ValueError(f"channel {channel!r} must name one nonempty virtual segment")
-        self._submit_record(_EnergyRecord(name=name, channel=channel, dynamic_energy__fJ=dynamic_energy__fJ.detach()))
+        self._submit_record(
+            _EnergyRecord(
+                name=self._resolve_name(name, source),
+                channel=channel,
+                dynamic_energy__fJ=dynamic_energy__fJ.detach().clone(),
+            )
+        )
 
-    def submit_latency(self, *, name: str, latency__ns: Tensor) -> None:
-        """Buffer detached basic-operation durations with their sample layout.
+    @RecorderBase.submission
+    def submit_latency(self, *, name: str | None = None, latency__ns: Tensor, source: Tensor | None = None) -> None:
+        """Buffer detached copies of basic-operation durations with their sample layout.
 
         Each position matches one retained energy position. Expanded views are
         supported; no axes are reduced or inferred. Repeated submissions from
@@ -247,13 +283,28 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
 
         Args:
             name: Emitter's full stamped module path; empty for the named root.
-            latency__ns: Finite, nonnegative floating-point durations. Their
-                device must match the corresponding energy before reporting.
+                Supply exactly one of `name` and `source`.
+            latency__ns: Finite, nonnegative floating-point durations, retained
+                on their original device until context exit.
                 Shape: `[*measurement]`.
+            source: CPU identity from `register_source`, resolved at runtime.
         """
-        self._submit_record(_LatencyRecord(name=name, latency__ns=latency__ns.detach()))
+        self._submit_record(
+            _LatencyRecord(
+                name=self._resolve_name(name, source),
+                latency__ns=latency__ns.detach().clone(),
+            )
+        )
 
     # === Tools for subclass and internal use ===
+
+    @staticmethod
+    def _resolve_name(name: str | None, source: Tensor | None) -> str:
+        if (name is None) == (source is None):
+            raise ValueError("supply exactly one of name and source")
+        if name is not None:
+            return name
+        return _sources[int(cast(Tensor, source).item())].qualified_name
 
     def _merge_records(self, records: Sequence[_EnergyRecord | _LatencyRecord]) -> Sequence[_History]:
         items: _History = {}

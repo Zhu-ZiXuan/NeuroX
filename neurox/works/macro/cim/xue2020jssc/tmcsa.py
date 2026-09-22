@@ -76,15 +76,15 @@ class Tmcsa(SarIadc):
     def _compute_bit_dynamic_energy__fJ(
         self,
         i_in__uA: Tensor,
+        *,
         i_refs__uA: Tensor,
         trial_code: Tensor,
-        *,
         bit_position: int,
+        enable: Tensor | None,
     ) -> Tensor:
-        del bit_position
         config = self.config
-        i_ref__uA = self._select_reference(i_refs__uA, trial_code)
+        i_ref__uA = self._select_reference(i_refs__uA, trial_code=trial_code)
         i_common__uA = i_in__uA + i_ref__uA
-        q_ph2__fC = q_conduction__fC(3.0 * i_common__uA, config.t_ph2__ns)
-        q_ph3__fC = q_conduction__fC(2.0 * i_common__uA, config.t_ph3__ns)
-        return e_charge__fJ(self._vdd__V, q_ph2__fC + q_ph3__fC) + config.energy_per_bit__fJ
+        q_ph2__fC = q_conduction__fC(i__uA=3.0 * i_common__uA, duration__ns=config.t_ph2__ns)
+        q_ph3__fC = q_conduction__fC(i__uA=2.0 * i_common__uA, duration__ns=config.t_ph3__ns)
+        return e_charge__fJ(v_supply__V=self._vdd__V, delta_q_abs__fC=q_ph2__fC + q_ph3__fC) + config.energy_per_bit__fJ

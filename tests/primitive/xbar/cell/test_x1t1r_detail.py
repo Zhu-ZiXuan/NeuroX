@@ -116,8 +116,8 @@ def test_trace_selection_preserves_the_current_balanced_solution() -> None:
     v_sl__V = torch.zeros((2, 2), dtype=torch.float64)
     trace_mask = torch.tensor([[True, False], [False, True]])
 
-    plain_dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
-    traced_dcop, trace = cell.solve_dc_trace(v_bl__V, v_sl__V, snap, trace_mask=trace_mask)
+    plain_dcop = cell.solve_dc(v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap)
+    traced_dcop, trace = cell.solve_dc_trace(v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap, trace_mask=trace_mask)
     valid = ~trace.residual__uA.isnan()
     assert not valid[~trace_mask].any()
     assert valid[trace_mask, 0].all()
@@ -129,8 +129,8 @@ def test_trace_selection_preserves_the_current_balanced_solution() -> None:
     torch.testing.assert_close(plain_dcop.v_x__V, traced_dcop.v_x__V)
     # Independently check current continuity at the solved access node,
     # without reproducing the Newton update or its stopping criterion.
-    nmos = cell.nmos.solve_dc(snap.v_wl__V, plain_dcop.v_x__V, v_sl__V, snap.nmos_snap)
-    rram = cell.rram.solve_dc(v_bl__V - plain_dcop.v_x__V, snap.rram_snap)
+    nmos = cell.nmos.solve_dc(vg__V=snap.v_wl__V, vd__V=plain_dcop.v_x__V, vs__V=v_sl__V, snap=snap.nmos_snap)
+    rram = cell.rram.solve_dc(v_bl__V - plain_dcop.v_x__V, snap=snap.rram_snap)
     torch.testing.assert_close(nmos.ids__uA, rram.i__uA, rtol=1e-10, atol=1e-12)
     torch.testing.assert_close(plain_dcop.i__uA, rram.i__uA)
     assert valid[..., 0].sum() == trace_mask.sum()

@@ -7,7 +7,6 @@ See Also:
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
@@ -89,7 +88,7 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
         return local__ns + (h_out * w_out - 1) * window_period__ns + global__ns
 
     @torch.no_grad()
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         # Shape: [output_channel, input_channel_per_group, kernel_h, kernel_w] -> [output_channel, input]
@@ -104,7 +103,7 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
         # Shape: [C_in, H, W] -> [B=1, C_in, H, W]
         x = input.unsqueeze(0) if unbatched else input
         out_hw = self._conv2d_out_hw(x.shape[-2], x.shape[-1])
-        planes = self._conv2d_planes(x, out_hw=out_hw)
+        planes = self._conv2d_planes(x)
         y = self._vmm(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
@@ -116,40 +115,14 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
             y = y.squeeze(0)
         return y
 
-    def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
+    def _conv2d_planes(self, input: Tensor) -> Tensor:
         """Gather convolution windows.
 
         Returns:
             Flattened input vectors for each convolution window and group.
             Shape: `[B, M, group, K]`.
         """
-        h_out, w_out = out_hw
-        kh, kw = self._w_logical_shape[-2:]
-        s_h, s_w = self.stride
-        p_h, p_w = self.padding
-        d_h, d_w = self.dilation
-        x = input
-        if p_h or p_w:
-            # Shape: [B, C_in, H, W] -> [B, C_in, Hp, Wp]
-            x = F.pad(x, (p_w, p_w, p_h, p_h))
-        device = x.device
-
-        # Index-grid gather rather than `F.unfold`: pure data movement, so a
-        # window plane stays exact in whatever integer dtype it arrives in.
-        # Shape: [H_out, kh]
-        h_idx = (torch.arange(h_out, device=device) * s_h).unsqueeze(-1) + (
-            torch.arange(kh, device=device) * d_h
-        ).unsqueeze(0)
-        # Shape: [W_out, kw]
-        w_idx = (torch.arange(w_out, device=device) * s_w).unsqueeze(-1) + (
-            torch.arange(kw, device=device) * d_w
-        ).unsqueeze(0)
-        # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, kh, Wp]
-        x = x[..., h_idx, :]
-        # Shape: [B, C_in, H_out, kh, Wp] -> [B, C_in, H_out, kh, W_out, kw]
-        x = x[..., w_idx]
-        # Shape: [B, C_in, H_out, kh, W_out, kw] -> [B, H_out, W_out, C_in, kh, kw]
-        x = x.permute(0, 2, 4, 1, 3, 5)
+        x = self._conv2d_windows(input)
         # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, H_out, W_out, groups*K]
         x = x.flatten(start_dim=-3)
         # Shape: [B, H_out, W_out, group*K] -> [B, H_out, W_out, group, K]

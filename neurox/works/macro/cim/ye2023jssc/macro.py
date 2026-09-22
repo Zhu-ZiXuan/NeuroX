@@ -155,7 +155,6 @@ class Ye2023JsscCimMacro(CimMacro):
     _v_wl_scan__V: Tensor  # Shape: [scan, row, col=1]
     _scan_indices: Tensor  # Shape: [scan, lane=1]
     _tbl_row_indices: Tensor  # Shape: [scan, lane]
-    _v_bl__V: Tensor  # Shape: []
     _v_sl__V: Tensor  # Shape: []
 
     def __init__(
@@ -279,7 +278,7 @@ class Ye2023JsscCimMacro(CimMacro):
         self._register_nonpersistent_buffer("_v_wl_scan__V", scan_wl_on * self.config.v_wl_on__V)
         self._register_nonpersistent_buffer("_scan_indices", scan_indices)
         self._register_nonpersistent_buffer("_tbl_row_indices", tbl_row_indices)
-        self._register_nonpersistent_buffer("_v_bl__V", torch.tensor(self.config.v_bl__V, dtype=dtype))
+        self._dtype = dtype
         self._register_nonpersistent_buffer("_v_sl__V", torch.tensor(self.config.v_sl__V, dtype=dtype))
 
     @property
@@ -327,7 +326,7 @@ class Ye2023JsscCimMacro(CimMacro):
         # Shape: [..., w_digit, input] -> [..., col]
         bl_code = self._append_disabled_rsm(x_code, dim=-2).flatten(-2)
         # Shape: [..., col]
-        v_bl__V = bl_code * self._v_bl__V
+        v_bl__V = bl_code.to(dtype=self._dtype) * config.v_bl__V
 
         # --- 2: append the serialized row-scan axis ---
 
@@ -389,7 +388,7 @@ class Ye2023JsscCimMacro(CimMacro):
         # Shape: [..., scan, lane]
         i_signal__uA = i_tbl__uA - self.array.i_tbl_leak__uA
         # Shape: [..., scan, lane]
-        code = self.rscsa.convert(i_signal__uA, i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
+        code = self.rscsa.convert(i_signal__uA, i_refs__uA=i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
 
         # --- 6: shared peripheral energy per active scan ---
 

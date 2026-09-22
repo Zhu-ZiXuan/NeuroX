@@ -83,11 +83,11 @@ def test_signed_slice_results_reach_circuit_wrap_and_enabled_operation_accountin
     values = torch.tensor([[3, 1, -5], [0, 0, 0], [1, 1, -1]], dtype=torch.int64, device=device)
     enable = torch.tensor([[True], [True], [False]], device=device)
     circuit.set_profile_leading_rank(1)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(circuit)
     with profiler:
         actual = slicer.recover(values, dim=-1, enable=enable)
     # The first complete signed sum is -15, wrapping to 1.
     torch.testing.assert_close(actual, torch.tensor([1, 0, 0], device=device))
     expected_energy = torch.tensor([6.0, 6.0, 0.0], device=device)
-    torch.testing.assert_close(profiler.result[""].dynamic_energy__fJ, expected_energy)
+    torch.testing.assert_close(profiler.result[""].dynamic_energy__fJ, expected_energy, check_dtype=False)

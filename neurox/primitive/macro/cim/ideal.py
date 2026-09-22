@@ -96,7 +96,7 @@ class IdealCimMacroConfig(CimMacroConfig):
 
         # --- Quantization ---
 
-        self._require_in_closed_interval(self.adc_bits, "adc_bits", 1, 31)
+        self._require_in_closed_interval(self.adc_bits, "adc_bits", lower=1, upper=31)
 
 
 class IdealCimMacroPolicy(CimMacroPolicy):
@@ -214,7 +214,7 @@ class IdealCimMacro(CimMacro):
 
         return code
 
-    def _quantize(self, value: Tensor, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
+    def _quantize(self, value: Tensor, *, factor: float, min_code: int, max_code: int, drop_bits: int) -> Tensor:
         code = stochastic_round(value.to(torch.float32) / factor, enabled=self.training)
         return code.long().clamp(min_code, max_code) >> drop_bits
 
@@ -230,7 +230,7 @@ class IdealCimMacro(CimMacro):
         min_code = -zero_point
         max_code = zero_point - 1
         drop_bits = self.adc_bits - adc_active_bits
-        return self._quantize(plane_dot, factor, min_code, max_code, drop_bits)
+        return self._quantize(plane_dot, factor=factor, min_code=min_code, max_code=max_code, drop_bits=drop_bits)
 
     def _convert_sign_magnitude(
         self,
@@ -243,4 +243,6 @@ class IdealCimMacro(CimMacro):
         min_code = 0
         max_code = (1 << self.adc_bits) - 1
         drop_bits = self.adc_bits - adc_active_bits
-        return plane_dot.sign() * self._quantize(plane_dot.abs(), factor, min_code, max_code, drop_bits)
+        return plane_dot.sign() * self._quantize(
+            plane_dot.abs(), factor=factor, min_code=min_code, max_code=max_code, drop_bits=drop_bits
+        )

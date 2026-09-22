@@ -9,20 +9,21 @@ from neurox import Profiler, stamp_names
 from ._utils import ADC_BITS, INPUT_NUM, OUTPUT_NUM, build_macro
 
 
-def test_batch_and_instance_axes_preserve_the_logical_vmm(device: torch.device) -> None:
-    macro = build_macro(device=device, inst_shape=(2,))
+def test_readout_order_preserves_vmm_across_batch_and_instance_axes(device: torch.device) -> None:
+    # Unequal lane and scan counts expose transposed readout axes.
+    macro = build_macro(device=device, input_num=3, inst_shape=(2,), lane_num=2, scan_num=3)
     weight = torch.tensor(
         [
-            [[1, 3, 7, 0], [2, 4, 1, 6]],
-            [[7, 0, 2, 1], [1, 5, 3, 4]],
+            [[1, 3, 7, 0, 2, 5], [2, 4, 1, 6, 3, 2], [0, 0, 7, 0, 0, 0]],
+            [[7, 0, 2, 1, 0, 3], [1, 5, 3, 4, 2, 1], [7, 0, 0, 0, 0, 0]],
         ],
         device=device,
     )
     x = torch.tensor(
         [
-            [[1, 0], [0, 1]],
-            [[0, 1], [1, 1]],
-            [[1, 1], [1, 0]],
+            [[1, 0, 0], [0, 1, 0]],
+            [[0, 1, 0], [1, 1, 1]],
+            [[1, 1, 1], [1, 0, 0]],
         ],
         device=device,
     )
@@ -31,20 +32,10 @@ def test_batch_and_instance_axes_preserve_the_logical_vmm(device: torch.device) 
     code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
     expected = (x.unsqueeze(-1) * weight).sum(dim=-2).clamp(max=15)
 
-    assert code.shape == (3, 2, OUTPUT_NUM)
+    assert code.shape == (3, 2, 6)
     assert torch.equal(code, expected)
-
-
-def test_parallel_readout_lanes_preserve_output_order(device: torch.device) -> None:
-    macro = build_macro(device=device, lane_num=2, scan_num=3)
-    weight = torch.tensor([[1, 3, 7, 0, 2, 5], [2, 4, 1, 6, 3, 2]], device=device)
-    x = torch.tensor([[1, 0], [0, 1], [1, 1]], device=device)
-    macro.program(weight)
-
-    code = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=ADC_BITS)
-
-    expected = (x.unsqueeze(-1) * weight).sum(dim=-2).clamp(max=15)
-    assert torch.equal(code, expected)
+    assert code.min() == 0
+    assert code.max() == 15
 
 
 def test_partial_scan_selects_drive_events_and_latency(device: torch.device) -> None:

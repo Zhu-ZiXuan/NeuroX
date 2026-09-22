@@ -1,12 +1,8 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
-Every kernel owns its own enable branch through a keyword-only `enabled` flag, a plain
-Python `bool` that resolves at trace time, so a disabled source is expressed by the flag
-alone and never by a `None` argument. A disabled kernel returns the input object itself
-rather than a clone — a wide broadcast view stays unmaterialized — so every result is
-read-only. A kernel whose spread is a single scalar takes that scalar
-directly, while one with several coupled parameters takes a frozen config declared beside
-it, keeping that parameter set named and validated once.
+`enabled` is a Python bool resolved at trace time. Disabled kernels return the
+input object unchanged, preserving expanded views; treat all results as read-only.
+Kernels accept a scalar spread directly or coupled parameters in a frozen config.
 
 See Also:
     docs/reference/primitive/nonideality.md
@@ -22,15 +18,10 @@ from neurox.common.module import ConfigBase
 
 
 class StuckAtFaultConfig(ConfigBase):
-    # === Fault probabilities ===
-
     p_at_min: float
     p_at_max: float
 
     def validate(self) -> None:
-
-        # --- Fault probabilities ---
-
         self._require_non_neg(self.p_at_min, "p_at_min")
         self._require_non_neg(self.p_at_max, "p_at_max")
         self._require_lt(self.p_at_min + self.p_at_max, "p_at_min + p_at_max", 1.0)
@@ -38,10 +29,10 @@ class StuckAtFaultConfig(ConfigBase):
 
 def apply_stuck_at_fault(
     x: Tensor,
+    *,
     config: StuckAtFaultConfig,
     min_val: float,
     max_val: float,
-    *,
     enabled: bool,
 ) -> Tensor:
     """Replace cells with stuck-at-min / stuck-at-max values."""
@@ -55,43 +46,35 @@ def apply_stuck_at_fault(
     return torch.where(is_min, min_val, torch.where(is_max, max_val, x))
 
 
-def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor:
+def apply_gaussian(x: Tensor, *, sigma: float | Tensor, enabled: bool) -> Tensor:
     """Apply additive Gaussian noise."""
     if not enabled:
         return x
     return x + torch.randn_like(x) * sigma
 
 
-def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) -> Tensor:
-    """Apply multiplicative Gaussian noise proportional to the signal.
-
-    The multiplicative form keeps an exact zero exact.
-    """
+def apply_relative_gaussian(x: Tensor, *, sigma_relative: float, enabled: bool) -> Tensor:
+    """Apply multiplicative Gaussian noise, preserving exact zeros."""
     if not enabled:
         return x
     return x * (1.0 + torch.randn_like(x) * sigma_relative)
 
 
 class StateDependentGaussianConfig(ConfigBase):
-    # === Noise scale ===
-
     sigma_slope: float
     """Linear growth of the noise σ per unit of `|x|`."""
     sigma_intercept: float
     """Base σ at `|x| = 0`."""
 
     def validate(self) -> None:
-
-        # --- Noise scale ---
-
         self._require_non_neg(self.sigma_slope, "sigma_slope")
         self._require_non_neg(self.sigma_intercept, "sigma_intercept")
 
 
 def apply_state_dependent_gaussian(
     x: Tensor,
-    config: StateDependentGaussianConfig,
     *,
+    config: StateDependentGaussianConfig,
     enabled: bool,
 ) -> Tensor:
     """Apply Gaussian noise whose σ scales with the magnitude of `x`."""
@@ -102,19 +85,14 @@ def apply_state_dependent_gaussian(
 
 
 class LognormalConfig(ConfigBase):
-    # === Noise scale ===
-
     sigma: float
     """Standard deviation of the underlying normal, not of the multiplicative factor."""
 
     def validate(self) -> None:
-
-        # --- Noise scale ---
-
         self._require_non_neg(self.sigma, "sigma")
 
 
-def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Tensor:
+def apply_lognormal(x: Tensor, *, config: LognormalConfig, enabled: bool) -> Tensor:
     """Apply multiplicative log-normal noise."""
     if not enabled:
         return x
@@ -137,21 +115,15 @@ class StateDependentLognormalConfig(ConfigBase):
     """Base σ at the min state (normalised state 0)."""
 
     def validate(self) -> None:
-
-        # --- State range ---
-
         self._require_gt(self.max_val, "max_val", self.min_val)
-
-        # --- Noise scale ---
-
         self._require_non_neg(self.sigma_slope, "sigma_slope")
         self._require_non_neg(self.sigma_intercept, "sigma_intercept")
 
 
 def apply_state_dependent_lognormal(
     x: Tensor,
-    config: StateDependentLognormalConfig,
     *,
+    config: StateDependentLognormalConfig,
     enabled: bool,
 ) -> Tensor:
     """Apply log-normal noise whose σ depends on normalised state."""
@@ -163,25 +135,21 @@ def apply_state_dependent_lognormal(
 
 
 class GammaConfig(ConfigBase):
-    # === Distribution ===
-
     shape_k: float
     scale_theta: float
 
     def validate(self) -> None:
-
-        # --- Distribution ---
-
         self._require_pos(self.shape_k, "shape_k")
         self._require_pos(self.scale_theta, "scale_theta")
 
 
-def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tensor:
+def apply_gamma_noise(x: Tensor, *, config: GammaConfig, enabled: bool) -> Tensor:
     """Apply multiplicative Gamma noise normalised to unit mean."""
     if not enabled:
         return x
-    gamma_dist = torch.distributions.Gamma(config.shape_k, 1.0 / config.scale_theta)
-    gamma_sample = gamma_dist.sample(x.shape).to(x.device, x.dtype)
+    concentration = torch.full((), config.shape_k, dtype=x.dtype, device=x.device)
+    gamma_dist = torch.distributions.Gamma(concentration, 1.0 / config.scale_theta)
+    gamma_sample = gamma_dist.sample(x.shape)
     mean = config.shape_k * config.scale_theta
     return x * (gamma_sample / mean)
 
@@ -194,37 +162,26 @@ class StateDependentGammaConfig(ConfigBase):
     max_val: float
     """Upper bound of the state-normalisation range."""
 
-    # === Distribution shape ===
+    # === Distribution parameters ===
 
     k_slope: float
     """Rate at which the Gamma shape k varies with normalised state."""
     k_intercept: float
     """Gamma shape k at the min state (normalised state 0)."""
 
-    # === Distribution scale ===
-
     theta: float
     """Scale parameter, held constant across all states."""
 
     def validate(self) -> None:
-
-        # --- State range ---
-
         self._require_gt(self.max_val, "max_val", self.min_val)
-
-        # --- Distribution shape ---
-
         self._require_pos(self.k_intercept, "k_intercept")
-
-        # --- Distribution scale ---
-
         self._require_pos(self.theta, "theta")
 
 
 def apply_state_dependent_gamma(
     x: Tensor,
-    config: StateDependentGammaConfig,
     *,
+    config: StateDependentGammaConfig,
     enabled: bool,
 ) -> Tensor:
     """Apply state-dependent Gamma noise normalised to unit mean.
@@ -238,23 +195,13 @@ def apply_state_dependent_gamma(
     needs_cast = in_dtype not in (torch.float32, torch.float64)
     x32 = x.float() if needs_cast else x
 
-    # --- 1: normalize the conductance state ---
-
     x_norm = (x32 - config.min_val) / (config.max_val - config.min_val + 1e-12)
-
-    # --- 2: derive the state-dependent shape ---
 
     k = (x_norm * config.k_slope + config.k_intercept).clamp(min=0.1)
 
-    # --- 3: sample elementwise gamma noise ---
+    gamma_sample = torch.distributions.Gamma(concentration=k, rate=1.0 / config.theta).sample()
 
-    theta_tensor = torch.full(x32.shape, config.theta, dtype=x32.dtype, device=x32.device)
-    rate = 1.0 / theta_tensor
-    gamma_sample = torch.distributions.Gamma(concentration=k, rate=rate).sample()
-
-    # --- 4: normalize to unit-mean gain ---
-
-    mean = (k * theta_tensor).clamp(min=1e-12)
+    mean = (k * config.theta).clamp(min=1e-12)
     result = x32 * (gamma_sample / mean)
     return result.to(in_dtype) if needs_cast else result
 
@@ -272,17 +219,11 @@ class TelegraphConfig(ConfigBase):
     """Probability that a cell sits in the high RTN state."""
 
     def validate(self) -> None:
-
-        # --- Amplitude distribution ---
-
         self._require_non_neg(self.amplitude_std, "amplitude_std")
-
-        # --- State probability ---
-
-        self._require_in_closed_interval(self.p_high_state, "p_high_state", 0.0, 1.0)
+        self._require_in_closed_interval(self.p_high_state, "p_high_state", lower=0.0, upper=1.0)
 
 
-def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) -> Tensor:
+def apply_telegraph_noise(x: Tensor, *, config: TelegraphConfig, enabled: bool) -> Tensor:
     """Apply random telegraph noise."""
     if not enabled:
         return x
@@ -294,22 +235,18 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) 
 
 def apply_pelgrom_mismatch(
     ideal: Tensor,
-    sigma_relative: float,
     *,
+    sigma_relative: float,
     unit: float,
     floor: float | None = None,
     enabled: bool,
 ) -> Tensor:
     """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
 
-    Each cell's absolute matching σ is the area-scaled Pelgrom spread.
-
     Args:
-        ideal: Tensor of nominal per-cell values.
         sigma_relative: Per-unit-cell relative σ.
         unit: Single-unit-cell value in the same units as `ideal`.
         floor: Optional minimum clamp applied after sampling.
-        enabled: Master toggle; `False` returns `ideal` unchanged.
 
     Returns:
         Tensor with the same dtype / device as `ideal`.

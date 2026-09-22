@@ -1,18 +1,16 @@
 # General voltage DAC
 
-The simplest member of the [voltage DAC family](family.md): a code-indexed voltage source whose transfer is a tabulated lookup table, obeying the family unsigned-code domain.
-
 ## Physical model
 
-The DAC is modelled as an ideal code-indexed voltage source: an integer code produces the tabulated voltage $L[\mathrm{code}]$, and the single modelled non-ideality is additive Gaussian drive-thermal noise on the output, sampled per conversion.
+An ideal code-indexed voltage source follows the [voltage DAC family's](family.md) unsigned code domain. Its transfer is a lookup table plus additive Gaussian drive-thermal noise sampled per conversion.
 
 ## Governing equations
 
 $$V_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,\qquad n \sim \mathcal{N}(0,\ \sigma_{\mathrm{drive}}^2),$$
 
-with $L$ the code-to-voltage LUT and $n$ the per-conversion drive-thermal sample. The nominal LUT read returns $L[\mathrm{code}]$ exactly.
+Here $L$ is the nominal code-to-voltage LUT and $n$ the drive-thermal sample.
 
-The dynamic energy of one conversion follows the same lookup: converting one element to code $c$ draws $E[c]$, a table parallel to $L$ that states each level's own drive event. A level that costs nothing carries $E[c] = 0$, which is a stated cost and not a missing one.
+One conversion to code $c$ draws dynamic energy $E[c]$ from a table parallel to $L$. A zero entry denotes a free drive event.
 
 ## Numerical method
 
@@ -24,8 +22,6 @@ N/A — direct table lookup, no iteration.
 | --- | --- | --- |
 | drive thermal | thermal noise on the drive output | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$ |
 
-The drive-thermal source is dynamic, resampled every conversion; the model carries no static mismatch.
-
 TODO (domain author): physical derivation and citation for the drive-thermal sigma.
 
 ## Parameters
@@ -34,7 +30,7 @@ TODO (domain author): physical derivation and citation for the drive-thermal sig
 | --- | --- | --- | --- | --- |
 | `code_to_signal` ($L$) | LUT entry per integer code | V | — | Design |
 | `drive_thermal__V` ($\sigma_{\mathrm{drive}}$) | additive drive-thermal noise standard deviation | V | $\geq 0$ | Measured |
-| `code_to_per_op_energy__fJ` ($E$) | dynamic energy of converting one element, per integer code — one entry per entry of $L$ | fJ | same length as `code_to_signal`; entries finite, $\geq 0$ (zero is a legitimate cost for a level whose drive event is free) | Design |
+| `code_to_per_op_energy__fJ` ($E$) | per-code conversion energy | fJ | same length as $L$; finite entries $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
@@ -51,7 +47,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 ## Assumptions, scope & validity
 
-Stated assumption: the output is a pure LUT lookup plus additive Gaussian noise; no code-dependent nonlinearity beyond the LUT entries.
+Every instance shares the exact nominal LUT, with no static mismatch or nonlinearity beyond its entries.
 
 TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load).
 

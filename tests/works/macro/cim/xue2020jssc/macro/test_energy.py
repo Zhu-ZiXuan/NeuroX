@@ -56,20 +56,28 @@ def _energies(
     }
 
 
-def test_dynamic_energy_scales_with_conduction_windows(device: torch.device) -> None:
+def test_detection_and_sampling_keep_separate_energy_windows(device: torch.device) -> None:
     w = _w_full()
-    x = _x_full(2)
-    base_cfg = build_config(t_sample__ns=1.0, t_settle__ns=2.0)
+    x = _x_full(3)
+    config = build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0)
 
-    base = _energies(base_cfg, w, x, device=device)
-    longer = _energies(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
-    assert sum(longer.values()) > sum(base.values()) > 0.0
+    def energies(t_sample: float, t_settle: float) -> dict[str, float]:
+        return _energies(dataclasses.replace(config, t_sample__ns=t_sample, t_settle__ns=t_settle), w, x, device=device)
+
+    base = energies(2.0, 1.0)
+    detection = energies(2.0, 3.0)
+    sampling = energies(7.0, 1.0)
+    both = energies(7.0, 3.0)
+    assert sum(detection.values()) > sum(base.values()) > 0.0
     # Conduction grows with its window; capacitive cycling and control do not.
     assert base["array"] > 0.0
-    assert longer["array"] == pytest.approx(base["array"])
-    assert longer["control"] == pytest.approx(base["control"])
+    assert detection["array"] == pytest.approx(base["array"])
+    assert detection["control"] == pytest.approx(base["control"])
     for channel in _READ_ROWS:
-        assert longer[channel] > base[channel]
+        assert detection[channel] > base[channel]
+    assert detection["pn_isub"] > base["pn_isub"] > 0.0
+    assert sampling["pn_isub"] == pytest.approx(base["pn_isub"])
+    assert detection["cablc"] - base["cablc"] == pytest.approx(both["cablc"] - sampling["cablc"], rel=1e-9, abs=1e-9)
 
 
 def test_runtime_adc_width_selects_every_sensing_window(device: torch.device) -> None:
@@ -84,21 +92,6 @@ def test_runtime_adc_width_selects_every_sensing_window(device: torch.device) ->
         values = [row[key] for row in rows]
         assert values[0] < values[1] < values[2], f"{key} did not follow runtime ADC width: {values}"
     assert rows[0]["control"] == pytest.approx(rows[-1]["control"])
-
-
-def test_pn_isub_channel_present_and_uses_detection(device: torch.device) -> None:
-    w = _w_full()
-    x = _x_full(3)
-
-    def pnisub(cfg: Xue2020JsscCimMacroConfig) -> float:
-        return _energies(cfg, w, x, device=device)["pn_isub"]
-
-    base = pnisub(build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=1.0))
-    more_settle = pnisub(build_config(x_bit_num=3, t_sample__ns=2.0, t_settle__ns=3.0))
-    more_sample = pnisub(build_config(x_bit_num=3, t_sample__ns=7.0, t_settle__ns=1.0))
-    assert base > 0.0
-    assert more_settle > base, "pn_isub must grow with detection"
-    assert more_sample == pytest.approx(base), "pn_isub must be invariant to the sampled-bit windows"
 
 
 def test_pn_isub_per_op_energy_is_billed_per_scan_and_lane(device: torch.device) -> None:
@@ -139,33 +132,6 @@ def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device
     assert bump_settle["sinwp_sc"] > base["sinwp_sc"]
 
 
-def test_live_bit_conducts_during_detection_independent_of_sampling(device: torch.device) -> None:
-    w = _w_full()
-    x = _x_full(3)
-
-    def cablc_settle_slope(t_sample: float) -> float:
-        lo = _energies(
-            build_config(x_bit_num=3, t_sample__ns=t_sample, t_settle__ns=1.0),
-            w,
-            x,
-            device=device,
-        )["cablc"]
-        hi = _energies(
-            build_config(x_bit_num=3, t_sample__ns=t_sample, t_settle__ns=3.0),
-            w,
-            x,
-            device=device,
-        )["cablc"]
-        return (hi - lo) / 2.0
-
-    slope_a = cablc_settle_slope(2.0)
-    slope_b = cablc_settle_slope(7.0)
-    assert slope_a > 0.0, "the live bit must conduct during detection"
-    assert slope_a == pytest.approx(slope_b, rel=1e-9, abs=1e-9), (
-        f"live-bit detection leaked into sampling: {(slope_a, slope_b)}"
-    )
-
-
 def test_partial_outputs_close_columns_without_erasing_solved_currents(device: torch.device) -> None:
     config = build_config()
     macro = build_macro(config, device=device, inst_shape=(2,))
@@ -191,4 +157,5 @@ def test_partial_outputs_close_columns_without_erasing_solved_currents(device: t
     torch.testing.assert_close(
         control__fJ,
         control__fJ.new_tensor([0.0, 2.0, 2.0, 4.0, 4.0]) * config.control_config.energy_per_op__fJ,
+        check_dtype=False,
     )

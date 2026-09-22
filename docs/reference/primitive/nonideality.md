@@ -1,36 +1,30 @@
 # Non-idealities
 
-A non-ideality replaces a nominal quantity with a sample drawn from a distribution centred on (additive) or scaled around (multiplicative) it. This document collects the shared statistical laws those samples obey; each subsystem parameterises its own sources against these laws.
-
-## Scope
-
-Only the general, cross-device statistical laws live here: the area-scaled mismatch of fabricated devices and the thermal noise of charge sampling. Device-specific non-idealities are parameterised in that device's own reference and are not restated here.
+A non-ideality perturbs a nominal quantity under a statistical law. Shared laws include area-scaled fabrication mismatch and thermal charge-sampling noise; each subsystem specifies its sources' parameters.
 
 ## Physical origins
 
-Every perturbation belongs to one of two classes, distinguished by fixedness — whether its sample is frozen or resampled:
+Perturbations have two lifetimes:
 
-- **Static** — fixed once and held until the device is re-fabricated or re-programmed. It covers fabrication mismatch, from spatially-uncorrelated microscopic process fluctuations averaged over the device area, together with the programming write deviation left by a finite-precision write.
-- **Dynamic** — resampled at every access, set by the operating point and temperature at that access rather than frozen. It covers thermal, flicker, random-telegraph, and charge-sampling ($kT/C$) fluctuations.
-
-A source can be static yet device-specific, like programming variation.
+- **Static** — held until fabrication or programming is repeated, including fabrication mismatch and programming write deviation.
+- **Dynamic** — resampled per access at its operating point and temperature, including thermal, flicker, random-telegraph, and charge-sampling ($kT/C$) fluctuations.
 
 ## State dependence of the spread
 
-Orthogonal to that static or dynamic origin, the spread $\sigma$ of a source is obtained in one of two ways; each subsystem classifies its own sources accordingly:
+Independently of lifetime, a source's spread $\sigma$ is:
 
-- **State-independent** — $\sigma$ is a fixed constant and the same distribution is sampled at every element. Used where the magnitude does not track the signal (e.g. comparator thermal noise, stuck-at faults).
-- **State-dependent** — $\sigma$ is derived per element from the operating state, either the signal itself or an auxiliary state variable. Used where the magnitude tracks the conductance state (e.g. programming variability) or scales with the device area (e.g. Pelgrom mismatch, $kT/C$ sampling, both shrinking as $1/\sqrt{\mathrm{area}}$).
+- **State-independent** — constant across elements and operating states.
+- **State-dependent** — derived per element from its signal or another state variable, such as conductance or device area.
 
 ## Additive and multiplicative perturbation
 
-Independently of both classifications, a draw either adds to the nominal quantity or scales it,
+A perturbation adds to or scales the nominal quantity:
 
 $$x = x^{\mathrm{nom}} + \varepsilon, \qquad x = x^{\mathrm{nom}} (1 + \eta),$$
 
-with $\varepsilon$ and $\eta$ zero-mean, so both forms leave the mean at $x^{\mathrm{nom}}$. The additive form suits a quantity whose spread is set by the surrounding circuit rather than by the value itself — an input-referred comparator offset, a $kT/C$ sampling fluctuation — and its $\sigma$ carries the unit of $x$. The multiplicative (relative) form suits a quantity whose spread tracks its own magnitude, such as a reference tap or a mirror ratio: one dimensionless $\sigma$ then covers values of differing magnitude, where the additive form would need one $\sigma$ per value. The multiplicative form also has an exact fixed point at zero — a nominal $0$ stays exactly $0$ under any relative $\sigma$ — which is what keeps a ground or rail reference tap stable and exact under noise.
+Zero-mean $\varepsilon$ and $\eta$ preserve the mean $x^{\mathrm{nom}}$. Additive spread carries the unit of $x$; relative spread is dimensionless and scales the absolute variation with the nominal magnitude. Multiplicative perturbation preserves a nominal zero exactly.
 
-A disabled source is the exact identity, not a draw with $\sigma = 0$: the nominal quantity passes through unperturbed and unchanged, so switching every source off reproduces the ideal model exactly.
+A disabled source preserves the nominal quantity exactly. Disabling all sources recovers the ideal model.
 
 ## Pelgrom area-scaled mismatch
 
@@ -38,15 +32,15 @@ The two-term Pelgrom law for the spread of a parameter difference $\Delta P$ bet
 
 $$\sigma^2(\Delta P) = \frac{A_P^2}{W L} + S_P^2\, D^2,$$
 
-a local area term ($A_P$ over the gate-region product $W L$) plus a separate long-range gradient term ($S_P$ scaling the device separation $D$). The local term vanishes monotonically as the device grows — there is no floor. The only non-vanishing large-area residual is the area-independent gradient term $S_P^2 D^2$, an additive variance contribution rather than a floor on $\sigma$.
+The local term vanishes as gate area $W L$ grows. The long-range gradient term depends on device separation $D$ and contributes the area-independent variance $S_P^2D^2$.
 
 ### Absolute and relative framing
 
-The same $1/\mathrm{area}$ variance is written in whichever framing matches the parameter. An intensive parameter that adds directly — a threshold voltage — uses the absolute spread, $\sigma(\Delta V_{\mathrm{th}}) \propto 1/\sqrt{W L}$. A multiplicative parameter — a current factor, or a capacitance that perturbs its operand proportionally — uses the relative spread. For a capacitor, with $C_k$ the element capacitance and $C_{\mathrm{unit}}$ the unit cell, the relative form is
+An additive intensive parameter uses absolute spread, as in $\sigma(\Delta V_{\mathrm{th}}) \propto 1/\sqrt{W L}$. Multiplicative parameters use relative spread. For element capacitance $C_k$ and unit-cell capacitance $C_{\mathrm{unit}}$,
 
 $$\sigma\!\left(\frac{\Delta C_k}{C_k}\right) = \sigma_{\mathrm{rel}} \sqrt{\frac{C_{\mathrm{unit}}}{C_k}},$$
 
-so the relative spread is $\propto 1/\sqrt{C_k}$ and shrinks with area, while the equivalent absolute spread $\sigma(\Delta C_k) = \sigma_{\mathrm{rel}}\sqrt{C_{\mathrm{unit}}\, C_k}$ grows as $\sqrt{C_k}$. The two framings of one variance look opposite only because one is normalised by $C_k$ and the other is not.
+The relative spread shrinks as $1/\sqrt{C_k}$, while the equivalent absolute spread $\sigma(\Delta C_k) = \sigma_{\mathrm{rel}}\sqrt{C_{\mathrm{unit}}\, C_k}$ grows as $\sqrt{C_k}$.
 
 ## Thermal charge-sampling noise
 
@@ -54,11 +48,11 @@ Sampling a voltage onto a capacitor $C$ at temperature $T$ leaves a thermal ($kT
 
 $$\sigma^2 = \frac{k_B T}{C},$$
 
-a state-dependent source whose spread shrinks as $1/\sqrt{C}$, i.e. with area, like the mismatch above.
+a state-dependent source whose spread shrinks as $1/\sqrt{C}$.
 
 ## Parameter ownership
 
-No parameters belong to the shared laws themselves. Each source's distribution parameters — its $\sigma$, the Pelgrom coefficients $A_P$ and $S_P$, the relative spread $\sigma_{\mathrm{rel}}$, and the unit-cell capacitance $C_{\mathrm{unit}}$ — belong to the owning subsystem's §Parameters table, with provenance per [module_parameter](../../conventions/module_parameter.md). The Boltzmann constant $k_B$ and the temperature $T$ are shared across subsystems and defined in [notation_conventions](../../conventions/notation_conventions.md).
+Source parameters such as $\sigma$, $A_P$, $S_P$, $\sigma_{\mathrm{rel}}$, and $C_{\mathrm{unit}}$ belong to their subsystems, with provenance per [module_parameter](../../conventions/module_parameter.md). The shared Boltzmann constant $k_B$ and temperature $T$ are defined in [notation_conventions](../../conventions/notation_conventions.md).
 
 TODO (domain author): the concrete parameterisation of the long-range gradient term — the $S_P$ coefficient, the $D$ separation, and the subsystem that owns them.
 

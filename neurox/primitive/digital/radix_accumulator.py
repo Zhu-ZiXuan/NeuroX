@@ -43,7 +43,7 @@ class RadixAccumulator(DigitalBase):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @torch.no_grad()
-    def radix_accumulate(self, x: Tensor, dim: int, *, radix: int, enable: Tensor | None = None) -> Tensor:
+    def radix_accumulate(self, x: Tensor, *, dim: int, radix: int, enable: Tensor | None = None) -> Tensor:
         """Accumulate a complete positional stream with signed register-width wrap.
 
         Each output starts from zero. Disabled arrivals contribute zero and
@@ -62,15 +62,20 @@ class RadixAccumulator(DigitalBase):
             raise ValueError(f"require: radix ({radix}) >= 1")
         if enable is not None:
             x = x.where(enable, 0)
-        # Shape: [digit]
-        scales = x.new_tensor([radix**i for i in range(x.shape[dim])])
-        # Shape: [..., digit, ...] -> [..., digit] -> [...]
-        y = (x.movedim(dim, -1) * scales).sum(dim=-1, dtype=x.dtype)
+        # Static radix and shape specialize the reduction without a device weight tensor.
+        if radix == 1 or x.shape[dim] == 0:
+            y = x.sum(dim=dim, dtype=x.dtype)
+        else:
+            parts = x.unbind(dim=dim)
+            y = parts[-1]
+            for part in reversed(parts[:-1]):
+                y = y * radix + part
         y = self._wrap_output(y)
         if self._is_profiler_active():
-            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
-            energy__fJ = e_op__fJ.expand(x.shape)
-            if enable is not None:
-                energy__fJ = energy__fJ.where(enable, 0)
-            self._record_dynamic_energy(energy__fJ)
+            # Mask presence specializes during tracing; only masked costs depend on its device.
+            if enable is None:
+                energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            else:
+                energy__fJ = enable.to(dtype=torch.float32) * self.config.energy_per_op__fJ
+            self._record_dynamic_energy(energy__fJ.expand(x.shape))
         return y

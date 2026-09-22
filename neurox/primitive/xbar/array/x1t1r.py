@@ -225,8 +225,8 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
     @torch.no_grad()
     def solve_dc(
         self,
-        *,
         v_wl__V: Tensor,
+        *,
         leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
@@ -274,8 +274,8 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
     @torch.no_grad()
     def solve_dc_trace(
         self,
-        *,
         v_wl__V: Tensor,
+        *,
         leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
@@ -301,8 +301,8 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
     def _solve_dc_impl(
         self,
-        *,
         v_wl__V: Tensor,
+        *,
         leading_shape: tuple[int, ...],
         wl_phase_dims: tuple[int, ...],
         bl_driver_snap: BLSnapT,
@@ -370,7 +370,9 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
         def solve_chunk(inputs: _Inputs[BLSnapT, SLSnapT]) -> _Outputs:
             def final_fn(state: _State) -> tuple[_Dcop, Tensor | None]:
-                cell_dcop = self.cell.solve_dc(state.v_bl_node__V, state.v_sl_node__V, inputs.cell_snap)
+                cell_dcop = self.cell.solve_dc(
+                    v_bl__V=state.v_bl_node__V, v_sl__V=state.v_sl_node__V, snap=inputs.cell_snap
+                )
                 energy__fJ = None
                 if record_energy:
                     energy__fJ = self._energy_from_state(
@@ -408,11 +410,10 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
                 port_shape=(0, 0),
                 node_capacity=0,
                 dtype=cell_snap.v_wl__V.dtype,
-                device=cell_snap.v_wl__V.device,
             )
         output_template = _Outputs(
-            dcop=self._dcop_template(like=cell_snap.v_wl__V),
-            energy__fJ=cell_snap.v_wl__V.new_empty(0) if record_energy else None,
+            dcop=self._dcop_template(),
+            energy__fJ=torch.empty(0, dtype=torch.float32) if record_energy else None,
             trace=trace_template,
         )
         result = run_chunked(
@@ -448,12 +449,12 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
         return result.dcop, energy__fJ, result.trace
 
-    def _dcop_template(self, *, like: Tensor) -> _Dcop:
+    def _dcop_template(self) -> _Dcop:
         """Return the PyTree structure produced by `_dcop_from_state`.
 
         Tensor values and metadata are unused. Overrides match their Dcop fields.
         """
-        empty = like.new_empty(0)
+        empty = torch.empty(0)
         return _Dcop(
             i_bl_port__uA=empty,
             v_bl_port__V=empty,
@@ -526,16 +527,16 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
         # Shape: [..., row, col] -> [...]
         bl_node_e__fJ = e_cap_excursion__fJ(
-            vdd__V, config.bl_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=state.v_bl_node__V
+            v_supply__V=vdd__V, c__fF=config.bl_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=state.v_bl_node__V
         ).sum(dim=array_dims)
         x_node_e__fJ = e_cap_excursion__fJ(
-            vdd__V, config.x_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=cell_dcop.v_x__V
+            v_supply__V=vdd__V, c__fF=config.x_node_c__fF, v_rest__V=v_bl_rest__V, v_work__V=cell_dcop.v_x__V
         ).sum(dim=array_dims)
         sl_node_e__fJ = e_cap_excursion__fJ(
-            vdd__V, config.sl_node_c__fF, v_rest__V=v_sl_rest__V, v_work__V=state.v_sl_node__V
+            v_supply__V=vdd__V, c__fF=config.sl_node_c__fF, v_rest__V=v_sl_rest__V, v_work__V=state.v_sl_node__V
         ).sum(dim=array_dims)
         wl_node_e__fJ = e_cap_excursion__fJ(
-            vdd__V, config.wl_node_c__fF, v_rest__V=0.0, v_work__V=cell_snap.v_wl__V
+            v_supply__V=vdd__V, c__fF=config.wl_node_c__fF, v_rest__V=0.0, v_work__V=cell_snap.v_wl__V
         ).sum(dim=array_dims)
         # Shape: [...]
         return bl_node_e__fJ + x_node_e__fJ + sl_node_e__fJ + wl_node_e__fJ
@@ -546,10 +547,10 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
         # Shape: [..., row=1, col] -> [...]
         bl_estab_e__fJ = e_cap_excursion__fJ(
-            vdd__V, self._bl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_bl_rest__V
+            v_supply__V=vdd__V, c__fF=self._bl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_bl_rest__V
         ).sum(dim=array_dims)
         sl_estab_e__fJ = e_cap_excursion__fJ(
-            vdd__V, self._sl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_sl_rest__V
+            v_supply__V=vdd__V, c__fF=self._sl_estab_total_c__fF, v_rest__V=0.0, v_work__V=v_sl_rest__V
         ).sum(dim=array_dims)
         # Shape: [...]
         return bl_estab_e__fJ + sl_estab_e__fJ

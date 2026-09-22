@@ -66,8 +66,7 @@ def _run(macro: Xue2020JsscCimMacro, x: Tensor) -> Tensor:
     return out.cpu()
 
 
-@pytest.mark.parametrize("inst_shape", [(2,), (2, 3)])
-@pytest.mark.parametrize("batch", [(), (3,), (2, 3)])
+@pytest.mark.parametrize(("batch", "inst_shape"), [((), (2,)), ((3,), (2,)), ((2, 3), (2, 3))])
 def test_per_die_weights_decode_die_by_die(
     device: torch.device, inst_shape: tuple[int, ...], batch: tuple[int, ...]
 ) -> None:

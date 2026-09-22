@@ -82,9 +82,9 @@ class _Solver:
     @torch.no_grad()
     def solve[ResultT](
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
-        *,
         v_wl__V: Tensor,
         nmos_snap: MosfetSnap,
         rram_snap: RramSnap,
@@ -93,8 +93,8 @@ class _Solver:
         trace_mask: Tensor | None,
     ) -> tuple[ResultT, _Trace | None]:
         state, trace = self._solve_vx(
-            v_bl__V,
-            v_sl__V,
+            v_bl__V=v_bl__V,
+            v_sl__V=v_sl__V,
             v_wl__V=v_wl__V,
             nmos_snap=nmos_snap,
             rram_snap=rram_snap,
@@ -105,9 +105,9 @@ class _Solver:
 
     def _solve_vx(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
-        *,
         v_wl__V: Tensor,
         nmos_snap: MosfetSnap,
         rram_snap: RramSnap,
@@ -127,9 +127,9 @@ class _Solver:
 
         def body_fn(current: _State) -> tuple[_State, _Trace]:
             return self._evaluate_vx(
-                v_bl__V,
-                v_sl__V,
-                current.v_x__V,
+                v_bl__V=v_bl__V,
+                v_sl__V=v_sl__V,
+                v_x__V=current.v_x__V,
                 v_wl__V=v_wl__V,
                 nmos_snap=nmos_snap,
                 rram_snap=rram_snap,
@@ -149,10 +149,10 @@ class _Solver:
 
     def _evaluate_vx(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         v_x__V: Tensor,
-        *,
         v_wl__V: Tensor,
         nmos_snap: MosfetSnap,
         rram_snap: RramSnap,
@@ -161,8 +161,8 @@ class _Solver:
 
         # --- 1: evaluate branch currents and the Newton correction ---
 
-        nmos_dcop = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
-        rram_dcop = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
+        nmos_dcop = self.nmos.solve_dc(vg__V=v_wl__V, vd__V=v_x__V, vs__V=v_sl__V, snap=nmos_snap)
+        rram_dcop = self.rram.solve_dc(v_bl__V - v_x__V, snap=rram_snap)
 
         i_rram__uA = rram_dcop.i__uA
         i_nmos__uA = nmos_dcop.ids__uA
@@ -310,8 +310,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
     @torch.no_grad()
     def snapshot(
         self,
-        *,
         control: Tensor,
+        *,
         shape: tuple[int, ...],
     ) -> _Snap:
         return _Snap(
@@ -328,10 +328,10 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
     @torch.no_grad()
     def solve_dc_trace(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: _Snap,
-        *,
         trace_mask: Tensor | None = None,
     ) -> tuple[_Dcop, _Trace]:
         """Return the terminal DCOP and its Newton trajectory.
@@ -341,7 +341,9 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
         cells included in raw observations; `None` includes every cell and
         neither form changes numerical updates.
         """
-        dcop, trace = self._solve_dc_impl(v_bl__V, v_sl__V, snap, record_trace=True, trace_mask=trace_mask)
+        dcop, trace = self._solve_dc_impl(
+            v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap, record_trace=True, trace_mask=trace_mask
+        )
         if trace is None:
             raise RuntimeError("A traced cell solve returned no trace")
         return dcop, trace
@@ -349,27 +351,28 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
     @torch.no_grad()
     def solve_dc(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: _Snap,
     ) -> _Dcop:
         """Return a converged DCOP without allocating trajectory storage."""
-        dcop, _ = self._solve_dc_impl(v_bl__V, v_sl__V, snap, record_trace=False, trace_mask=None)
+        dcop, _ = self._solve_dc_impl(v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap, record_trace=False, trace_mask=None)
         return dcop
 
     @torch.compile(dynamic=False, fullgraph=True)
     def _solve_dc_impl(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: _Snap,
-        *,
         record_trace: bool,
         trace_mask: Tensor | None,
     ) -> tuple[_Dcop, _Trace | None]:
         return self.solver.solve(
-            v_bl__V,
-            v_sl__V,
+            v_bl__V=v_bl__V,
+            v_sl__V=v_sl__V,
             v_wl__V=snap.v_wl__V,
             nmos_snap=snap.nmos_snap,
             rram_snap=snap.rram_snap,
@@ -386,8 +389,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
         v_sl__V: Tensor,
         snap: _Snap,
     ) -> _Dcop:
-        nmos_dcop = self.nmos.solve_dc(snap.v_wl__V, state.v_x__V, v_sl__V, snap.nmos_snap)
-        rram_dcop = self.rram.solve_dc(v_bl__V - state.v_x__V, snap.rram_snap)
+        nmos_dcop = self.nmos.solve_dc(vg__V=snap.v_wl__V, vd__V=state.v_x__V, vs__V=v_sl__V, snap=snap.nmos_snap)
+        rram_dcop = self.rram.solve_dc(v_bl__V - state.v_x__V, snap=snap.rram_snap)
         dfx_dvx__uS = nmos_dcop.did_dvd__uS + rram_dcop.di_dv__uS
         di_dvbl__uS = nmos_dcop.did_dvd__uS * rram_dcop.di_dv__uS / dfx_dvx__uS
         di_dvsl__uS = nmos_dcop.did_dvs__uS * rram_dcop.di_dv__uS / dfx_dvx__uS

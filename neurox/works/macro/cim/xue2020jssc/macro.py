@@ -148,7 +148,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         cablc_v_ref__V = self.cablc_vref_config.values
         if isinstance(cablc_v_ref__V, tuple):
             raise TypeError("cablc_vref_config.values must be scalar")
-        self._require_in_closed_interval(cablc_v_ref__V, "cablc_vref_config.values", 0.0, self.vdd__V)
+        self._require_in_closed_interval(cablc_v_ref__V, "cablc_vref_config.values", lower=0.0, upper=self.vdd__V)
 
         want_taps = (1 << self.tmcsa_config.bits) - 1
         expected_shape = (len(self.rescale_factors), want_taps)
@@ -190,7 +190,6 @@ class Xue2020JsscCimMacro(CimMacro):
 
     # === Functional buffers ===
 
-    _v_wl_on__V: Tensor  # Shape: []
     _sl_v_ref__V: Tensor  # Shape: []
     _dswct_digit_ratios: Tensor  # Shape: [w_digit]
     _sinwp_bit_ratios: Tensor  # Shape: [x_bit]
@@ -288,7 +287,7 @@ class Xue2020JsscCimMacro(CimMacro):
         x_pv = self._x_transcoder.place_values
         dswct_digit_ratios = tuple(config.dswct_ratio_msb * pv / w_pv[-1] for pv in w_pv)
         sinwp_bit_ratios = tuple(config.sc_ratio_msb * pv / x_pv[-1] for pv in x_pv)
-        self._register_nonpersistent_buffer("_v_wl_on__V", torch.tensor(config.v_wl_on__V, dtype=dtype))
+        self._dtype = dtype
         self._register_nonpersistent_buffer("_sl_v_ref__V", torch.zeros((), dtype=dtype))
         self._register_nonpersistent_buffer("_dswct_digit_ratios", torch.tensor(dswct_digit_ratios, dtype=dtype))
         self._register_nonpersistent_buffer("_sinwp_bit_ratios", torch.tensor(sinwp_bit_ratios, dtype=dtype))
@@ -337,9 +336,9 @@ class Xue2020JsscCimMacro(CimMacro):
         i_phase__uA = i_dl__uA.sum(dim=(-4, -3, -2, -1))
         # Shape: [..., x_bit] -> [...]
         i_sample__uA = i_phase__uA.narrow(-1, 0, self.config.x_bit_num - 1).sum(dim=-1)
-        q__fC = q_conduction__fC(i_sample__uA, sample__ns)
-        q__fC = q__fC + q_conduction__fC(i_phase__uA[..., -1], detect__ns)
-        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
+        q__fC = q_conduction__fC(i__uA=i_sample__uA, duration__ns=sample__ns)
+        q__fC = q__fC + q_conduction__fC(i__uA=i_phase__uA[..., -1], duration__ns=detect__ns)
+        e__fJ = e_charge__fJ(v_supply__V=self.config.vdd__V, delta_q_abs__fC=q__fC)
         self._record_dynamic_energy(e__fJ, channel="cablc")
 
     def _record_dswct_dynamic_energy(
@@ -353,9 +352,9 @@ class Xue2020JsscCimMacro(CimMacro):
         i_phase__uA = i_wdl__uA.abs().sum(dim=-1)
         # Shape: [..., x_bit, scan, lane, polarity] -> [..., scan, lane, polarity]
         i_sample__uA = i_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
-        q__fC = q_conduction__fC(i_sample__uA, sample__ns)
-        q__fC = q__fC + q_conduction__fC(i_phase__uA.select(-4, -1), detect__ns)
-        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
+        q__fC = q_conduction__fC(i__uA=i_sample__uA, duration__ns=sample__ns)
+        q__fC = q__fC + q_conduction__fC(i__uA=i_phase__uA.select(-4, -1), duration__ns=detect__ns)
+        e__fJ = e_charge__fJ(v_supply__V=self.config.vdd__V, delta_q_abs__fC=q__fC)
         self._record_dynamic_energy(e__fJ, channel="dswct")
 
     def _record_sinwp_sc_dynamic_energy(
@@ -367,9 +366,9 @@ class Xue2020JsscCimMacro(CimMacro):
     ) -> None:
         # Shape: [..., x_bit, scan, lane, polarity] -> [..., scan, lane, polarity]
         i_sample__uA = i_sc_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
-        q__fC = q_conduction__fC(i_sample__uA, sample__ns)
-        q__fC = q__fC + q_conduction__fC(i_sc_phase__uA.select(-4, -1), detect__ns)
-        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
+        q__fC = q_conduction__fC(i__uA=i_sample__uA, duration__ns=sample__ns)
+        q__fC = q__fC + q_conduction__fC(i__uA=i_sc_phase__uA.select(-4, -1), duration__ns=detect__ns)
+        e__fJ = e_charge__fJ(v_supply__V=self.config.vdd__V, delta_q_abs__fC=q__fC)
         self._record_dynamic_energy(e__fJ, channel="sinwp_sc")
 
     def _record_pn_isub_dynamic_energy(
@@ -382,8 +381,8 @@ class Xue2020JsscCimMacro(CimMacro):
         active_mask: Tensor | None,
     ) -> None:
         i_branch__uA = i_p__uA + i_n__uA + i_sub__uA
-        q__fC = q_conduction__fC(i_branch__uA, detect__ns)
-        e__fJ = e_charge__fJ(self.config.vdd__V, q__fC)
+        q__fC = q_conduction__fC(i__uA=i_branch__uA, duration__ns=detect__ns)
+        e__fJ = e_charge__fJ(v_supply__V=self.config.vdd__V, delta_q_abs__fC=q__fC)
         if active_mask is not None:
             e__fJ = e__fJ + active_mask.to(i_branch__uA.dtype) * self.config.pn_isub_energy_per_op__fJ
         else:
@@ -410,7 +409,7 @@ class Xue2020JsscCimMacro(CimMacro):
         # --- 1: Bit-expand x into K binary WL-drive phases (LSB first) ---
 
         # Shape: [..., row] -> [..., x_bit, row]
-        v_wl__V = self._x_transcoder.encode(x, dim=-2) * self._v_wl_on__V
+        v_wl__V = self._x_transcoder.encode(x, dim=-2).to(dtype=self._dtype) * config.v_wl_on__V
         # Shape: [..., x_bit, row] -> [..., x_bit, row, col=1]
         v_wl__V = v_wl__V.unsqueeze(self.array.col_dim)
 
@@ -517,7 +516,7 @@ class Xue2020JsscCimMacro(CimMacro):
         # --- 6: TMCSA quantize against the per-instance reference ladder ---
 
         # Shape: [..., scan, lane]
-        code = self.tmcsa.convert(i_sub__uA, adc_i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
+        code = self.tmcsa.convert(i_sub__uA, i_refs__uA=adc_i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
         # Shape: [..., scan, lane]
         signed = torch.where(sign, -code, code)
 

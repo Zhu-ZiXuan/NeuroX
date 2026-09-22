@@ -110,7 +110,7 @@ class Vmux(ProfileModule):
     def _sample_fabrication_variation(self) -> None:
         self._eps_g = apply_gaussian(
             self._nominal_eps_g.clone().expand(self.inst_shape),
-            self.config.mux_gain_mismatch_sigma_relative,
+            sigma=self.config.mux_gain_mismatch_sigma_relative,
             enabled=self.policy.mux_gain_mismatch,
         )
 
@@ -131,13 +131,11 @@ class Vmux(ProfileModule):
         v_muxed__V = gain * v__V
         v_muxed__V = apply_gaussian(
             v_muxed__V,
-            self.config.mux_noise_sigma__V,
+            sigma=self.config.mux_noise_sigma__V,
             enabled=self.policy.mux_noise,
         )
 
         if self._is_profiler_active():
-            e_access__fJ = torch.full(
-                (), self.config.energy_per_access__fJ, dtype=torch.float32, device=v_muxed__V.device
-            )
-            self._record_dynamic_energy(e_access__fJ.expand(v_muxed__V.shape))
+            energy__fJ = torch.full((), self.config.energy_per_access__fJ, dtype=torch.float32)
+            self._record_dynamic_energy(energy__fJ.expand(v_muxed__V.shape))
         return v_muxed__V

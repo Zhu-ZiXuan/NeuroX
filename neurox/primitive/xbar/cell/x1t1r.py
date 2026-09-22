@@ -58,7 +58,6 @@ class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Polic
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
-        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     # === Public API ===
@@ -96,8 +95,8 @@ class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Polic
     @abstractmethod
     def snapshot(
         self,
-        *,
         control: Tensor,
+        *,
         shape: tuple[int, ...],
     ) -> SnapT:
         """Sample the cell state and word-line control for one solve."""
@@ -111,6 +110,7 @@ class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Polic
     @abstractmethod
     def solve_dc(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: SnapT,

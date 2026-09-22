@@ -24,6 +24,10 @@ Static costs are captured after physical setup and counted once across collectio
 
 Collection preserves each name and its observation axes. It retains directly submitted timing and leaves missing data unknown. Reporting derives static energy from the completed observations; applications own grouping, statistical reduction, layout conversion, and presentation.
 
+Collection preserves submitted observations on their original devices, then combines and synchronizes energy and duration at context exit. Reporting consumes the completed observations. Configuration-derived costs use the default device; value-dependent costs are computed alongside their inputs.
+
+Each component determines its energy precision. Collection and reporting preserve it, with ordinary tensor type promotion during aggregation.
+
 ## Operation duration
 
 Numerical execution and timing analysis describe the same physical schedule. A unit's basic-operation duration includes internal serial work, parallel execution, and pipeline overlap. Batch, token, and timestep extents enumerate independent operations without multiplying that duration.

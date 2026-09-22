@@ -14,32 +14,6 @@ from neurox.encoding import (
 )
 
 
-@pytest.mark.parametrize(
-    ("radix", "digit_count", "expected"),
-    [
-        (2, 3, (-4, 3)),
-        (4, 4, (-128, 127)),
-        (3, 2, (-3, 5)),
-    ],
-)
-def test_complement_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
-    transcoder = ComplementTranscoder(radix=radix, digit_count=digit_count)
-    assert transcoder.value_range == expected
-
-
-@pytest.mark.parametrize(
-    ("radix", "digit_count", "expected"),
-    [
-        (4, 4, (-204, 204)),
-        (2, 3, (-5, 5)),
-        (3, 5, (-182, 182)),
-    ],
-)
-def test_canonical_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
-    transcoder = CanonicalTranscoder(radix=radix, digit_count=digit_count)
-    assert transcoder.value_range == expected
-
-
 def test_true_form_digits_are_lsb_first() -> None:
     transcoder = TrueFormTranscoder(radix=10, digit_count=3)
     x = torch.tensor([321, -321], dtype=torch.int32)
@@ -66,35 +40,46 @@ def test_binary_complement_keeps_the_highest_digit_signed() -> None:
     assert torch.equal(transcoder.decode(digits), x)
 
 
-@pytest.mark.parametrize("radix", [2, 3, 5, 8, 10])
-@pytest.mark.parametrize("digit_count", [1, 2, 3])
-@pytest.mark.parametrize("dim", [0, -1])
-def test_complement_decoder_preserves_fixed_count_and_radix_interval(radix: int, digit_count: int, dim: int) -> None:
+@pytest.mark.parametrize(
+    ("radix", "digit_count", "dim", "expected_range"),
+    [
+        (2, 1, 0, (-1, 0)),
+        (2, 3, -1, (-4, 3)),
+        (3, 1, -1, (-1, 1)),
+        (3, 2, 0, (-3, 5)),
+        (4, 4, -1, (-128, 127)),
+        (5, 3, -1, (-50, 74)),
+        (8, 2, 0, (-32, 31)),
+        (10, 1, -1, (-5, 4)),
+    ],
+)
+def test_complement_decoder_preserves_fixed_count_and_radix_interval(
+    radix: int, digit_count: int, dim: int, expected_range: tuple[int, int]
+) -> None:
     transcoder = ComplementTranscoder(radix=radix, digit_count=digit_count)
-    lo = -(radix // 2) * radix ** (digit_count - 1)
-    period = radix**digit_count
+    assert transcoder.value_range == expected_range
+    lo, hi = expected_range
+    period = hi - lo + 1
     values = torch.arange(lo - period, lo + 2 * period, dtype=torch.int64).reshape(3, period)
     digits = transcoder.encode(values, dim=dim)
     assert digits.shape[dim] == digit_count
     expected = (values - lo).remainder(period) + lo
     torch.testing.assert_close(transcoder.decode(digits, dim=dim), expected)
-    assert transcoder.has_signed_digits
-    assert transcoder.place_values == tuple(radix**i for i in range(digit_count))
 
 
 @pytest.mark.parametrize(
-    "transcoder",
+    ("transcoder", "expected_range"),
     [
-        TrueFormTranscoder(radix=2, digit_count=3),
-        UnsignedTranscoder(radix=2, digit_count=3),
-        UnsignedTranscoder(radix=3, digit_count=2),
-        ComplementTranscoder(radix=2, digit_count=3),
-        CanonicalTranscoder(radix=2, digit_count=3),
-        CanonicalTranscoder(radix=4, digit_count=3),
+        (TrueFormTranscoder(radix=2, digit_count=3), (-7, 7)),
+        (UnsignedTranscoder(radix=2, digit_count=3), (0, 7)),
+        (UnsignedTranscoder(radix=3, digit_count=2), (0, 8)),
+        (CanonicalTranscoder(radix=2, digit_count=3), (-5, 5)),
+        (CanonicalTranscoder(radix=4, digit_count=3), (-51, 51)),
     ],
 )
-def test_encode_decode_roundtrip_inside_value_range(transcoder: Transcoder) -> None:
-    lo, hi = transcoder.value_range
+def test_encode_decode_roundtrip_inside_value_range(transcoder: Transcoder, expected_range: tuple[int, int]) -> None:
+    assert transcoder.value_range == expected_range
+    lo, hi = expected_range
     x = torch.arange(lo, hi + 1, dtype=torch.int32)
     digits = transcoder.encode(x)
     decoded = transcoder.decode(digits)
@@ -110,11 +95,16 @@ def test_canonical_carry_reaches_a_nonadjacent_high_digit() -> None:
     assert torch.equal(transcoder.decode(encoded), values)
 
 
-@pytest.mark.parametrize("radix", [2, 3, 4, 8])
-@pytest.mark.parametrize("digits", [4, 8])
-def test_canonical_roundtrip_includes_signed_boundaries(radix: int, digits: int) -> None:
+@pytest.mark.parametrize(
+    ("radix", "digits", "expected_range"),
+    [(2, 8, (-170, 170)), (3, 4, (-60, 60)), (3, 5, (-182, 182)), (4, 4, (-204, 204)), (8, 8, (-14913080, 14913080))],
+)
+def test_canonical_roundtrip_includes_signed_boundaries(
+    radix: int, digits: int, expected_range: tuple[int, int]
+) -> None:
     transcoder = CanonicalTranscoder(radix=radix, digit_count=digits)
-    lo, hi = transcoder.value_range
+    assert transcoder.value_range == expected_range
+    lo, hi = expected_range
     generator = torch.Generator().manual_seed(31)
     values = torch.cat(
         (

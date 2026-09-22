@@ -57,21 +57,19 @@ class InputSlotMerge:
             Physical inputs, with empty slots zero-filled.
             Shape: `[..., merge_step, macro_group, macro_input]`.
         """
-        # Shape: [macro_input]
-        positions = torch.arange(self.macro_input_num, device=x.device)
-        # Shape: [merge_step, macro_input=1]
-        starts = torch.arange(self.merge_step_num, device=x.device).unsqueeze(-1) * self.input_per_tile
-        # Shape: [macro_input] - [merge_step, macro_input=1] -> [merge_step, macro_input]
-        local = positions - starts
-        selected = (local >= 0) & (local < self.input_per_tile)
-        # Shape: [..., tile_in] -> [..., merge_step, macro_group=1, macro_input]
-        routed = x[..., local.clamp(0, self.input_per_tile - 1)].unsqueeze(-2)
+        # Each step enables its matching input slot, without indirect indexing.
+        slots = torch.eye(self.merge_step_num, dtype=torch.bool, device=x.device)
+        # Shape: [..., tile_in] -> [..., merge_step, input_slot, tile_in]
+        routed = x[..., None, None, :].where(slots[..., None], 0)
+        # Shape: [..., merge_step, input_slot, tile_in] -> [..., merge_step, macro_group=1, macro_input]
+        routed = routed.flatten(-2)
+        routed = F.pad(routed, (0, self.macro_input_num - routed.shape[-1])).unsqueeze(-2)
         # Shape: [merge_step, macro_group]
         tile_indices = torch.arange(self.merge_step_num * self.macro_group_num, device=x.device).view(
             self.merge_step_num, self.macro_group_num
         )
-        # Shape: [merge_step, macro_input] -> [merge_step, macro_group, macro_input]
-        selected = selected.unsqueeze(-2) & (tile_indices < self.output_tile_num).unsqueeze(-1)
+        # Shape: [merge_step, macro_group, macro_input=1]
+        selected = (tile_indices < self.output_tile_num).unsqueeze(-1)
         # Shape: [..., merge_step, macro_group=1, macro_input] -> [..., merge_step, macro_group, macro_input]
         return routed.where(selected, 0)
 

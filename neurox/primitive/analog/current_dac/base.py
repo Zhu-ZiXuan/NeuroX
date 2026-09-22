@@ -59,7 +59,6 @@ class Idac(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
-        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     # === Public API ===

@@ -103,11 +103,10 @@ _Policy = CimUnitPolicy
 class CimUnit(UnitBase, ABC, base_only=True):
     """Shared CIM implementation combined with an operator-specific unit base.
 
-    The concrete implementation first initializes its operator base, which binds
-    config and policy and initializes the common unit. It then calls this
-    constructor with matrix dimensions, the input-slot sharing choice and macro
-    precision. This constructor builds the CIM children and functional buffers
-    without reinitializing the common unit or retaining operator metadata.
+    Initialize the operator base first to bind config, policy, and common-unit
+    state. Then call this constructor to build CIM children and functional
+    buffers from matrix dimensions, input-slot sharing, and macro precision.
+    It preserves the common unit and leaves operator metadata with its owner.
 
     Subclasses adapt weights to `_program_matrix`, inputs to `_vmm`, and
     results and bias to their operator layout. They compose the shared local
@@ -125,11 +124,6 @@ class CimUnit(UnitBase, ABC, base_only=True):
     precede phase and input-slice recovery; a pair spanning two scans retains
     its positive code locally until the negative code arrives.
 
-    Construction queries native value domains through a one-instance macro
-    before choosing slicing and placement. That instance is retained when it
-    matches the final geometry; otherwise only the final replica population
-    remains owned. Neither the query instance nor final instances are fabricated
-    or programmed during construction.
     """
 
     config: _Config
@@ -257,6 +251,10 @@ class CimUnit(UnitBase, ABC, base_only=True):
         effective_output_num = self.tiler.effective_output_num(device=torch.get_default_device())
         # Shape: [merge_step, macro_group]
         logical_output_num = self.merge.map_effective_output_num(effective_output_num)
+        # Preserve static placement counts for timing without reading device tensors at execution.
+        self._max_output_num_by_step: tuple[int, ...] = tuple(
+            max(counts) * polarity_num for counts in logical_output_num.tolist()
+        )
         self._register_nonpersistent_buffer("_effective_output_num", logical_output_num * polarity_num)
         self._register_nonpersistent_buffer(
             "_output_enable",
@@ -326,8 +324,7 @@ class CimUnit(UnitBase, ABC, base_only=True):
     def _vmm(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
         """Evaluate vectors against the programmed matrix without bias.
 
-        Every leading axis passes through unchanged. The group axis selects
-        the independently programmed matrix.
+        The group axis selects the independently programmed matrix.
 
         Args:
             input: Integer vectors in the unit's logical value range.
@@ -384,16 +381,13 @@ class CimUnit(UnitBase, ABC, base_only=True):
         input_phase_num = self.input_phase_splitter.input_phase_num
         input_slice_num = self.x_slicer.slice_num
 
-        # Shape: [merge_step, macro_group]
-        macro__ns = self.cim_macro.latency__ns(
-            adc_active_bits=adc_active_bits,
-            effective_output_num=self._effective_output_num,
+        # Each reuse step waits for its slowest populated macro. Placement is static.
+        local__ns = sum(
+            self.cim_macro.latency__ns(adc_active_bits=adc_active_bits, effective_output_num=count)
+            + (count > 0) * clock_period__ns
+            for count in self._max_output_num_by_step
         )
-        # Shape: [merge_step, macro_group]
-        local__ns = macro__ns + (self._effective_output_num > 0) * clock_period__ns
-        # Shape: [merge_step, macro_group] -> []
-        local__ns = local__ns.amax(dim=-1).sum()
-        return float(local__ns) * input_slice_num * input_phase_num
+        return local__ns * input_slice_num * input_phase_num
 
     @final
     def _vmm_global_latency__ns(self) -> float:

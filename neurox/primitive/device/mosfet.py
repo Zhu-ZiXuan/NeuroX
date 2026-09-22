@@ -170,6 +170,7 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
     @torch.no_grad()
     def solve_dc(
         self,
+        *,
         vg__V: Tensor | float,
         vd__V: Tensor | float,
         vs__V: Tensor | float,
@@ -233,7 +234,7 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
 
         beta__uA_per_V2 = apply_gaussian(
             beta__uA_per_V2.expand(self.inst_shape),
-            sigma_beta__uA_per_V2,
+            sigma=sigma_beta__uA_per_V2,
             enabled=policy.A_beta_mismatch,
         )
         if policy.A_beta_mismatch:
@@ -241,7 +242,9 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
             beta__uA_per_V2 = beta__uA_per_V2.clamp(min=dtype_info.tiny, max=dtype_info.max)
 
         self._beta__uA_per_V2 = beta__uA_per_V2
-        self._vth__V = apply_gaussian(vth__V.expand(self.inst_shape), self._sigma_vth__V, enabled=policy.A_vt_mismatch)
+        self._vth__V = apply_gaussian(
+            vth__V.expand(self.inst_shape), sigma=self._sigma_vth__V, enabled=policy.A_vt_mismatch
+        )
 
     # === For subclass to implement or override ===
 

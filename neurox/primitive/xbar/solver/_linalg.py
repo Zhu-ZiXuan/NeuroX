@@ -42,15 +42,11 @@ def boundary_inverse_block_tridiagonal_2x2(
 ) -> _TensorTuple4:
     """Return the leading diagonal block of a block-tridiagonal inverse.
 
-    Every sub- and super-diagonal block is the same constant diagonal matrix
-    `U = diag(off_diag)`. Eliminating blocks from the trailing boundary forms
-    `S[k] = D[k] - U @ inv(S[k + 1]) @ U`; the requested inverse block is
-    `inv(S[0])`.
+    Eliminate from the trailing boundary with identical diagonal off-blocks.
 
-    CUDA sweeps benefit from contiguous slices `component.select(dim, k)`,
-    since each step processes every independent system at one block index.
-    Unit stride on the recurrence axis alone does not provide this layout.
-    Strided inputs remain supported, and this function does not repack them.
+    CUDA sweeps benefit from contiguous `component.select(dim, k)` slices
+    across independent systems. Strided inputs are accepted without repacking;
+    unit stride along `dim` alone does not give this layout.
 
     Args:
         diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
@@ -109,7 +105,7 @@ def boundary_inverse_block_tridiagonal_2x2(
     indices = torch.arange(block_num - 1, -1, -1, device=diag_00.device)
 
     # Shape: [..., 1, ...]
-    return run_scan_without_output(init_state=init_state, xs=indices, body_fn=body_fn, device=diag_00.device)
+    return run_scan_without_output(init_state=init_state, xs=indices, body_fn=body_fn)
 
 
 def solve_block_tridiagonal_2x2(
@@ -119,31 +115,23 @@ def solve_block_tridiagonal_2x2(
     off_diag: tuple[float, float],
     dim: int,
 ) -> _TensorTuple2:
-    """Solve batched 2×2 block-tridiagonal systems with ONE constant off-block.
-
-    Every sub- and super-diagonal block is the same constant diagonal matrix
-    `U = diag(off_diag)`, which reduces the block Thomas recurrence to one
-    explicit 2×2 inverse plus multiply-adds per step. The off-diagonal blocks
-    are never materialized and the boundary slots need no special casing. `N`
-    is the number of blocks, each block being 2×2.
+    """Solve batched 2×2 block-tridiagonal systems with constant diagonal off-blocks.
 
     Forward and reverse scans retain only one block in their carry. Reduced
-    coefficients and solutions are collected as outputs; their storage grows
-    with `N`. The two solution components are returned in ascending block order.
+    coefficients and solutions occupy storage proportional to the block count
+    `N`. Solutions are returned in ascending block order.
 
-    CUDA sweeps benefit when `component.select(dim, k)` is contiguous across
-    the remaining axes, for both `diag` and `rhs`. Unit stride on the recurrence
-    axis alone does not provide this layout. Strided inputs remain supported,
-    and this function does not repack them. Collected histories use contiguous
-    slices for each block index.
+    CUDA sweeps benefit from contiguous `component.select(dim, k)` slices of
+    `diag` and `rhs` across independent systems. Strided inputs are accepted
+    without repacking; unit stride along `dim` alone does not give this layout.
+    Collected histories have contiguous slices at each block index.
 
     Args:
         diag: Main-block entries `(D[k, 0, 0], D[k, 0, 1], D[k, 1, 0], D[k, 1, 1])`.
             Shape: `[..., N, ...]`.
         rhs: Right-hand-side entries `(b[k, 0], b[k, 1])`.
             Shape: `[..., N, ...]`.
-        off_diag: The two diagonal entries of the shared off-block, i.e.
-            `U = diag(off_diag[0], off_diag[1])`.
+        off_diag: The two diagonal entries shared by all off-blocks.
         dim: Positive or negative index of the recurrence axis of length `N`.
 
     Returns:
@@ -253,6 +241,7 @@ def solve_block_tridiagonal_2x2(
 
 
 def solve_tridiagonal(
+    *,
     sub: Tensor,
     diag: Tensor,
     sup: Tensor,

@@ -129,7 +129,7 @@ class SwitchCap(ProfileModule):
         # Positive capacitance keeps thermal noise and charge sharing defined.
         self._c__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
-            config.cap_mismatch_sigma_relative,
+            sigma_relative=config.cap_mismatch_sigma_relative,
             unit=config.c_unit__fF,
             floor=0.1 * config.c_unit__fF,
             enabled=self.policy.cap_mismatch,
@@ -151,7 +151,7 @@ class SwitchCap(ProfileModule):
         # kT/C settling noise: fJ / fF gives V^2.
         kt__fJ = thermal_fluctuation_energy__fJ(self.T__K)
         sigma__V = torch.sqrt(kt__fJ / c__fF)
-        v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
+        v_hold__V = apply_gaussian(v_in__V, sigma=sigma__V, enabled=self.policy.sampling_thermal_noise)
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 

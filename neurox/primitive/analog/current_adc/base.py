@@ -36,7 +36,7 @@ class IadcConfig(ConfigBase, base_only=True):
 
         # --- Resolution ---
 
-        self._require_in_closed_interval(self.bits, "bits", 1, 31)
+        self._require_in_closed_interval(self.bits, "bits", lower=1, upper=31)
 
         # --- Static PPA ---
 
@@ -71,7 +71,6 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
-        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     # === Public API ===
@@ -99,12 +98,14 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     def bits(self) -> int:
         return self.config.bits
 
+    @final
     @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
     def convert(
         self,
         i_in__uA: Tensor,
-        i_refs__uA: Tensor,
         *,
+        i_refs__uA: Tensor,
         active_bits: int,
         enable: Tensor | None = None,
     ) -> Tensor:
@@ -133,9 +134,10 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
         self._check_active_bits(active_bits)
         code, energy__fJ = self._convert_impl(
             i_in__uA,
-            i_refs__uA,
+            i_refs__uA=i_refs__uA,
             active_bits=active_bits,
             record_energy=self._is_profiler_active(),
+            enable=enable,
         )
         code = code.int()
         if code.shape != i_in__uA.shape:
@@ -184,15 +186,18 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     def _convert_impl(
         self,
         i_in__uA: Tensor,
-        i_refs__uA: Tensor,
         *,
+        i_refs__uA: Tensor,
         active_bits: int,
         record_energy: bool,
+        enable: Tensor | None,
     ) -> tuple[Tensor, Tensor | None]:
         """Compute conversion outputs according to the `convert` contract.
 
         Args:
             record_energy: Whether to compute dynamic energy.
+            enable: Optional conversion mask, available when constructing
+                energy on its consuming device. The base masks codes and energy.
 
         Returns:
             Output codes and per-output dynamic energy [fJ]. Energy is `None`

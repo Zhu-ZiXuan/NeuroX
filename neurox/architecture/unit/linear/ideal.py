@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from .base import LinearUnit, LinearUnitConfig, LinearUnitPolicy
@@ -28,11 +27,7 @@ _Policy = IdealLinearUnitPolicy
 
 @LinearUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealLinearUnit(LinearUnit):
-    """Integer linear evaluation through `torch.nn.functional.linear`.
-
-    Args:
-        w_logical_shape: Logical weight shape `(N, K)` bound to `program(...)`.
-    """
+    """Exact int64 linear evaluation on the programmed device."""
 
     config: _Config
     policy: _Policy
@@ -82,17 +77,13 @@ class IdealLinearUnit(LinearUnit):
         *,
         adc_active_bits: int | None,
     ) -> float:
-        """Zero — one ideal VMM has no modeled latency.
-
-        The unit has no modeled circuit latency, so the
-        operand layout does not affect this value.
-        """
         return 0.0
 
     @torch.no_grad()
     def program(
         self,
         weight: Tensor,
+        *,
         bias: Tensor | None = None,
     ) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
@@ -107,4 +98,5 @@ class IdealLinearUnit(LinearUnit):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> Tensor:
-        return F.linear(input.long(), self._weight, self._int_bias)
+        output = (input.long().unsqueeze(-2) * self._weight).sum(dim=-1, dtype=torch.int64)
+        return output if self._int_bias is None else output + self._int_bias

@@ -140,48 +140,12 @@ def _conv2d_int64_oracle(
     return out
 
 
-def _assert_matches_oracle(
-    *,
-    input_num: int,
-    output_num: int,
-    w_shape: tuple[int, int, int, int],
-    x_shape: tuple[int, ...],
-    stride: tuple[int, int] = (1, 1),
-    padding: tuple[int, int] = (0, 0),
-    dilation: tuple[int, int] = (1, 1),
-    bias: torch.Tensor | None = None,
-    seed: int,
-) -> None:
-    torch.manual_seed(seed)
-    unit = _build_unit(
-        _unit_config(
-            input_num=input_num,
-            output_num=output_num,
-        ),
-        w_logical_shape=w_shape,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-    )
-    w_lo, w_hi = unit.w_value_range
-    x_lo, x_hi = unit.x_value_range
-    weight = torch.randint(w_lo, w_hi + 1, w_shape, dtype=torch.int32)
-    x = torch.randint(x_lo, x_hi + 1, x_shape, dtype=torch.int32)
-    unit.program(weight, bias)
-    actual = unit.conv2d(x, quantization_mode=0, adc_active_bits=None)
-    expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
-    if bias is not None:
-        expected = expected + bias.long().view(-1, 1, 1)
-    assert actual.shape == expected.shape
-    assert torch.equal(actual.long(), expected.long())
-
-
 @pytest.mark.parametrize(
-    ("input_num", "output_num", "w_shape", "x_shape", "stride", "padding", "dilation"),
+    ("input_num", "output_num", "w_shape", "x_shape", "stride", "padding", "dilation", "with_bias"),
     [
-        (16, 16, (2, 1, 2, 2), (1, 5, 8), (1, 1), (0, 0), (1, 1)),
-        (16, 8, (3, 1, 2, 3), (1, 7, 9), (2, 1), (1, 2), (1, 2)),
-        (32, 5, (3, 2, 3, 3), (6, 2, 6, 7), (1, 1), (0, 0), (1, 1)),
+        (16, 16, (2, 1, 2, 2), (1, 5, 8), (1, 1), (0, 0), (1, 1), False),
+        (16, 8, (3, 2, 2, 3), (2, 7, 9), (2, 1), (1, 2), (1, 2), True),
+        (32, 5, (3, 2, 3, 3), (6, 2, 6, 7), (1, 1), (0, 0), (1, 1), True),
     ],
 )
 def test_conv2d_cim_matches_integer_oracle(
@@ -192,33 +156,28 @@ def test_conv2d_cim_matches_integer_oracle(
     stride: tuple[int, int],
     padding: tuple[int, int],
     dilation: tuple[int, int],
+    with_bias: bool,
 ) -> None:
-    _assert_matches_oracle(
-        input_num=input_num,
-        output_num=output_num,
-        w_shape=w_shape,
-        x_shape=x_shape,
+    generator = torch.Generator().manual_seed(500 + input_num + output_num)
+    unit = _build_unit(
+        _unit_config(input_num=input_num, output_num=output_num),
+        w_logical_shape=w_shape,
         stride=stride,
         padding=padding,
         dilation=dilation,
-        seed=500 + input_num + output_num,
     )
-
-
-@pytest.mark.parametrize("x_shape", [(2, 7, 9), (2, 2, 7, 9)])
-def test_conv2d_cim_bias_exact(x_shape: tuple[int, ...]) -> None:
-    bias = torch.randint(-7, 8, (3,), dtype=torch.int32)
-    _assert_matches_oracle(
-        input_num=16,
-        output_num=8,
-        w_shape=(3, 2, 2, 3),
-        x_shape=x_shape,
-        stride=(2, 1),
-        padding=(1, 2),
-        dilation=(1, 2),
-        bias=bias,
-        seed=600,
-    )
+    w_lo, w_hi = unit.w_value_range
+    x_lo, x_hi = unit.x_value_range
+    weight = torch.randint(w_lo, w_hi + 1, w_shape, dtype=torch.int32, generator=generator)
+    x = torch.randint(x_lo, x_hi + 1, x_shape, dtype=torch.int32, generator=generator)
+    bias = torch.arange(w_shape[0], dtype=torch.int32) - 1 if with_bias else None
+    unit.program(weight, bias=bias)
+    actual = unit.conv2d(x, quantization_mode=0, adc_active_bits=None)
+    expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
+    if bias is not None:
+        expected = expected + bias.long().view(-1, 1, 1)
+    assert actual.shape == expected.shape
+    assert torch.equal(actual.long(), expected)
 
 
 @pytest.mark.parametrize(
@@ -317,12 +276,12 @@ def test_grouped_and_depthwise_convolution_match_torch_and_ideal(
     bias = torch.arange(w_shape[0], dtype=torch.int64) - w_shape[0] // 2
     expected = F.conv2d(x, weight, bias, stride=stride, padding=padding, dilation=dilation, groups=groups).to(device)
     weight, x, bias = weight.to(device), x.to(device), bias.to(device)
-    unit.program(weight, bias)
+    unit.program(weight, bias=bias)
     torch.testing.assert_close(unit.conv2d(x, quantization_mode=0, adc_active_bits=None), expected)
 
     ideal = unit.to_ideal()
     assert ideal.groups == groups
-    ideal.program(weight, bias)
+    ideal.program(weight, bias=bias)
     torch.testing.assert_close(ideal.conv2d(x, quantization_mode=0, adc_active_bits=None), expected)
 
 
@@ -382,7 +341,9 @@ def test_parallel_groups_replicate_circuit_costs_without_multiplying_latency(
         assert grouped.area__um2 == single.area__um2 * factor
         assert grouped.leakage__uW == single.leakage__uW * factor
         if single.dynamic_energy__fJ is not None:
-            torch.testing.assert_close(grouped.dynamic_energy__fJ, single.dynamic_energy__fJ * factor)
+            torch.testing.assert_close(
+                grouped.dynamic_energy__fJ, single.dynamic_energy__fJ * factor, check_dtype=False
+            )
     assert profiles[0][""].working_duration__ns is not None
     assert profiles[1][""].working_duration__ns is not None
     torch.testing.assert_close(profiles[1][""].working_duration__ns, profiles[0][""].working_duration__ns)

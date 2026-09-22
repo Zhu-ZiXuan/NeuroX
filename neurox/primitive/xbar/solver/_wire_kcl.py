@@ -7,11 +7,11 @@ from torch import Tensor
 
 
 def f_kcl__uA(
+    *,
     v_node__V: Tensor,
     v_port__V: Tensor,
     segment_g__uS: float,
     i_inject__uA: Tensor,
-    *,
     dim: int,
 ) -> Tensor:
     """KCL residual at every node of one wire ladder.
@@ -48,8 +48,8 @@ def f_kcl__uA(
 
 def dfkcl_dvnode__uS(
     g_cell_eff__uS: Tensor,
-    segment_g__uS: float,
     *,
+    segment_g__uS: float,
     dim: int,
 ) -> Tensor:
     """Differentiate each node's KCL residual with respect to its own voltage.
@@ -81,10 +81,10 @@ def dfkcl_dvnode__uS(
 
 
 def f_kcl_roundoff__uA(
+    *,
     v_node__V: Tensor,
     v_port__V: Tensor,
     segment_g__uS: float,
-    *,
     dim: int,
 ) -> Tensor:
     """Estimate each node's wire-current uncertainty from voltage rounding.

@@ -56,10 +56,7 @@ def test_shared_step_preserves_inactive_positions_and_final_observations(
     values = torch.tensor([4.0, 0.0, 1.0, 3.0], device=device)
     enabled = torch.tensor([False, True, True, True], device=device)
 
-    def solve(values: Tensor):
-        return _count_down(values, enabled, 5, record_trace)
-
-    state, trace = solve(values)
+    state, trace = _count_down(values, enabled, 5, record_trace)
     torch.testing.assert_close(state.value, torch.tensor([4.0, 0.0, 0.0, 0.0], device=device))
     if trace is None:
         assert not record_trace
@@ -102,50 +99,23 @@ def test_strict_iteration_cap_rejects_an_unconverged_state(record_trace: bool) -
 @pytest.mark.parametrize("active", [False, True])
 def test_scan_skips_inactive_body_and_uses_default_trace(device: torch.device, active: bool) -> None:
     # A runtime assertion proves skipping; Python call counts also count tracing.
-    def run(value: Tensor):
-        initial = _State(value=value, is_active=value > 0)
-
-        def evaluate(current: _State):
-            torch_assert_async(current.is_active.any(), "Inactive numerical body executed")
-            next_value = torch.where(current.is_active, current.value - 1, current.value)
-            return _State(value=next_value, is_active=next_value > 0), _Trace(value=next_value)
-
-        return run_solving_trace_scan(
-            init_state=initial,
-            body_fn=evaluate,
-            default_trace=_Trace(value=torch.full_like(value, -7)),
-            max_iter=4,
-            strict=True,
-        )
-
-    # This sentinel makes default reuse observable independently of NaN masking.
-    values = torch.tensor([2.0, 1.0] if active else [0.0, 0.0], device=device)
-    state, trace = run(values)
-    torch.testing.assert_close(state.value, torch.zeros_like(values))
-    expected = [[1.0, 0.0, -7.0, -7.0], [0.0, torch.nan, -7.0, -7.0]] if active else [[-7.0] * 4] * 2
-    torch.testing.assert_close(trace.value, torch.tensor(expected, device=device), equal_nan=True)
-
-
-def test_empty_trace_selection_does_not_stop_active_solving(device: torch.device) -> None:
-    values = torch.tensor([1.0, 3.0], device=device)
-
     def evaluate(current: _State):
+        torch_assert_async(current.is_active.any(), "Inactive numerical body executed")
         next_value = torch.where(current.is_active, current.value - 1, current.value)
         return _State(value=next_value, is_active=next_value > 0), _Trace(value=next_value)
 
-    def run():
-        return run_solving_trace_scan(
-            init_state=_State(value=values, is_active=values > 0),
-            body_fn=evaluate,
-            default_trace=_Trace(value=torch.full_like(values, torch.nan)),
-            max_iter=5,
-            strict=True,
-            trace_mask=torch.zeros_like(values, dtype=torch.bool),
-        )
-
-    state, trace = run()
+    # This sentinel makes default reuse observable independently of NaN masking.
+    values = torch.tensor([2.0, 1.0] if active else [0.0, 0.0], device=device)
+    state, trace = run_solving_trace_scan(
+        init_state=_State(value=values, is_active=values > 0),
+        body_fn=evaluate,
+        default_trace=_Trace(value=torch.full_like(values, -7)),
+        max_iter=4,
+        strict=True,
+    )
     torch.testing.assert_close(state.value, torch.zeros_like(values))
-    assert trace.value.isnan().all()
+    expected = [[1.0, 0.0, -7.0, -7.0], [0.0, torch.nan, -7.0, -7.0]] if active else [[-7.0] * 4] * 2
+    torch.testing.assert_close(trace.value, torch.tensor(expected, device=device), equal_nan=True)
 
 
 @pytest.mark.parametrize("counts", [[1.0, 2.0], [1.0]])
@@ -160,19 +130,16 @@ def test_nested_scan_preserves_position_and_iteration_axes(device: torch.device,
             value=next_value, inner=inner
         )
 
-    def run():
-        return run_solving_trace_scan(
-            init_state=initial,
-            body_fn=evaluate,
-            default_trace=_NestedTrace(
-                value=torch.full_like(values, torch.nan),
-                inner=_Trace(value=torch.full((len(counts), 3), torch.nan, device=device)),
-            ),
-            max_iter=3,
-            strict=True,
-        )
-
-    _state, trace = run()
+    _state, trace = run_solving_trace_scan(
+        init_state=initial,
+        body_fn=evaluate,
+        default_trace=_NestedTrace(
+            value=torch.full_like(values, torch.nan),
+            inner=_Trace(value=torch.full((len(counts), 3), torch.nan, device=device)),
+        ),
+        max_iter=3,
+        strict=True,
+    )
     assert trace.value.shape == (len(counts), 3)
     assert trace.inner.value.shape == (len(counts), 3, 3)
     assert trace.inner.value[0, :, 1:].isnan().all()
@@ -210,25 +177,31 @@ def test_trace_mask_preserves_nested_axes_dtypes_and_existing_nan(device: torch.
     assert trace.limited.all()
 
 
-def test_trace_selection_broadcasts_without_changing_convergence(device: torch.device) -> None:
+@pytest.mark.parametrize(
+    ("selection", "expected_counts"),
+    [([False, False, False], [0, 0, 0]), ([True, False, True], [1, 0, 3])],
+    ids=["empty", "partial"],
+)
+def test_trace_selection_broadcasts_without_changing_convergence(
+    device: torch.device, selection: list[bool], expected_counts: list[int]
+) -> None:
     values = torch.tensor([[1.0, 2.0, 3.0]], device=device).expand(2, 3).clone()
-    mask = torch.tensor([[True, False, True]], device=device)
+    mask = torch.tensor([selection], device=device)
 
     def body_fn(state: _State) -> tuple[_State, _Trace]:
         value = torch.where(state.is_active, state.value - 1, state.value)
         return _State(value=value, is_active=value > 0), _Trace(value=value)
 
-    def solve(values: Tensor) -> tuple[_State, _Trace]:
-        return run_solving_trace_scan(
-            init_state=_State(value=values, is_active=values > 0),
-            body_fn=body_fn,
-            default_trace=_Trace(value=torch.full_like(values, torch.nan)),
-            max_iter=3,
-            strict=True,
-            trace_mask=mask,
-        )
-
-    state, trace = solve(values)
+    state, trace = run_solving_trace_scan(
+        init_state=_State(value=values, is_active=values > 0),
+        body_fn=body_fn,
+        default_trace=_Trace(value=torch.full_like(values, torch.nan)),
+        max_iter=5,
+        strict=True,
+        trace_mask=mask,
+    )
     torch.testing.assert_close(state.value, torch.zeros_like(values))
-    expected_counts = torch.tensor([[1, 0, 3]], device=device).expand(2, 3)
-    torch.testing.assert_close(trace.value.isfinite().sum(-1), expected_counts)
+    torch.testing.assert_close(
+        trace.value.isfinite().sum(-1), torch.tensor([expected_counts], device=device).expand(2, 3)
+    )
+    assert trace.value[:, ~mask[0]].isnan().all()

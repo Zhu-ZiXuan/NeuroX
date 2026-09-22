@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 
 class CimMacroQuantizationScheme(Enum):
-    """Macro output quantization scheme."""
-
     ZERO_POINT = "zero_point"
     SIGN_MAGNITUDE = "sign_magnitude"
 
@@ -97,11 +95,7 @@ class CimMacroConfig(ConfigBase, ABC, base_only=True):
     @property
     @abstractmethod
     def supports_signed_weights(self) -> bool:
-        """Return the macro's explicitly declared native signed-weight capability.
-
-        `False` denotes an unsigned weight carrier. This declaration is
-        independent of encoding metadata and value-range inference.
-        """
+        """Native signed-weight capability, independent of encoding and value range."""
         raise NotImplementedError
 
     @property
@@ -149,10 +143,7 @@ _Policy = CimMacroPolicy
 
 
 class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
-    """Abstract base class for a CIM macro.
-
-    The interface carries integer codes and physical configuration; analog
-    signals and non-idealities remain internal.
+    """CIM interface carrying integer codes and physical configuration.
 
     Logical outputs enumerate all lanes of one scan before the next scan.
     Programming and output recovery follow this order; concrete implementations
@@ -161,7 +152,6 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     The caller supplies valid output counts from the unpadded geometry of the
     weight block selected for each access, consistently for execution and
     timing. A valid weight vector counts even when all its values are zero.
-
     """
 
     config: _Config
@@ -247,8 +237,8 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         return self._w_transcoder.value_range
 
     @final
-    @torch.compile(dynamic=False, fullgraph=True)
     @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
     def vec_mat_mul(
         self,
         x: Tensor,
@@ -319,7 +309,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         return output
 
     @overload
-    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: None = None) -> float: ...
+    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: int | None = None) -> float: ...
 
     @overload
     def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: Tensor) -> Tensor: ...
@@ -330,27 +320,32 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         self,
         *,
         adc_active_bits: int | None,
-        effective_output_num: Tensor | None = None,
+        effective_output_num: int | Tensor | None = None,
     ) -> float | Tensor:
         """Return operation duration from the longest active lane schedule.
 
         Args:
             adc_active_bits: Active ADC resolution; `None` uses the maximum.
             effective_output_num: Valid output width of the selected weight
-                block, matching the count supplied to `vec_mat_mul`. Entries
+                block. A Python integer describes a static count; tensor entries
                 must have dtype `torch.int64` and describe distinct mapped accesses.
                 A scalar tensor applies uniformly. `None` assumes every output is valid.
                 Shape: `[...]`.
 
         Returns:
-            A float for `None`; otherwise a Tensor with the count tensor's
+            A float for an integer or `None`; otherwise a Tensor with the count tensor's
             shape and device, including zero durations.
         """
         self._check_adc_active_bits(adc_active_bits)
-        self._check_effective_output_num(effective_output_num)
         per_scan__ns = self._latency_per_scan__ns(adc_active_bits=adc_active_bits)
         if effective_output_num is None:
             return self.scan_num * per_scan__ns
+        # Static-count timing specializes on the Python type without reading tensor values.
+        if isinstance(effective_output_num, int):
+            if not 0 <= effective_output_num <= self.output_num:
+                raise ValueError("invalid effective_output_num")
+            return -(-effective_output_num // self.lane_num) * per_scan__ns
+        self._check_effective_output_num(effective_output_num)
         effective_scan_num = self._effective_scan_num(effective_output_num)
         return effective_scan_num * per_scan__ns
 

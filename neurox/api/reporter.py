@@ -43,6 +43,7 @@ def profile_result_to_report_items(
 ) -> dict[str, ReportItem]:
     """Derive named static energy from already assembled profiling tensors.
 
+    Input observations have already been synchronized at profiler context exit.
     Energy and duration tensors retain their axes, dtype, and device. A name
     without timing inherits the nearest timed ancestor's durations, which must
     describe the same sample positions. Powered intervals default to recorded

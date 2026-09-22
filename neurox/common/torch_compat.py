@@ -169,7 +169,7 @@ def torch_scan[CarryT, InputT, OutputT](
         Each output's iteration axis occupies the resolved `dim` if that axis
         exists in the stacked tensor, otherwise axis zero.
     """
-    # --- 1: flatten and validate the structured inputs ---
+    # --- 1: validate structured inputs and scan axes ---
 
     def _flatten_pytree(tree: object, *, name: str) -> tuple[tuple[Tensor, ...], pytree.TreeSpec]:
         leaves, spec = pytree.tree_flatten(tree)
@@ -209,7 +209,7 @@ def torch_scan[CarryT, InputT, OutputT](
     def _unflatten_output(flat_output: tuple[Tensor, ...]) -> OutputT:
         return cast(OutputT, pytree.tree_unflatten(flat_output, output_spec))
 
-    # --- 3: adapt callbacks to flat tensor leaves ---
+    # --- 2: adapt the recurrence to flat tensor leaves ---
 
     def flat_combine_fn(
         flat_carry: tuple[Tensor, ...],
@@ -224,11 +224,9 @@ def torch_scan[CarryT, InputT, OutputT](
             raise TypeError("scan output must match the output_template PyTree structure")
         return new_flat_carry, new_flat_output
 
-    # --- 4: scan along the leading axis ---
+    # --- 3: collect outputs in input-axis order ---
 
     flat_carry, stacked_flat_output = scan(flat_combine_fn, flat_carry, flat_xs, dim=0, reverse=False)
-
-    # --- 5: restore the result structure ---
 
     # Reverse traversal changes recurrence order, but results retain input order.
     if reverse:

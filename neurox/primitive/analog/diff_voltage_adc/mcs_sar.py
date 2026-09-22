@@ -163,30 +163,29 @@ class McsSarDiffVadc(DiffVadc):
         policy = self.policy
         self._c_p__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
-            self.config.cap_mismatch_sigma_relative,
+            sigma_relative=self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self._c_n__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
-            self.config.cap_mismatch_sigma_relative,
+            sigma_relative=self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self._comparator_offset__V = apply_gaussian(
             self._nominal_comparator_offset__V.clone().expand(self.inst_shape),
-            self.config.comparator_offset_sigma__V,
+            sigma=self.config.comparator_offset_sigma__V,
             enabled=policy.comparator_offset,
         )
 
-    @torch.compile(dynamic=False, fullgraph=True)
     def _convert_impl(
         self,
+        *,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
-        *,
         v_refs__V: Tensor,
         active_bits: int,
         record_energy: bool,
@@ -228,10 +227,10 @@ class McsSarDiffVadc(DiffVadc):
         # sample thermal noise on each held top plate (per-leg kT/C).
         kt__fJ = thermal_fluctuation_energy__fJ(self.T__K)
         v_p_top__V = apply_gaussian(
-            v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
+            v_p_top__V, sigma=torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
         )
         v_n_top__V = apply_gaussian(
-            v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF), enabled=self.policy.sampling_thermal_noise
+            v_n_top__V, sigma=torch.sqrt(kt__fJ / c_n_total__fF), enabled=self.policy.sampling_thermal_noise
         )
 
         # --- 2: resolve the MSB without capacitor switching ---
@@ -293,7 +292,7 @@ class McsSarDiffVadc(DiffVadc):
 
         return code, energy__fJ
 
-    def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
+    def _compare(self, *, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.
 
         Adds per-cycle thermal noise to the differential top-plate voltage and
@@ -308,7 +307,7 @@ class McsSarDiffVadc(DiffVadc):
         noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(self.T__K / 300.0)
         v_diff__V = apply_gaussian(
             v_pos__V - v_neg__V,
-            noise_sigma__V,
+            sigma=noise_sigma__V,
             enabled=policy.comparator_thermal_noise,
         )
         return v_diff__V > self._comparator_offset__V

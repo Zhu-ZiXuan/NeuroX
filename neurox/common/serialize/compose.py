@@ -13,7 +13,7 @@ from .keys import (
 from .value import ConfigDict, ConfigValue
 
 
-def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: bool) -> ConfigDict:
+def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, *, strict_type: bool) -> ConfigDict:
     """Fill missing keys in the override mapping from the default one, recursively."""
     merged = override.copy()
     for key, default_value in default.items():

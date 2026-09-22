@@ -111,7 +111,7 @@ def _solve_linear_point(
     v_sl__V = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
     v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)
     cell_snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1))
-    cell_dcop = cell.solve_dc(v_bl__V, v_sl__V, cell_snap)
+    cell_dcop = cell.solve_dc(v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=cell_snap)
     return float(cell_dcop.i__uA), float(cell_dcop.v_x__V)
 
 

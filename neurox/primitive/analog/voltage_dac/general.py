@@ -97,7 +97,7 @@ class GeneralVdac(Vdac):
         self._register_nonpersistent_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype))
         self._register_nonpersistent_buffer(
             "_code_to_per_op_energy__fJ",
-            torch.tensor(config.code_to_per_op_energy__fJ, dtype=dtype),
+            torch.tensor(config.code_to_per_op_energy__fJ, dtype=torch.float32),
         )
 
     @property
@@ -108,7 +108,7 @@ class GeneralVdac(Vdac):
         nominal__V = self._code_to_signal[code.long()]
         signal = apply_gaussian(
             nominal__V,
-            self.config.drive_thermal__V,
+            sigma=self.config.drive_thermal__V,
             enabled=self.policy.drive_thermal,
         )
 

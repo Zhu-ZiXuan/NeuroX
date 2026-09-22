@@ -106,6 +106,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @final
     @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
     def linear(
         self,
         input: Tensor,
@@ -130,7 +131,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         output = self._linear_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         if self._is_profiler_active():
             latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
-            latency = input.new_tensor(latency__ns, dtype=torch.float64)
+            latency = torch.tensor(latency__ns, dtype=torch.float64)
             self._record_latency(latency.expand(input.shape[: self._profile_leading_rank]))
         return output
 
@@ -142,7 +143,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         raise NotImplementedError
 
     @abstractmethod
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         """Write the unit's static weight state and optional integer bias.
 
         Args:

@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 
 @dataclass_transform(eq_default=False, frozen_default=True, kw_only_default=True)
 class TensorDataClassMixin:
-    """Supply identity equality and immutable construction to tensor data.
-
-    Equality and hashing use identity throughout the hierarchy.
+    """Supply immutable tensor data with identity equality and hashing.
 
     A subclass declares its fields as annotations without initial values, and
     must not apply `@dataclass` or define `__init__`. This mixin supplies a
@@ -53,7 +51,7 @@ class PyTreeDataClassMixin:
         torch.export.register_dataclass(cls)
 
 
-# ### walking through dataclass tensor fields ###
+# ### Tensor field traversal ###
 
 
 def _is_dataclass_instance(obj: object) -> TypeGuard[DataclassInstance]:

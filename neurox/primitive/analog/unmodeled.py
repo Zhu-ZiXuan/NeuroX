@@ -50,8 +50,6 @@ class UnmodeledBlock(ProfileModule):
     config: _Config
     policy: _Policy
 
-    _energy_per_op__fJ: Tensor
-
     def __init__(
         self,
         *,
@@ -61,10 +59,6 @@ class UnmodeledBlock(ProfileModule):
         dtype: torch.dtype,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._register_nonpersistent_buffer(
-            "_energy_per_op__fJ",
-            torch.tensor(config.energy_per_op__fJ, dtype=dtype),
-        )
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -78,7 +72,9 @@ class UnmodeledBlock(ProfileModule):
     def execute(self, shape: tuple[int, ...], *, enable: Tensor | None = None) -> None:
         """Record enabled operations in `shape`; `None` enables every position."""
         if self._is_profiler_active():
-            energy = self._energy_per_op__fJ.expand(shape)
-            if enable is not None:
-                energy = energy.where(enable, 0)
-            self._record_dynamic_energy(energy)
+            # Mask presence specializes during tracing; only masked costs depend on its device.
+            if enable is None:
+                energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            else:
+                energy__fJ = enable.to(dtype=torch.float32) * self.config.energy_per_op__fJ
+            self._record_dynamic_energy(energy__fJ.expand(shape))

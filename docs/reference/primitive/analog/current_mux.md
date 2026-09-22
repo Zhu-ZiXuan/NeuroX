@@ -2,7 +2,7 @@
 
 ## Physical model
 
-An ideal single-ended N:1 time-share current transport. The surrounding circuit arranges the serial accesses and parallel lanes before calling the mux; this primitive applies the matched transport gain elementwise without changing the supplied layout.
+An ideal single-ended N:1 time-share current transport with a matched gain across all lanes.
 
 ## Governing equations
 
@@ -10,15 +10,15 @@ For every supplied current value,
 
 $$I_{\mathrm{out}} = g\,I_{\mathrm{in}}.$$
 
-The primitive models no energy and reports a zero window. It neither groups an input axis nor validates the caller's access layout.
+Transport has no modeled energy or latency.
 
 ## Numerical method
 
-N/A — the transport is a closed-form per-call map; no iteration.
+N/A — closed-form map.
 
 ## Noise & non-idealities
 
-None. The transport is ideal; the neglected non-idealities are named in Assumptions, scope & validity.
+None.
 
 ## Parameters
 
@@ -40,7 +40,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The mux is modelled as an exact gained-transport time-share element. Axis grouping and scheduling belong to the surrounding circuit. No per-lane gain mismatch, signal-dependent on-resistance, charge-injection pedestal, settling error, or crosstalk is modelled. The model is valid where the transported current sits within the lane's unmodelled linear settled band.
+The model applies within each lane's linear settled band. It excludes per-lane gain mismatch, signal-dependent on-resistance, charge-injection pedestal, settling error, and crosstalk.
 
 ## Validation
 

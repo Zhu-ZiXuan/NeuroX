@@ -36,7 +36,7 @@ class DiffVadcConfig(ConfigBase, base_only=True):
 
         # --- Resolution ---
 
-        self._require_in_closed_interval(self.bits, "bits", 1, 31)
+        self._require_in_closed_interval(self.bits, "bits", lower=1, upper=31)
 
         # --- Static PPA ---
 
@@ -71,7 +71,6 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
-        del dtype
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     # === Public API ===
@@ -99,12 +98,14 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     def bits(self) -> int:
         return self.config.bits
 
+    @final
     @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
     def convert(
         self,
+        *,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
-        *,
         v_refs__V: Tensor,
         active_bits: int,
     ) -> Tensor:
@@ -131,8 +132,8 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         self._check_active_bits(active_bits)
         self._validate_runtime_args(v_refs__V)
         code, energy__fJ = self._convert_impl(
-            v_pos__V,
-            v_neg__V,
+            v_pos__V=v_pos__V,
+            v_neg__V=v_neg__V,
             v_refs__V=v_refs__V,
             active_bits=active_bits,
             record_energy=self._is_profiler_active(),
@@ -144,7 +145,7 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         torch_assert_async(((code >= min_code) & (code <= max_code)).all(), "ADC output code outside active-bit range")
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
-        self._record_input(v_pos__V, v_neg__V)
+        self._record_input(v_pos__V=v_pos__V, v_neg__V=v_neg__V)
         return code
 
     @final
@@ -188,9 +189,9 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     @abstractmethod
     def _convert_impl(
         self,
+        *,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
-        *,
         v_refs__V: Tensor,
         active_bits: int,
         record_energy: bool,
@@ -210,7 +211,7 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     # === Tools for subclass and internal use ===
 
     @final
-    def _record_input(self, v_pos__V: Tensor, v_neg__V: Tensor) -> None:
+    def _record_input(self, *, v_pos__V: Tensor, v_neg__V: Tensor) -> None:
         prober = AdcProber.current()
         if prober is not None:
             prober.submit_diff_voltage(v_pos__V=v_pos__V, v_neg__V=v_neg__V)

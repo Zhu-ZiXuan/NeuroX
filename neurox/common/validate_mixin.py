@@ -56,7 +56,7 @@ class ValidateMixin:
             raise ValueError(f"require: {name} ({value}) finite")
 
     @staticmethod
-    def _require_in_closed_interval(value: float, name: str, lower: float, upper: float) -> None:
+    def _require_in_closed_interval(value: float, name: str, *, lower: float, upper: float) -> None:
         """Require finite `value` in the finite closed interval `[lower, upper]`."""
         if not (isfinite(value) and isfinite(lower) and isfinite(upper) and lower <= value <= upper):
             raise ValueError(f"require: {name} ({value}) in closed interval [{lower}, {upper}]")

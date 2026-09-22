@@ -56,9 +56,10 @@ class Adder(DigitalBase):
             enable = torch.broadcast_to(enable, result.shape)
             result = result.where(enable, 0)
         if self._is_profiler_active():
-            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=result.device)
-            energy__fJ = e_op__fJ.expand(result.shape)
-            if enable is not None:
-                energy__fJ = energy__fJ.where(enable, 0)
-            self._record_dynamic_energy(energy__fJ)
+            # Mask presence specializes during tracing; only masked costs depend on its device.
+            if enable is None:
+                energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            else:
+                energy__fJ = enable.to(dtype=torch.float32) * self.config.energy_per_op__fJ
+            self._record_dynamic_energy(energy__fJ.expand(result.shape))
         return result

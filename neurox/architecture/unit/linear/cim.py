@@ -54,7 +54,7 @@ class LinearCimUnit(LinearUnit, CimUnit):
         )
 
     @torch.no_grad()
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self._program_matrix(weight.unsqueeze(0))

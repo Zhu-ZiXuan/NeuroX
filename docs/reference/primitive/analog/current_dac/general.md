@@ -1,16 +1,14 @@
 # General current DAC
 
-The simplest member of the [current DAC family](family.md): a code-steered current source whose transfer is a tabulated lookup table, obeying the family unsigned-code domain.
-
 ## Physical model
 
-The DAC is modelled as an ideal code-steered current source: an integer code selects the tabulated output current $L[\mathrm{code}]$, and the single modelled non-ideality is additive Gaussian noise on the steered output, sampled per conversion.
+An ideal code-steered current source follows the [current DAC family's](family.md) unsigned code domain. Its transfer is a lookup table plus additive Gaussian noise sampled per conversion.
 
 ## Governing equations
 
 $$I_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,\qquad n \sim \mathcal{N}(0,\ \sigma_{\mathrm{drive}}^2),$$
 
-with $L$ the code-to-current LUT and $n$ the per-conversion output-noise sample. The nominal LUT read returns $L[\mathrm{code}]$ exactly.
+Here $L$ is the nominal code-to-current LUT and $n$ the output-noise sample.
 
 ## Numerical method
 
@@ -21,8 +19,6 @@ N/A — direct table lookup, no iteration.
 | Source | Physical origin | Statistical model |
 | --- | --- | --- |
 | drive thermal | thermal noise on the steered output current | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$, constant across codes |
-
-The drive-thermal source is dynamic, resampled every conversion; the model carries no static mismatch.
 
 TODO (domain author): physical derivation and citation for the drive-thermal sigma, and the code-dependent output-noise law of the steered current sources.
 
@@ -48,12 +44,9 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 ## Assumptions, scope & validity
 
-Stated assumptions:
-
-- The output is a pure LUT lookup plus additive Gaussian noise; no code-dependent nonlinearity beyond the LUT entries.
-- The output noise is signal-independent: one constant sigma applies at every code. The dominant output noise of a real steered current source instead grows with the steered current — $\sigma_{\mathrm{drive}} \propto \sqrt{I_{\mathrm{out}}}$ in the shot-noise limit — so a single fitted sigma over-states the noise near zero code and under-states it at full scale.
-- The steering is ideal: the tabulated current is delivered in full whatever voltage the driven node settles to, so neither finite output impedance nor the compliance-voltage headroom real steering needs bounds the transfer.
-- The LUT is exact at every fabricated instance: the unit-current-source mismatch that sets a real current-steering DAC's integral and differential nonlinearity is not expressed, so every instance realizes the same nominal transfer.
+- Noise uses one sigma across all codes. Where shot noise dominates, $\sigma_{\mathrm{drive}} \propto \sqrt{I_{\mathrm{out}}}$, so a constant fitted sigma overstates noise near zero and understates it at full scale.
+- The current is independent of the driven node's voltage; finite output impedance and compliance headroom are excluded.
+- Every instance shares the exact nominal LUT, with no static mismatch or nonlinearity beyond its entries.
 
 TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load), and the unit-source mismatch model with its integral / differential nonlinearity consequence.
 

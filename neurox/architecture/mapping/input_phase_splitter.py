@@ -30,7 +30,11 @@ class InputPhaseSplitter:
         self.input_num = input_num
         self.max_active_num = max_active_num
         self.input_phase_num = -(-input_num // max_active_num)
-        self._mask = self._make_phase_mask()
+        group_size, extra = divmod(input_num, self.input_phase_num)
+        self._groups = tuple(
+            (phase * group_size + min(phase, extra), group_size + (phase < extra))
+            for phase in range(self.input_phase_num)
+        )
 
     def split(self, x: Tensor, *, dim: int = -2) -> Tensor:
         """Retain each input position in exactly one phase, zeroing the others.
@@ -48,8 +52,12 @@ class InputPhaseSplitter:
             carrying a new input-phase axis at `dim`.
             Shape: `[..., input_phase, ..., input]`.
         """
+        if x.shape[-1] != self.input_num:
+            raise ValueError("input width does not match the phase splitter")
+        positions = torch.arange(self.input_num, device=x.device)
+        # Build the consumed mask on device from static bounds, without a host tensor.
         # Shape: [input_phase, input]
-        mask = x.new_tensor(self._mask, dtype=torch.bool)
+        mask = torch.stack([(positions >= start) & (positions < start + size) for start, size in self._groups])
         # Shape: [..., input] -> [..., input_phase, ..., input]
         return x.unsqueeze(-2).where(mask, 0).movedim(-2, dim)
 
@@ -74,13 +82,3 @@ class InputPhaseSplitter:
             values = values.where(enable, 0)
         # Shape: [..., input_phase, ...] -> [..., ...]
         return values.sum(dim=dim, dtype=values.dtype)
-
-    def _make_phase_mask(self) -> tuple[tuple[bool, ...], ...]:
-        group_size, extra = divmod(self.input_num, self.input_phase_num)
-        masks: list[tuple[bool, ...]] = []
-        start = 0
-        for phase in range(self.input_phase_num):
-            size = group_size + (phase < extra)
-            masks.append((False,) * start + (True,) * size + (False,) * (self.input_num - start - size))
-            start += size
-        return tuple(masks)

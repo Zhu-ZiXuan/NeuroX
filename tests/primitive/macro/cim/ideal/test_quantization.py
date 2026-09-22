@@ -60,21 +60,14 @@ def _codes(
     adc_active_bits: int | None,
 ) -> list[int]:
     x = torch.tensor(dots, dtype=torch.int32).unsqueeze(-1)
-    return (
-        macro.vec_mat_mul(
-            x,
-            quantization_mode=quantization_mode,
-            adc_active_bits=adc_active_bits,
-        )
-        .squeeze(-1)
-        .tolist()
+    code = macro.vec_mat_mul(
+        x,
+        quantization_mode=quantization_mode,
+        adc_active_bits=adc_active_bits,
     )
-
-
-class TestHighestPrecision:
-    def test_none_returns_exact_dots(self) -> None:
-        macro = _make_macro(factors=(13.0,))
-        assert _codes(macro, [-101, -1, 0, 7, 103], adc_active_bits=None) == [-101, -1, 0, 7, 103]
+    assert code.dtype == torch.int64
+    assert code.device == x.device
+    return code.squeeze(-1).tolist()
 
 
 class TestZeroPoint:

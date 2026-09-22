@@ -43,7 +43,9 @@ def test_kcl_matches_dense_ladder_for_any_negative_wire_axis(shape: tuple[int, .
     i_inject__uA = torch.randn(shape, generator=generator, dtype=torch.float64)
     segment_g__uS = 2.5
 
-    actual = f_kcl__uA(v_node__V, v_port__V, segment_g__uS, i_inject__uA, dim=dim)
+    actual = f_kcl__uA(
+        v_node__V=v_node__V, v_port__V=v_port__V, segment_g__uS=segment_g__uS, i_inject__uA=i_inject__uA, dim=dim
+    )
     expected = _dense_kcl__uA(v_node__V, v_port__V, segment_g__uS, i_inject__uA, dim=dim)
 
     torch.testing.assert_close(actual, expected)
@@ -60,7 +62,7 @@ def test_roundoff_covers_voltage_representation_errors(
     port_shape[dim] = 1
     v_port = torch.randn(port_shape, generator=generator, dtype=dtype, device=device)
     g = 2.5
-    allowance = f_kcl_roundoff__uA(v_node, v_port, g, dim=dim)
+    allowance = f_kcl_roundoff__uA(v_node__V=v_node, v_port__V=v_port, segment_g__uS=g, dim=dim)
 
     # The linear wire operator propagates independent half-ulp voltage errors.
     # An alternating sign pattern exercises reinforcement at interior nodes.
@@ -71,20 +73,22 @@ def test_roundoff_covers_voltage_representation_errors(
     dv_port = 0.5 * torch.finfo(dtype).eps * v_port.abs()
     error = _dense_kcl__uA(dv_node, dv_port, g, torch.zeros_like(v_node), dim=dim)
     assert (error.abs() <= allowance).all()
-    torch.testing.assert_close(f_kcl_roundoff__uA(-2 * v_node, -2 * v_port, 4 * g, dim=dim), 8 * allowance)
+    torch.testing.assert_close(
+        f_kcl_roundoff__uA(v_node__V=-2 * v_node, v_port__V=-2 * v_port, segment_g__uS=4 * g, dim=dim), 8 * allowance
+    )
 
 
 def test_roundoff_uses_only_attached_neighbors_and_driver(device: torch.device) -> None:
     v_node = torch.ones(1, 5, dtype=torch.float64, device=device)
     # Two driver states broadcast over the same node grid.
     v_port = v_node.new_tensor([[1.0], [4.0]])
-    baseline = f_kcl_roundoff__uA(v_node, v_port, 2.5, dim=-1)
+    baseline = f_kcl_roundoff__uA(v_node__V=v_node, v_port__V=v_port, segment_g__uS=2.5, dim=-1)
     torch.testing.assert_close(baseline[1, 1:], baseline[0, 1:])
     assert baseline[1, 0] > baseline[0, 0]
 
     for changed_node in range(5):
         perturbed = v_node.clone()
         perturbed[..., changed_node] = 8.0
-        actual = f_kcl_roundoff__uA(perturbed, v_port, 2.5, dim=-1)
+        actual = f_kcl_roundoff__uA(v_node__V=perturbed, v_port__V=v_port, segment_g__uS=2.5, dim=-1)
         affected = (torch.arange(5, device=device) - changed_node).abs() <= 1
         assert torch.equal(actual > baseline, affected.expand_as(actual))

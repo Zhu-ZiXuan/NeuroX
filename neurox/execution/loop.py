@@ -55,7 +55,7 @@ def run_while_loop_with_counter[StateT](
     init_state: StateT,
     cond_fn: Callable[[Tensor, StateT], Tensor | bool],
     body_fn: Callable[[Tensor, StateT], StateT],
-    device: torch.device,
+    device: torch.device | None = None,
 ) -> StateT:
     """Run a counted while loop over a PyTree state.
 
@@ -71,11 +71,10 @@ def run_while_loop_with_counter[StateT](
     ```
 
     Args:
-        init_state: State passed to the first condition check.
         cond_fn: Receives the zero-based scalar step and current state;
             decides whether another update runs.
         body_fn: Receives the same step and state, returning the next state.
-        device: Placement of the step tensor.
+        device: Optional step placement; omission uses the default device.
 
     Returns:
         Terminal state, or `init_state` if the initial condition is false.
@@ -121,7 +120,6 @@ def run_scan[StateT, InputT, OutputT](
     ```
 
     Args:
-        init_state: State passed to the first visited input slice.
         xs: PyTree sliced along `dim`.
         body_fn: Receives the current state and one input slice; returns the
             next state and one output slice.
@@ -152,7 +150,7 @@ def run_scan_without_output[StateT, InputT](
     init_state: StateT,
     xs: InputT,
     body_fn: Callable[[StateT, InputT], StateT],
-    device: torch.device,
+    device: torch.device | None = None,
     dim: int = 0,
     reverse: bool = False,
 ) -> StateT:
@@ -171,17 +169,14 @@ def run_scan_without_output[StateT, InputT](
     ```
 
     Args:
-        init_state: State passed to the first visited input slice.
         xs: PyTree sliced along `dim`.
         body_fn: Receives the current state and one input slice; returns the
             next state.
-        device: Placement of the internal empty output tensor.
+        device: Optional empty-output placement; omission uses the default device.
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
         reverse: Visit input slices in reverse order.
 
-    Returns:
-        Terminal state. Intermediate states are discarded.
     """
 
     # Scan requires an output leaf; a zero-length tensor carries no observations.
@@ -205,7 +200,7 @@ def run_scan_without_inputs[StateT, OutputT](
     length: int,
     body_fn: Callable[[StateT], tuple[StateT, OutputT]],
     output_template: OutputT,
-    device: torch.device,
+    device: torch.device | None = None,
     reverse: bool = False,
 ) -> tuple[StateT, OutputT]:
     """Repeat a PyTree state update and collect its outputs.
@@ -224,13 +219,13 @@ def run_scan_without_inputs[StateT, OutputT](
     ```
 
     Args:
-        init_state: State passed to the first update.
         length: Positive number of callback evaluations.
         body_fn: Receives the current state; returns the next state and one
             output slice.
         output_template: Output PyTree structure, including optional fields.
             Tensor values and metadata are unused.
-        device: Placement of the internal iteration indices.
+        device: Optional placement of the unused iteration indices;
+            omission uses the default device.
         reverse: Reverse output positions; the state recurrence is unchanged.
 
     Returns:
@@ -255,7 +250,7 @@ def run_scan_without_carry[InputT, OutputT](
     xs: InputT,
     body_fn: Callable[[InputT], OutputT],
     output_template: OutputT,
-    device: torch.device,
+    device: torch.device | None = None,
     dim: int = 0,
     reverse: bool = False,
 ) -> OutputT:
@@ -279,7 +274,7 @@ def run_scan_without_carry[InputT, OutputT](
         body_fn: Receives one input slice and returns one output slice.
         output_template: Output PyTree structure, including optional fields.
             Tensor values and metadata are unused.
-        device: Placement of the internal empty carry tensor.
+        device: Optional empty-carry placement; omission uses the default device.
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
         reverse: Visit inputs in reverse order while returning outputs in

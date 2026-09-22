@@ -53,15 +53,6 @@ def test_zero_weight_and_zero_input_decode_zero(device: torch.device) -> None:
     assert int(out.abs().sum()) == 0
 
 
-def test_random_batch_bit_exact(device: torch.device) -> None:
-    macro = build_calibrated_macro(device=device)
-    torch.manual_seed(7)
-    w = torch.randint(-3, 4, (TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.int32)
-    x = torch.randint(0, 1 << TINY_K, (6, TINY_INPUT_NUM), dtype=torch.int32)
-    out = _assert_decode_matches_ideal(macro, w, x)
-    assert tuple(out.shape) == (6, TINY_OUTPUT_NUM)
-
-
 def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
     macro = build_calibrated_macro(device=device, w_digit_num=1)
     assert macro.w_value_range == (-1, 1)
@@ -76,13 +67,13 @@ def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
 
 def test_asymmetric_weight_regression_lsb_first(device: torch.device) -> None:
     macro = build_calibrated_macro(device=device)
-    x = torch.tensor([1, 2, 2, 2], dtype=torch.int32)  # per-row inputs
+    x = torch.tensor([1, 2, 2, 2], dtype=torch.int32)
     w = torch.tensor(
         [
-            [3, -2, 1, 0],  # MAC = 3*1 - 2*2 + 1*2 + 0*2 = 1
-            [-3, 2, -1, 0],  # MAC = -3*1 + 2*2 - 1*2 + 0*2 = -1
-            [2, 0, 3, -1],  # MAC = 2*1 + 0*2 + 3*2 - 1*2 = 6
-            [1, -1, 2, 3],  # MAC = 1*1 - 1*2 + 2*2 + 3*2 = 9 -> clips at 7
+            [3, -2, 1, 0],
+            [-3, 2, -1, 0],
+            [2, 0, 3, -1],
+            [1, -1, 2, 3],
         ],
         dtype=torch.int32,
     ).transpose(-1, -2)
@@ -90,7 +81,7 @@ def test_asymmetric_weight_regression_lsb_first(device: torch.device) -> None:
     assert out.tolist() == [1, -1, 6, 7]
 
 
-def test_shared_ladder_raw_code_law(device: torch.device) -> None:
+def test_random_batch_matches_integer_mac_at_every_adc_width(device: torch.device) -> None:
     macro = build_calibrated_macro(device=device)
     max_bits = macro.adc_bits
     gen = torch.Generator().manual_seed(0)
@@ -98,7 +89,9 @@ def test_shared_ladder_raw_code_law(device: torch.device) -> None:
     x = torch.randint(0, 1 << TINY_K, (16, TINY_INPUT_NUM), generator=gen, dtype=torch.int32)
 
     full = decode(macro, w, x, adc_active_bits=max_bits)
-    for bits in range(1, max_bits + 1):
+    assert tuple(full.shape) == (16, TINY_OUTPUT_NUM)
+    assert torch.equal(full, ideal_mac(w, x))
+    for bits in range(1, max_bits):
         lowered = decode(macro, w, x, adc_active_bits=bits)
         expected = torch.sign(full) * (full.abs() >> (max_bits - bits))
         assert torch.equal(lowered, expected), (

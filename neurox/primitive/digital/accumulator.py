@@ -43,7 +43,7 @@ class Accumulator(DigitalBase):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @torch.no_grad()
-    def accumulate(self, x: Tensor, dim: int, *, enable: Tensor | None = None) -> Tensor:
+    def accumulate(self, x: Tensor, *, dim: int, enable: Tensor | None = None) -> Tensor:
         """Reduce a complete arrival stream with signed register-width wrap.
 
         Each output starts from zero. Disabled arrivals contribute zero and
@@ -64,9 +64,10 @@ class Accumulator(DigitalBase):
         y = self._wrap_output(y)
 
         if self._is_profiler_active():
-            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
-            energy__fJ = e_op__fJ.expand(x.shape)
-            if enable is not None:
-                energy__fJ = energy__fJ.where(enable, 0)
-            self._record_dynamic_energy(energy__fJ)
+            # Mask presence specializes during tracing; only masked costs depend on its device.
+            if enable is None:
+                energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            else:
+                energy__fJ = enable.to(dtype=torch.float32) * self.config.energy_per_op__fJ
+            self._record_dynamic_energy(energy__fJ.expand(x.shape))
         return y

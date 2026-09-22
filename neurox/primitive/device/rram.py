@@ -157,7 +157,7 @@ class Rram(NonProfileModule):
         """
         g_min__uS = self.config.g_min__uS
         g__uS = target_g__uS.clamp(g_min__uS, self._g_max__uS)
-        g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
+        g__uS = apply_state_dependent_gamma(g__uS, config=self.config.prog_gamma, enabled=self.policy.prog_gamma)
         g__uS = apply_stuck_at_fault(
             x=g__uS,
             config=self.config.stuck_at,
@@ -185,13 +185,13 @@ class Rram(NonProfileModule):
             Per-call conductance snap, clamped to the programmable range.
         """
         g = self._g__uS.expand(shape) if shape else self._g__uS
-        g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
-        g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
+        g = apply_telegraph_noise(g, config=self.config.read_telegraph, enabled=self.policy.read_telegraph)
+        g = apply_gaussian(g, sigma=self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g = g.clamp(self.config.g_min__uS, self._g_max__uS)
         return _Snap(g__uS=g)
 
     @torch.no_grad()
-    def solve_dc(self, v__V: Tensor, snap: _Snap) -> _Dcop:
+    def solve_dc(self, v__V: Tensor, *, snap: _Snap) -> _Dcop:
         """Evaluate current and differential conductance at the device voltage `v__V`."""
         g__uS = snap.g__uS
         alpha = self.config.nonlinearity_alpha

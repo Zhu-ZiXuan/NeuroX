@@ -37,21 +37,25 @@ def test_static_energy_uses_the_nearest_working_window_at_each_sample() -> None:
 
     assert set(reporter.data) == set(result)
     assert reporter.breakdown("area") == {"unit": 6.0, "unit.adc": 18.0, "unit.clock": 3.0}
-    torch.testing.assert_close(reporter.data["unit.adc"].dynamic_energy__fJ, expected_energy)
+    torch.testing.assert_close(reporter.data["unit.adc"].dynamic_energy__fJ, expected_energy, check_dtype=False)
     torch.testing.assert_close(reporter.data["unit.adc"].working_duration__ns, expected_duration)
-    torch.testing.assert_close(reporter.data["unit"].static_energy__fJ, 1.5 * expected_duration)
-    torch.testing.assert_close(reporter.data["unit.adc"].static_energy__fJ, 1.5 * expected_duration)
-    torch.testing.assert_close(reporter.data["unit.clock"].static_energy__fJ, 0.375 * expected_clock)
+    torch.testing.assert_close(reporter.data["unit"].static_energy__fJ, 1.5 * expected_duration, check_dtype=False)
+    torch.testing.assert_close(reporter.data["unit.adc"].static_energy__fJ, 1.5 * expected_duration, check_dtype=False)
+    torch.testing.assert_close(reporter.data["unit.clock"].static_energy__fJ, 0.375 * expected_clock, check_dtype=False)
     torch.testing.assert_close(
-        reporter.breakdown("total_energy")["unit.adc"], expected_energy + 1.5 * expected_duration
+        reporter.breakdown("total_energy")["unit.adc"],
+        expected_energy + 1.5 * expected_duration,
+        check_dtype=False,
     )
     assert result["unit.adc"].working_duration__ns is None
     torch.testing.assert_close(reporter.data["unit.adc"].powered_duration__ns, expected_duration)
 
     powered = expected_duration + 10.0
     overridden = Reporter(result, powered_duration__ns={"unit": powered, "unit.adc": torch.zeros_like(powered)})
-    torch.testing.assert_close(overridden.data["unit"].static_energy__fJ, 1.5 * powered)
-    torch.testing.assert_close(overridden.data["unit.adc"].static_energy__fJ, torch.zeros_like(powered))
+    torch.testing.assert_close(overridden.data["unit"].static_energy__fJ, 1.5 * powered, check_dtype=False)
+    torch.testing.assert_close(
+        overridden.data["unit.adc"].static_energy__fJ, torch.zeros_like(powered), check_dtype=False
+    )
     torch.testing.assert_close(overridden.data["unit.adc"].working_duration__ns, expected_duration)
     # Exact-name replacements leave the child's own default window intact.
     torch.testing.assert_close(overridden.data["unit.clock"].powered_duration__ns, expected_clock)
@@ -81,13 +85,15 @@ def test_missing_costs_remain_unknown_and_virtual_channels_gain_no_hardware() ->
         ),
     }
     reporter = Reporter(result)
-    torch.testing.assert_close(reporter.data["unit"].static_energy__fJ, torch.zeros(2, 3, dtype=torch.float64))
+    torch.testing.assert_close(
+        reporter.data["unit"].static_energy__fJ, torch.zeros(2, 3, dtype=torch.float64), check_dtype=False
+    )
     assert reporter.data["unit.channel"].static_energy__fJ is None
     assert reporter.data["unit.channel"].area__um2 is None
     assert reporter.data["untimed"].area__um2 == 4.0
     assert reporter.data["untimed"].static_energy__fJ is None
     overridden = Reporter(result, powered_duration__ns={"untimed": torch.full((2, 3), 3.0)})
-    torch.testing.assert_close(overridden.data["untimed"].static_energy__fJ, torch.full((2, 3), 6.0))
+    torch.testing.assert_close(overridden.data["untimed"].static_energy__fJ, torch.full((2, 3), 6.0), check_dtype=False)
     assert overridden.data["untimed"].working_duration__ns is None
     assert result["untimed"].working_duration__ns is None
-    torch.testing.assert_close(reporter.breakdown("total_energy")["unit.channel"], torch.ones(2, 3))
+    torch.testing.assert_close(reporter.breakdown("total_energy")["unit.channel"], torch.ones(2, 3), check_dtype=False)

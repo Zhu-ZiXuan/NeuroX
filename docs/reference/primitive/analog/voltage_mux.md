@@ -1,10 +1,8 @@
 # Voltage mux
 
-The voltage mux is a single-ended N:1 time-share transport. The surrounding circuit arranges the serial accesses and parallel lanes before calling it.
-
 ## Physical model
 
-Each fabricated instance has a static fractional gain error. Each transported voltage also sees additive noise. The mux records one dynamic-energy item per transported voltage. It applies these effects elementwise to the layout supplied by the surrounding circuit.
+A single-ended N:1 time-share voltage transport with static fractional gain error per instance, additive noise per access, and fixed dynamic energy per transported voltage.
 
 ## Governing equations
 
@@ -13,11 +11,11 @@ V_{\mathrm{out}}
 = g(1+\varepsilon_g)V_{\mathrm{in}} + n,
 $$
 
-where $g$ is the nominal transport gain, $\varepsilon_g$ is fabrication-fixed gain mismatch, and $n$ is per-call additive noise. The primitive neither groups an input axis nor validates the caller's access layout.
+Here $g$ is the nominal gain, $\varepsilon_g$ the fabricated gain mismatch, and $n$ the access noise.
 
 ## Numerical method
 
-N/A — the transport is a closed-form per-call map; no iteration.
+N/A — closed-form map.
 
 ## Noise & non-idealities
 
@@ -42,7 +40,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The model is single-ended. Axis grouping and scheduling belong to the surrounding circuit. It does not model a differential pair, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, or crosstalk.
+The model excludes differential-pair behavior, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, and crosstalk.
 
 ## Validation
 

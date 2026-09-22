@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, final
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.base import UnitBase, UnitConfig
@@ -35,10 +36,9 @@ _Policy = Conv2dUnitPolicy
 class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
     """Interface for an integer `torch.nn.functional.conv2d` replacement.
 
-    Construction initializes the common unit and retains the logical kernel
-    shape and dtype used by `to_ideal`.
-    Implementations initialize any additional implementation base explicitly
-    after this constructor returns.
+    Construction initializes the common unit and retains logical kernel shape,
+    dtype, and convolution geometry for `to_ideal`. Initialize any additional
+    implementation base explicitly after this constructor returns.
 
     `w_logical_shape` accepts `weight.shape` and is stored as a fixed-length
     `(output_channel, input_channel_per_group, kernel_h, kernel_w)` tuple.
@@ -47,9 +47,6 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     `ValueError`.
     One basic operation for latency and profiling is one complete image,
     including its internal window schedule.
-
-    Convolution geometry is bound at construction independently of the hardware
-    config and is preserved by `to_ideal`.
 
     Args:
         stride: Positive output step `(s_h, s_w)`.
@@ -158,6 +155,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @final
     @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
     def conv2d(
         self,
         input: Tensor,
@@ -195,14 +193,14 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         if self._is_profiler_active():
             latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
             sample_shape = (input.shape[0],) if input.ndim == 4 else (1,)
-            latency = input.new_tensor(latency__ns, dtype=torch.float64)
+            latency = torch.tensor(latency__ns, dtype=torch.float64)
             self._record_latency(latency.expand(sample_shape[: self._profile_leading_rank]))
         return output
 
     # === For subclass to implement or override ===
 
     @abstractmethod
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         """Write the unit's static weight state and optional integer bias.
 
         Args:
@@ -220,6 +218,19 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
+
+    @final
+    def _conv2d_windows(self, input: Tensor) -> Tensor:
+        kh, kw = self._w_logical_shape[-2:]
+        s_h, s_w = self.stride
+        p_h, p_w = self.padding
+        d_h, d_w = self.dilation
+        x = F.pad(input, (p_w, p_w, p_h, p_h)) if p_h or p_w else input
+        # Strided views preserve integer values without index tensors or indirect gathers.
+        # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, W_out, dilated_kh, dilated_kw]
+        x = x.unfold(2, (kh - 1) * d_h + 1, s_h).unfold(3, (kw - 1) * d_w + 1, s_w)
+        # Shape: [B, C_in, H_out, W_out, kh, kw] -> [B, H_out, W_out, C_in, kh, kw]
+        return x[..., ::d_h, ::d_w].permute(0, 2, 3, 1, 4, 5)
 
     @final
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:

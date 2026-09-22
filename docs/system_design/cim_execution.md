@@ -8,15 +8,13 @@ The operator supplies logical input and weight dimensions; the macro supplies ca
 
 The unit owns its arithmetic circuits. Mapping tools reference those circuits without introducing another hardware owner. Lane arithmetic belongs to the digital children; storage for partial sums belongs to the unit-local peripheral budget. An ideal macro provides a control through the same placement and recovery path.
 
+Compiled execution covers operator layout transforms, matrix execution, recovery, bias, and profiling for both CIM and ideal implementations. Every invocation preserves its observation submissions; construction and programming remain explicit lifecycle events.
+
 ## Hardware multiplicity and reuse
 
 Replication determines hardware population; temporal reuse determines access count and duration. Changing the number of workload output positions can change work without changing hardware. Input-slot sharing reuses each allocated macro within the mapped operator.
 
 Grouped convolution gives each group an independent macro population and local and global digital circuits. Mapping and input-slot sharing operate within each group; output recovery concatenates groups without summing them. Group multiplicity contributes to hardware cost and energy while group schedules run in parallel.
-
-The convolution adapter receives stride, padding, dilation, and group count as constructor context alongside the kernel shape. It validates and retains this geometry independently of the hardware config; ideal conversion preserves it through the target constructor.
-
-The shared matrix interface always retains the group axis, including when its extent is one. Weights use `[group, output, input]`, inputs use `[..., group, input]`, and results use `[..., group, output]`. Operator adapters insert or restore this axis at their boundaries. Matrix execution follows one layout for every group count; construction uses that count only to size the physical circuits.
 
 ## Access metadata
 

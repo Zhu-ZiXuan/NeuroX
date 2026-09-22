@@ -41,12 +41,10 @@ EPS_0__fF_per_um: float = 8.8541878128e-3
 
 
 def thermal_fluctuation_energy__fJ(T__K: float) -> float:
-    """Thermal energy `E_T = k_B · T`."""
     return K_BOLTZMANN__fJ_per_K * T__K
 
 
 def thermal_voltage__V(T__K: float) -> float:
-    """Thermal voltage `V_T = k_B · T / q`."""
     return thermal_fluctuation_energy__fJ(T__K) / ELEM_CHARGE__fC
 
 
@@ -55,6 +53,7 @@ def thermal_voltage__V(T__K: float) -> float:
 
 @overload
 def q_conduction__fC(
+    *,
     i__uA: float,
     duration__ns: float,
 ) -> float: ...
@@ -62,21 +61,24 @@ def q_conduction__fC(
 
 @overload
 def q_conduction__fC(
+    *,
     i__uA: Tensor,
     duration__ns: float,
 ) -> Tensor: ...
 
 
 def q_conduction__fC(
+    *,
     i__uA: Tensor | float,
     duration__ns: float,
 ) -> Tensor | float:
-    """Charge transferred by a constant branch current, `q = I · t`."""
+    """Charge transferred by a constant branch current."""
     return i__uA * duration__ns
 
 
 @overload
 def delta_q_cap__fC(
+    *,
     c__fF: float,
     delta_v__V: float,
 ) -> float: ...
@@ -84,6 +86,7 @@ def delta_q_cap__fC(
 
 @overload
 def delta_q_cap__fC(
+    *,
     c__fF: float,
     delta_v__V: Tensor,
 ) -> Tensor: ...
@@ -91,19 +94,20 @@ def delta_q_cap__fC(
 
 @overload
 def delta_q_cap__fC(
+    *,
     c__fF: Tensor,
     delta_v__V: Tensor | float,
 ) -> Tensor: ...
 
 
 def delta_q_cap__fC(
+    *,
     c__fF: Tensor | float,
     delta_v__V: Tensor | float,
 ) -> Tensor | float:
     """Signed charge change of a constant capacitance.
 
-    Inputs follow tensor broadcasting rules. The result retains the sign of
-    the voltage change for nonnegative capacitance.
+    The result retains the voltage-change sign for nonnegative capacitance.
     """
     return c__fF * delta_v__V
 
@@ -113,6 +117,7 @@ def delta_q_cap__fC(
 
 @overload
 def e_charge__fJ(
+    *,
     v_supply__V: float,
     delta_q_abs__fC: float,
 ) -> float: ...
@@ -120,12 +125,14 @@ def e_charge__fJ(
 
 @overload
 def e_charge__fJ(
+    *,
     v_supply__V: float,
     delta_q_abs__fC: Tensor,
 ) -> Tensor: ...
 
 
 def e_charge__fJ(
+    *,
     v_supply__V: float,
     delta_q_abs__fC: Tensor | float,
 ) -> Tensor | float:
@@ -139,6 +146,7 @@ def e_charge__fJ(
 
 @overload
 def e_cap__fJ(
+    *,
     v_supply__V: float,
     c__fF: float,
     delta_v_abs__V: float,
@@ -147,6 +155,7 @@ def e_cap__fJ(
 
 @overload
 def e_cap__fJ(
+    *,
     v_supply__V: float,
     c__fF: Tensor,
     delta_v_abs__V: Tensor | float,
@@ -155,6 +164,7 @@ def e_cap__fJ(
 
 @overload
 def e_cap__fJ(
+    *,
     v_supply__V: float,
     c__fF: float,
     delta_v_abs__V: Tensor,
@@ -162,30 +172,27 @@ def e_cap__fJ(
 
 
 def e_cap__fJ(
+    *,
     v_supply__V: float,
     c__fF: Tensor | float,
     delta_v_abs__V: Tensor | float,
 ) -> Tensor | float:
     """Supply energy consumed for a grounded capacitance's voltage change.
 
-    The caller supplies nonnegative capacitance and the absolute voltage
-    change, and owns the billing of each excursion. No absolute value,
-    clamping, or input validation is applied. Inputs follow tensor
-    broadcasting rules.
+    The caller supplies nonnegative capacitance and absolute voltage change,
+    and bills each excursion once. Inputs are used without validation or clamping.
 
     Args:
-        v_supply__V: Potential of the supply that delivers the charge — the
-            rail of the driver that owns the node, never the node's own
-            level.
+        v_supply__V: Driver supply potential, distinct from the node voltage.
     """
     return v_supply__V * c__fF * delta_v_abs__V
 
 
 @overload
 def e_cap_excursion__fJ(
+    *,
     v_supply__V: float,
     c__fF: float,
-    *,
     v_rest__V: float,
     v_work__V: float,
 ) -> float: ...
@@ -193,9 +200,9 @@ def e_cap_excursion__fJ(
 
 @overload
 def e_cap_excursion__fJ(
+    *,
     v_supply__V: float,
     c__fF: Tensor,
-    *,
     v_rest__V: Tensor | float,
     v_work__V: Tensor | float,
 ) -> Tensor: ...
@@ -203,9 +210,9 @@ def e_cap_excursion__fJ(
 
 @overload
 def e_cap_excursion__fJ(
+    *,
     v_supply__V: float,
     c__fF: float,
-    *,
     v_rest__V: Tensor,
     v_work__V: Tensor | float,
 ) -> Tensor: ...
@@ -213,18 +220,18 @@ def e_cap_excursion__fJ(
 
 @overload
 def e_cap_excursion__fJ(
+    *,
     v_supply__V: float,
     c__fF: float,
-    *,
     v_rest__V: float,
     v_work__V: Tensor,
 ) -> Tensor: ...
 
 
 def e_cap_excursion__fJ(
+    *,
     v_supply__V: float,
     c__fF: Tensor | float,
-    *,
     v_rest__V: Tensor | float,
     v_work__V: Tensor | float,
 ) -> Tensor | float:
@@ -232,9 +239,9 @@ def e_cap_excursion__fJ(
 
     One call accounts for the complete excursion in either voltage direction.
     The caller supplies nonnegative capacitance and the supply potential behind
-    that node. Inputs broadcast; the result preserves their broadcast shape.
+    that node.
     """
     delta_v__V = v_work__V - v_rest__V
     # Scalar versus tensor is fixed during tracing.
     delta_v_abs__V = delta_v__V.abs() if isinstance(delta_v__V, Tensor) else abs(delta_v__V)
-    return e_cap__fJ(v_supply__V, c__fF, delta_v_abs__V)
+    return e_cap__fJ(v_supply__V=v_supply__V, c__fF=c__fF, delta_v_abs__V=delta_v_abs__V)

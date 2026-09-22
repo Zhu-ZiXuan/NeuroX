@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 import torch
 import torch.nn as nn
 
-from neurox import Profiler, set_profile_leading_rank
+from neurox import Profiler, Reporter, set_profile_leading_rank
 from neurox.primitive.digital import Accumulator, AccumulatorConfig, DigitalPolicy
 
 
@@ -30,9 +32,13 @@ def test_named_contributions_merge_only_within_their_context(rank, on_repeat, fi
     result = profiler.result
     assert set(result) == {"leaf", "leaf.read", "leaf.idle"}
     torch.testing.assert_close(
-        result["leaf.read"].dynamic_energy__fJ, torch.cat((first_factor * expected, 3 * expected), dim=0)
+        result["leaf.read"].dynamic_energy__fJ,
+        torch.cat((first_factor * expected, 3 * expected), dim=0),
+        check_dtype=False,
     )
-    torch.testing.assert_close(result["leaf.idle"].dynamic_energy__fJ, torch.cat((expected, expected), dim=0))
+    torch.testing.assert_close(
+        result["leaf.idle"].dynamic_energy__fJ, torch.cat((expected, expected), dim=0), check_dtype=False
+    )
     assert result["leaf.read"].area__um2 is None
     assert result["leaf.read"].leakage__uW is None
 
@@ -65,7 +71,9 @@ def test_named_fields_keep_independent_layouts_across_contexts() -> None:
             profiler.submit_latency(name="unit", latency__ns=duration)
 
     result = profiler.result
-    torch.testing.assert_close(result["unit.read"].dynamic_energy__fJ, torch.cat((first_energy, second_energy), dim=1))
+    torch.testing.assert_close(
+        result["unit.read"].dynamic_energy__fJ, torch.cat((first_energy, second_energy), dim=1), check_dtype=False
+    )
     durations = result["unit"].working_duration__ns
     assert durations is not None
     torch.testing.assert_close(durations, torch.cat((first_duration.detach(), second_duration), dim=1))
@@ -74,3 +82,107 @@ def test_named_fields_keep_independent_layouts_across_contexts() -> None:
     assert result["unit.read"].working_duration__ns is None
     assert result["unused"].working_duration__ns is None
     assert result["unused"].area__um2 == 4.0
+
+
+@pytest.mark.parametrize("explicit_device", [False, True])
+@pytest.mark.parametrize("compute_dtype", [torch.float32, torch.float64])
+def test_compiled_mixed_device_submissions_are_synchronized_for_reporting(
+    device: torch.device, explicit_device: bool, compute_dtype: torch.dtype
+) -> None:
+    destination = device if explicit_device else torch.get_default_device()
+    profiler = Profiler(concat_dim=0, sync_device=device if explicit_device else None)
+    profiler.collect_static_data(nn.ModuleDict({"unit": _accumulator(1)}))
+
+    @torch.compile(dynamic=False, fullgraph=True)
+    def emit(x):
+        constant = torch.full((x.shape[0],), 3.0, dtype=torch.float32)
+        dynamic = x.square().sum(dim=-1)
+        duration = torch.full((x.shape[0],), 2.0, dtype=torch.float64)
+        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=constant)
+        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=dynamic)
+        profiler.submit_latency(name="unit", latency__ns=duration)
+        return constant, dynamic, duration
+
+    expected_parts = []
+    for batch_size in (2, 3):
+        x = torch.arange(batch_size * 4, device=device, dtype=compute_dtype).reshape(batch_size, 4)
+        with profiler:
+            constant, dynamic, duration = emit(x)
+            assert constant.device == duration.device == torch.get_default_device()
+            assert dynamic.device == device
+        expected_parts.append(x.square().sum(dim=-1).to(destination) + 3.0)
+
+    result = profiler.result
+    assert result["unit"].dynamic_energy__fJ.device == destination
+    assert result["unit"].working_duration__ns.device == destination
+    expected_energy = torch.cat(expected_parts)
+    torch.testing.assert_close(result["unit"].dynamic_energy__fJ, expected_energy, check_dtype=False)
+    total = Reporter(result).breakdown("total_energy")["unit"]
+    torch.testing.assert_close(total, expected_energy.double() + 1.0, check_dtype=False)
+
+
+def test_compiled_submissions_preserve_energy_and_duration_after_inputs_change(device) -> None:
+    profiler = Profiler(concat_dim=0, sync_device=device)
+
+    @torch.compile(dynamic=False, fullgraph=True)
+    def submit(energy, duration):
+        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=energy)
+        profiler.submit_latency(name="unit", latency__ns=duration)
+
+    energy = torch.arange(3.0, device=device, requires_grad=True)
+    duration = torch.tensor(2.0, dtype=torch.float64, device=device, requires_grad=True)
+    with profiler:
+        submit(energy, duration.expand(3))
+        with torch.no_grad():
+            energy.fill_(-1)
+            duration.fill_(-1)
+
+    item = profiler.result["unit"]
+    torch.testing.assert_close(item.dynamic_energy__fJ, torch.arange(3.0, device=device))
+    torch.testing.assert_close(item.working_duration__ns, torch.full((3,), 2.0, dtype=torch.float64, device=device))
+    assert not item.dynamic_energy__fJ.requires_grad
+    assert not item.working_duration__ns.requires_grad
+
+
+@pytest.mark.parametrize("compile_model", [False, True])
+def test_compiled_emitters_resolve_copied_and_restamped_names(device, compile_model) -> None:
+    template = _accumulator(1)
+    model = nn.ModuleList([deepcopy(template) for _ in range(12)]).to(device)
+    set_profile_leading_rank(model, 1)
+
+    @torch.no_grad()
+    @torch.compile(dynamic=False, fullgraph=True)
+    def emit(module, value):
+        module._record_dynamic_energy(value, channel="read")
+
+    def execute(modules, values):
+        for module, value in zip(modules, values, strict=True):
+            emit(module, value)
+
+    if compile_model:
+        execute = torch.compile(execute, dynamic=False, fullgraph=True)
+
+    profiler = Profiler(concat_dim=0, sync_device=device)
+    profiler.collect_static_data(model)
+    expected = {str(i): [] for i in range(len(model))}
+    for batch in range(2):
+        order = list(range(len(model))) if batch == 0 else list(reversed(range(len(model))))
+        values = [torch.full((2,), float(i + batch), device=device) for i in order]
+        for i, value in zip(order, values, strict=True):
+            expected[str(i)].append(value)
+        with profiler:
+            execute([model[i] for i in order], values)
+
+    result = profiler.result
+    for name, parts in expected.items():
+        torch.testing.assert_close(result[f"{name}.read"].dynamic_energy__fJ, torch.cat(parts), check_dtype=False)
+
+    # Reuse the same compiled boundary and module order after re-stamping.
+    renamed = Profiler(concat_dim=0, sync_device=device)
+    renamed.collect_static_data(nn.ModuleDict({"renamed": model}))
+    with renamed:
+        execute([model[i] for i in order], values)
+    result = renamed.result
+    assert set(result) == {f"renamed.{i}{suffix}" for i in range(len(model)) for suffix in ("", ".read")}
+    for i, value in zip(order, values, strict=True):
+        torch.testing.assert_close(result[f"renamed.{i}.read"].dynamic_energy__fJ, value, check_dtype=False)

@@ -132,7 +132,7 @@ def test_programming_keeps_each_polarity_pair_adjacent_inside_its_macro_and_inpu
 
     x = torch.tensor([[1, 2, 3], [0, 1, 1]], device=device)
     actual = unit._vmm(x.unsqueeze(-2), quantization_mode=0, adc_active_bits=None).squeeze(-2)
-    torch.testing.assert_close(actual, x @ weight.T)
+    torch.testing.assert_close(actual, (x.cpu() @ weight.cpu().T).to(device))
     expected_counts = [[4, 4], [2, 0]] if merge else [[4, 4, 2]]
     torch.testing.assert_close(counts[-1], torch.tensor(expected_counts, device=device))
 
@@ -237,7 +237,7 @@ def test_single_signed_slice_uses_local_polarity_recovery(modeled: bool, device:
     unit = build_unit(config, matrix_shape=(1, 1)).to(device)
     unit._program_matrix(torch.tensor([[-1]], device=device).unsqueeze(0))
     unit.set_profile_leading_rank(1)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(
@@ -248,7 +248,7 @@ def test_single_signed_slice_uses_local_polarity_recovery(modeled: bool, device:
     assert unit._vmm_global_latency__ns() == 2.0
     if modeled:
         item = profiler.result[unit.w_polarity_adder.qualified_name]
-        torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2,), 2.0, device=device))
+        torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2,), 2.0, device=device), check_dtype=False)
 
 
 def test_polarity_codes_are_quantized_before_difference_and_local_recovery(device: torch.device) -> None:
@@ -332,7 +332,7 @@ def test_adjacent_polarity_mapping_bills_macro_capacity_and_local_pair_throughpu
     x = torch.ones((2, 3, 3), dtype=torch.int32, device=device)
     x[1] = 0
     unit.set_profile_leading_rank(2)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(x.unsqueeze(-2), quantization_mode=0, adc_active_bits=None).squeeze(-2)
@@ -342,8 +342,10 @@ def test_adjacent_polarity_mapping_bills_macro_capacity_and_local_pair_throughpu
     local = items[unit.local_accumulator.qualified_name]
     # Eighteen slice outputs, six accesses, one operation per difference.
     # Both the all-zero negative terms and zero input sample remain enabled; padding does not.
-    torch.testing.assert_close(difference.dynamic_energy__fJ, torch.full((2, 3), 432.0, device=device))
-    torch.testing.assert_close(local.dynamic_energy__fJ, torch.full((2, 3), 486.0, device=device))
+    torch.testing.assert_close(
+        difference.dynamic_energy__fJ, torch.full((2, 3), 432.0, device=device), check_dtype=False
+    )
+    torch.testing.assert_close(local.dynamic_energy__fJ, torch.full((2, 3), 486.0, device=device), check_dtype=False)
     assert (difference.area__um2, difference.leakage__uW) == (5.0 * local_circuits, 7.0 * local_circuits)
     assert (local.area__um2, local.leakage__uW) == (7.0 * local_circuits, 2.0 * local_circuits)
     # Complete polarity pairs determine macro capacity, including an odd unused port.
@@ -383,7 +385,7 @@ def test_tile_recovery_applies_register_width_and_gates_padding(device: torch.de
     x = torch.ones((2, 5, 17), dtype=torch.int32, device=device)
     x[1] = 0
     unit.set_profile_leading_rank(2)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(x.unsqueeze(-2), quantization_mode=0, adc_active_bits=None).squeeze(-2)
@@ -394,7 +396,7 @@ def test_tile_recovery_applies_register_width_and_gates_padding(device: torch.de
     item = profiler.result[unit.tile_accumulator.qualified_name]
     # Three input tiles each supply nine enabled outputs, including zero values.
     # The three padding ports occupy hardware but incur no evaluation energy.
-    torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2, 5), 54.0, device=device))
+    torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2, 5), 54.0, device=device), check_dtype=False)
     assert (item.area__um2, item.leakage__uW) == (60.0, 36.0)
 
 
@@ -415,7 +417,7 @@ def test_global_circuits_bill_each_tile_update_and_one_weight_recovery(device: t
     unit._program_matrix(torch.full((3, 2), 10, dtype=torch.int32, device=device).unsqueeze(0))
     x = torch.full((2, 5, 2), 2, dtype=torch.int32, device=device)
     unit.set_profile_leading_rank(2)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(x.unsqueeze(-2), quantization_mode=0, adc_active_bits=None).squeeze(-2)
@@ -424,8 +426,10 @@ def test_global_circuits_bill_each_tile_update_and_one_weight_recovery(device: t
     tile_item = profiler.result[unit.tile_accumulator.qualified_name]
     # Six slice outputs receive two tile updates; the final reconstruction
     # processes their six digits once. Two padded ports remain disabled.
-    torch.testing.assert_close(weight_item.dynamic_energy__fJ, torch.full((2, 5), 12.0, device=device))
-    torch.testing.assert_close(tile_item.dynamic_energy__fJ, torch.full((2, 5), 36.0, device=device))
+    torch.testing.assert_close(
+        weight_item.dynamic_energy__fJ, torch.full((2, 5), 12.0, device=device), check_dtype=False
+    )
+    torch.testing.assert_close(tile_item.dynamic_energy__fJ, torch.full((2, 5), 36.0, device=device), check_dtype=False)
     assert (weight_item.area__um2, weight_item.leakage__uW) == (9.0, 15.0)
     assert (tile_item.area__um2, tile_item.leakage__uW) == (56.0, 88.0)
 
@@ -442,7 +446,7 @@ def test_local_recovery_bills_valid_updates_and_allocates_one_circuit_per_lane(d
     unit = build_unit(config, matrix_shape=(9, 3)).to(device)
     unit._program_matrix(torch.ones((9, 3), dtype=torch.int32, device=device).unsqueeze(0))
     unit.set_profile_leading_rank(2)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(
@@ -454,7 +458,7 @@ def test_local_recovery_bills_valid_updates_and_allocates_one_circuit_per_lane(d
     # Each of eighteen slice outputs has six phase updates and three weighted
     # updates. Output padding and empty reuse slots cause no updates.
     item = profiler.result[unit.local_accumulator.qualified_name]
-    torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2, 3), 486.0, device=device))
+    torch.testing.assert_close(item.dynamic_energy__fJ, torch.full((2, 3), 486.0, device=device), check_dtype=False)
     # Three macros each have two lanes; serial phases and input slices add no silicon.
     assert (item.area__um2, item.leakage__uW) == (42.0, 12.0)
 
@@ -478,7 +482,7 @@ def test_direct_slices_ignore_encoding_recovery_costs_and_register_width(
     assert unit.x_value_range == config.cim_macro_config.x_value_range
     unit._program_matrix(torch.full((5, 4), 3, dtype=torch.int32, device=device).unsqueeze(0))
     unit.set_profile_leading_rank(1)
-    profiler = Profiler(concat_dim=0)
+    profiler = Profiler(concat_dim=0, sync_device=device)
     profiler.collect_static_data(unit)
     with profiler:
         actual = unit._vmm(

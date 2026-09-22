@@ -23,8 +23,9 @@ class _FamilyA(RecorderBase[Tensor, Tensor, Sequence[Tensor]]):
     def result(self) -> Sequence[Tensor]:
         return self._history_records
 
+    @RecorderBase.submission
     def submit(self, record: Tensor) -> None:
-        self._submit_record(record.detach())
+        self._submit_record(record.detach().clone())
 
     def _merge_records(self, records: Sequence[Tensor]) -> Sequence[Tensor]:
         assert self.current() is None
@@ -55,7 +56,7 @@ def test_derived_recorders_share_their_family_slot_without_interfering_with_othe
         with AdcProber() as b:
             assert _FamilyA.current() is a
             assert AdcProber.current() is b
-            b.submit_current(i_in__uA=torch.tensor(2.0))
+            b.submit_current(torch.tensor(2.0))
         a.submit(torch.tensor(3.0))
     assert not _FamilyA.active()
     assert not AdcProber.active()
@@ -115,3 +116,22 @@ def test_merging_failure_releases_the_family_and_skips_sync() -> None:
     with _FamilyA() as fresh:
         fresh.submit(torch.tensor(2.0))
     assert [record.item() for record in fresh.result] == [2.0]
+
+
+def test_compiled_submissions_keep_order_across_contexts() -> None:
+    @torch.compile(dynamic=False, fullgraph=True)
+    def emit(value):
+        recorder = _FamilyA.current()
+        if recorder is not None:
+            recorder.submit(value)
+
+    recorder = _FamilyA()
+    expected = []
+    for count in (12, 3):
+        with recorder:
+            for i in reversed(range(count)):
+                value = torch.full((2,), float(i))
+                expected.append(value)
+                emit(value)
+
+    torch.testing.assert_close(torch.stack(recorder.result), torch.stack(expected))

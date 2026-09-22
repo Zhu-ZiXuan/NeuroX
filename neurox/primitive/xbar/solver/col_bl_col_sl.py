@@ -35,19 +35,19 @@ from .resistive_cell import ResistiveCell, ResistiveCellDcop
 
 
 def _node_jacobian_components__uS(
+    *,
     g_cell_bl_eff__uS: Tensor,
     g_cell_sl_eff__uS: Tensor,
     bl_g__uS: float,
     sl_g__uS: float,
-    *,
     row_dim: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     # Jacobian entries use KCL-equation rows and node-voltage columns.
     return (
-        dfkcl_dvnode__uS(g_cell_bl_eff__uS, bl_g__uS, dim=row_dim),
+        dfkcl_dvnode__uS(g_cell_bl_eff__uS, segment_g__uS=bl_g__uS, dim=row_dim),
         -g_cell_sl_eff__uS,
         -g_cell_bl_eff__uS,
-        dfkcl_dvnode__uS(g_cell_sl_eff__uS, sl_g__uS, dim=row_dim),
+        dfkcl_dvnode__uS(g_cell_sl_eff__uS, segment_g__uS=sl_g__uS, dim=row_dim),
     )
 
 
@@ -90,7 +90,7 @@ class _NodeTrace(SolvingTrace):
         port_shape: tuple[int, ...],
         history_shape: tuple[int, ...] = (),
         dtype: torch.dtype,
-        device: torch.device,
+        device: torch.device | None = None,
     ) -> _NodeTrace:
         """Construct unused observations with explicit position and history axes."""
 
@@ -158,11 +158,11 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
     @torch.no_grad()
     def solve[ResultT](
         self,
+        *,
         v_bl_node__V: Tensor,
         v_sl_node__V: Tensor,
         v_bl_port__V: Tensor,
         v_sl_port__V: Tensor,
-        *,
         cell_snap: CellSnapT,
         final_fn: Callable[[_NodeState], ResultT],
         record_trace: bool,
@@ -171,10 +171,10 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
     ) -> tuple[ResultT, _NodeTrace | None]:
         """Return the caller's terminal projection and optional node history."""
         state, trace = self._solve_node(
-            v_bl_node__V,
-            v_sl_node__V,
-            v_bl_port__V,
-            v_sl_port__V,
+            v_bl_node__V=v_bl_node__V,
+            v_sl_node__V=v_sl_node__V,
+            v_bl_port__V=v_bl_port__V,
+            v_sl_port__V=v_sl_port__V,
             cell_snap=cell_snap,
             record_trace=record_trace,
             trace_mask=trace_mask,
@@ -184,11 +184,11 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
     def _solve_node(
         self,
+        *,
         v_bl_node__V: Tensor,
         v_sl_node__V: Tensor,
         v_bl_port__V: Tensor,
         v_sl_port__V: Tensor,
-        *,
         cell_snap: CellSnapT,
         record_trace: bool,
         trace_mask: Tensor | None,
@@ -207,10 +207,10 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
         def body_fn(current: _NodeState) -> tuple[_NodeState, _NodeTrace]:
             return self._evaluate_node(
-                v_bl_port__V,
-                v_sl_port__V,
-                current.v_bl_node__V,
-                current.v_sl_node__V,
+                v_bl_port__V=v_bl_port__V,
+                v_sl_port__V=v_sl_port__V,
+                v_bl_node__V=current.v_bl_node__V,
+                v_sl_node__V=current.v_sl_node__V,
                 is_active=current.is_active,
                 cell_snap=cell_snap,
             )
@@ -231,12 +231,12 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
 
     def _evaluate_node(
         self,
+        *,
         v_bl_port__V: Tensor,
         v_sl_port__V: Tensor,
         v_bl_node__V: Tensor,
         v_sl_node__V: Tensor,
         is_active: Tensor,
-        *,
         cell_snap: CellSnapT,
     ) -> tuple[_NodeState, _NodeTrace]:
         row_dim = self.row_dim
@@ -244,19 +244,35 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
         # --- 1: evaluate cell branches and node KCL ---
 
         # Shape: [..., row, col]
-        cell_dcop = self.cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
+        cell_dcop = self.cell.solve_dc(v_bl__V=v_bl_node__V, v_sl__V=v_sl_node__V, snap=cell_snap)
         # KCL counts currents leaving each node. The branch leaves BL and enters SL.
         # Shape: [..., row, col]
-        f_bl__uA = f_kcl__uA(v_bl_node__V, v_bl_port__V, self.bl_g__uS, cell_dcop.i__uA, dim=row_dim)
-        f_sl__uA = f_kcl__uA(v_sl_node__V, v_sl_port__V, self.sl_g__uS, -cell_dcop.i__uA, dim=row_dim)
+        f_bl__uA = f_kcl__uA(
+            v_node__V=v_bl_node__V,
+            v_port__V=v_bl_port__V,
+            segment_g__uS=self.bl_g__uS,
+            i_inject__uA=cell_dcop.i__uA,
+            dim=row_dim,
+        )
+        f_sl__uA = f_kcl__uA(
+            v_node__V=v_sl_node__V,
+            v_port__V=v_sl_port__V,
+            segment_g__uS=self.sl_g__uS,
+            i_inject__uA=-cell_dcop.i__uA,
+            dim=row_dim,
+        )
 
         # --- 2: evaluate node stopping thresholds ---
 
         # Local wire rounding sets a floor even when a cell carries little current.
         # Shape: [..., row, col]
         roundoff__uA = torch.maximum(
-            f_kcl_roundoff__uA(v_bl_node__V, v_bl_port__V, self.bl_g__uS, dim=row_dim),
-            f_kcl_roundoff__uA(v_sl_node__V, v_sl_port__V, self.sl_g__uS, dim=row_dim),
+            f_kcl_roundoff__uA(
+                v_node__V=v_bl_node__V, v_port__V=v_bl_port__V, segment_g__uS=self.bl_g__uS, dim=row_dim
+            ),
+            f_kcl_roundoff__uA(
+                v_node__V=v_sl_node__V, v_port__V=v_sl_port__V, segment_g__uS=self.sl_g__uS, dim=row_dim
+            ),
         )
         threshold__uA = self.atol + self.rtol * cell_dcop.i__uA.abs() + roundoff__uA
 
@@ -267,7 +283,11 @@ class _NodeSolver[CellSnapT, CellDcopT: ResistiveCellDcop]:
         # Shape: [..., row, col]
         dv_bl_node__V, dv_sl_node__V = solve_block_tridiagonal_2x2(
             diag=_node_jacobian_components__uS(
-                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS, row_dim=row_dim
+                g_cell_bl_eff__uS=cell_dcop.di_dvbl__uS,
+                g_cell_sl_eff__uS=-cell_dcop.di_dvsl__uS,
+                bl_g__uS=self.bl_g__uS,
+                sl_g__uS=self.sl_g__uS,
+                row_dim=row_dim,
             ),
             rhs=(-f_bl__uA, -f_sl__uA),
             off_diag=(-self.bl_g__uS, -self.sl_g__uS),
@@ -369,7 +389,7 @@ class _PortTrace(SolvingTrace):
         port_shape: tuple[int, ...],
         node_capacity: int,
         dtype: torch.dtype,
-        device: torch.device,
+        device: torch.device | None = None,
     ) -> _PortTrace:
         """Construct one unused port observation and its nested node history."""
 
@@ -499,10 +519,10 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         # --- 2: solve the coupled port and node equilibrium ---
 
         state, trace = self._solve_port(
-            v_bl_node__V,
-            v_sl_node__V,
-            v_bl_port__V,
-            v_sl_port__V,
+            v_bl_node__V=v_bl_node__V,
+            v_sl_node__V=v_sl_node__V,
+            v_bl_port__V=v_bl_port__V,
+            v_sl_port__V=v_sl_port__V,
             cell_snap=cell_snap,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
@@ -514,11 +534,11 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
 
     def _solve_port(
         self,
+        *,
         v_bl_node__V: Tensor,
         v_sl_node__V: Tensor,
         v_bl_port__V: Tensor,
         v_sl_port__V: Tensor,
-        *,
         cell_snap: CellSnapT,
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
@@ -540,10 +560,10 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
 
         def body_fn(current: _PortState) -> tuple[_PortState, _PortTrace]:
             node_state, node_trace = self.node_solver.solve(
-                current.v_bl_node__V,
-                current.v_sl_node__V,
-                current.v_bl_port__V,
-                current.v_sl_port__V,
+                v_bl_node__V=current.v_bl_node__V,
+                v_sl_node__V=current.v_sl_node__V,
+                v_bl_port__V=current.v_bl_port__V,
+                v_sl_port__V=current.v_sl_port__V,
                 cell_snap=cell_snap,
                 is_active=current.is_active,
                 final_fn=lambda state: state,
@@ -598,22 +618,26 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
         i_bl_port__uA = (v_bl_port__V - v_bl_node__V.narrow(row_dim, 0, 1)) * self.bl_g__uS
         i_sl_port__uA = (v_sl_port__V - v_sl_node__V.narrow(row_dim, 0, 1)) * self.sl_g__uS
         # Shape: [..., row=1, col]
-        bl_driver_dcop = self.bl_driver.solve_dc(i_bl_port__uA, bl_driver_snap, v_port_init__V=v_bl_port__V)
-        sl_driver_dcop = self.sl_driver.solve_dc(i_sl_port__uA, sl_driver_snap, v_port_init__V=v_sl_port__V)
+        bl_driver_dcop = self.bl_driver.solve_dc(i_bl_port__uA, snap=bl_driver_snap, v_port_init__V=v_bl_port__V)
+        sl_driver_dcop = self.sl_driver.solve_dc(i_sl_port__uA, snap=sl_driver_snap, v_port_init__V=v_sl_port__V)
         # Shape: [..., row=1, col]
         f_bl_port__V = bl_driver_dcop.v_port__V - v_bl_port__V
         f_sl_port__V = sl_driver_dcop.v_port__V - v_sl_port__V
 
         # --- 2: compute the port Jacobian and boundary correction ---
 
-        cell_dcop = self.cell.solve_dc(node_state.v_bl_node__V, node_state.v_sl_node__V, cell_snap)
+        cell_dcop = self.cell.solve_dc(v_bl__V=node_state.v_bl_node__V, v_sl__V=node_state.v_sl_node__V, snap=cell_snap)
         torch_assert_async(
             cell_dcop.di_dvbl__uS.isfinite().all() & cell_dcop.di_dvsl__uS.isfinite().all(),
             "Port linearization produced a non-finite state",
         )
         u_bl_bl, u_bl_sl, u_sl_bl, u_sl_sl = boundary_inverse_block_tridiagonal_2x2(
             diag=_node_jacobian_components__uS(
-                cell_dcop.di_dvbl__uS, -cell_dcop.di_dvsl__uS, self.bl_g__uS, self.sl_g__uS, row_dim=row_dim
+                g_cell_bl_eff__uS=cell_dcop.di_dvbl__uS,
+                g_cell_sl_eff__uS=-cell_dcop.di_dvsl__uS,
+                bl_g__uS=self.bl_g__uS,
+                sl_g__uS=self.sl_g__uS,
+                row_dim=row_dim,
             ),
             off_diag=(-self.bl_g__uS, -self.sl_g__uS),
             dim=row_dim,

@@ -6,7 +6,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Self, dataclass_transform, final
+from typing import Any, Self, dataclass_transform, final
 
 import torch
 import torch.nn as nn
@@ -117,34 +117,27 @@ class DcopBase(TensorDataClassMixin, BaseOnlyMixin, base_only=True):
 class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     """Base for config- and policy-managed physical modules.
 
-    Construct the owned module tree, place it on its device, then fabricate and
-    program before execution. Construction registers tensor sources with
-    `_register_nonpersistent_buffer`. These buffers migrate with the module and
-    are excluded from `state_dict`.
+    Construct the tree, place it on its device, then fabricate and program before
+    execution. Register tensor sources with `_register_nonpersistent_buffer`;
+    they migrate with the module and are excluded from `state_dict`.
 
-    Fabricated and programmed tensors are ordinary attributes produced by their
-    lifecycle operations. They are neither migrated nor serialized with the
-    module. Moving a module after materializing them requires fabrication and
-    programming to run again. Per-call snapshots are local results.
+    Fabricated and programmed tensors are ordinary attributes, excluded from
+    migration and serialization. Moving the module after materialization requires
+    both lifecycle operations to run again. Per-call snapshots are local results.
 
     `fabricate()` invokes `_sample_fabrication_variation()` on this node before
     its registered NeuroX descendants, including those inside plain containers.
     Each hook rebuilds only its own state from nominal sources; it does not
     traverse children. Programming is dispatched explicitly by the owner.
 
-    Temperature starts at `DEFAULT_T__K`. Construction stores it without
-    invoking `_on_temperature_changed`. Temperature-dependent computations
-    read `T__K` at their lifecycle or execution point. Temperature updates
-    visit this node before its NeuroX descendants, including plain containers.
+    Temperature starts at `DEFAULT_T__K` without invoking
+    `_on_temperature_changed`. Temperature-dependent computations read `T__K`
+    at their lifecycle or execution point. Updates visit this node before its
+    NeuroX descendants, including those inside plain containers.
 
-    Profiling stamps names on the assembled tree. Re-stamping updates subtree
-    names; rebuilding from configuration requires a new fabrication and
-    programming lifecycle.
-
-    A family inherits either `ProfileModule` or `NonProfileModule`; its
-    implementations retain that accounting identity, including ideal models.
-    An instance with neither or both identities is rejected. Both branches
-    participate in the same naming, fabrication, and temperature walks.
+    A family and its implementations inherit exactly one accounting identity:
+    `ProfileModule` or `NonProfileModule`. Both share the naming, fabrication,
+    and temperature walks; instances with neither or both are rejected.
 
     Args:
         inst_shape: Hardware-instance shape. Physical axes encode multiplicity;
@@ -202,7 +195,7 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     @final
     @torch.no_grad()
     def stamp_names(self, *, qualified_name: str = "") -> None:
-        """Stamp this module and its NeuroX subtree with hierarchical names."""
+        """Stamp hierarchical names on the assembled subtree, replacing prior names."""
         self.__qualified_name = qualified_name
         for relative_name, child in neurox_children(self):
             child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
@@ -224,10 +217,10 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     @property
     @final
     def qualified_name(self) -> str:
-        """Hierarchical name the module's tree stamped onto it.
+        """Hierarchical name assigned by `stamp_names`.
 
         Raises:
-            RuntimeError: No tree has stamped this module yet.
+            RuntimeError: The module has not been stamped.
         """
         try:
             return self.__qualified_name
@@ -275,6 +268,11 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
     this prefix so each retained element describes one basic operation of the
     owning unit. The rank starts at zero; batched operations require an explicit
     subtree setting before collection.
+
+    Observations travel through the recorder's runtime submission. A CPU source
+    identity stays on the host when the module moves devices, and names are
+    resolved when observations arrive, so naming and collection size do not
+    specialize numerical execution.
     """
 
     def __init__(
@@ -284,8 +282,17 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
         policy: PolicyBase,
         inst_shape: tuple[int, ...],
     ) -> None:
+        from neurox.api.profiler import Profiler
+
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._profile_leading_rank = 0
+        self._profile_identity = Profiler.register_source(self)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        from neurox.api.profiler import Profiler
+
+        super().__setstate__(state)
+        self._profile_identity = Profiler.register_source(self)
 
     # === Public API ===
 
@@ -345,21 +352,15 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
 
     @final
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
-        """Submit this call's dynamic-energy contribution to the active profiler.
+        """Submit energy when profiling, retaining the configured observation prefix.
 
-        Outside a profiling context nothing is submitted. Compute billed
-        energy under `torch.no_grad()` or an equivalent guard.
-
-        Preserve the caller's leading axes at their full extents; reassemble
-        chunked results before submitting them. This module retains its configured
-        observation prefix and sums trailing axes before submission, so include
-        each billed physical instance and access exactly once. Constant energy
-        may be expanded from a scalar without materializing the billed layout.
+        Compute energy under `torch.no_grad()` or an equivalent guard. Reassemble
+        chunks before submission and include each physical instance and access
+        once; trailing axes are summed. Scalar constants may be expanded views.
 
         Args:
-            dynamic_energy__fJ: Energy over the caller's full leading extents
-                and billed trailing axes. Expanded views are supported;
-                singleton dimensions do not request implicit broadcasting.
+            dynamic_energy__fJ: Energy over full caller extents and billed
+                trailing axes. Singleton dimensions do not request broadcasting.
                 Shape: `[*caller_leading, ...]`.
             channel: Optional billing segment; a matching child shares the
                 same measurement item.
@@ -378,9 +379,7 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
             dynamic_energy__fJ = dynamic_energy__fJ.sum(dim=tuple(range(rank, dynamic_energy__fJ.ndim)))
 
         profiler.submit_dynamic_energy(
-            name=self.qualified_name,
-            dynamic_energy__fJ=dynamic_energy__fJ,
-            channel=channel,
+            source=self._profile_identity, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel
         )
 
     @final
@@ -400,7 +399,7 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
         if profiler is None:
             return
 
-        profiler.submit_latency(name=self.qualified_name, latency__ns=latency__ns)
+        profiler.submit_latency(source=self._profile_identity, latency__ns=latency__ns)
 
 
 class NonProfileModule(ModuleBase, base_only=True):

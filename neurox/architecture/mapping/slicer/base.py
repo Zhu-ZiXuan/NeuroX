@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+import torch
 from torch import Tensor
 
 from neurox.primitive.digital import RadixAccumulator, RadixSummator
@@ -50,10 +51,10 @@ class Slicer(ABC):
             return self.recovery_circuit.radix_sum(values, dim=dim, radix=self.slice_radix, enable=enable)
         if enable is not None:
             values = values.where(enable, 0)
-        # Shape: [slice]
-        scales = values.new_tensor(self.place_values)
-        # Shape: [..., slice, ...] -> [..., slice] -> [...]
-        return (values.movedim(dim, -1) * scales).sum(dim=-1, dtype=values.dtype)
+        # Static Python coefficients avoid constructing and copying a weight tensor.
+        parts = values.unbind(dim=dim)
+        weighted = [part * scale for part, scale in zip(parts, self.place_values, strict=True)]
+        return torch.stack(weighted, dim=0).sum(dim=0, dtype=values.dtype)
 
     # === For subclass to implement or override ===
 

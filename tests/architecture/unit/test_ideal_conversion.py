@@ -23,7 +23,9 @@ from neurox.primitive.macro.cim import CimMacroQuantizationScheme, IdealCimMacro
 
 @pytest.mark.parametrize("role", ["linear", "conv2d"])
 @pytest.mark.parametrize("differential", [False, True])
-def test_ideal_conversion_keeps_geometry_cost_ownership_and_independent_state(role: str, differential: bool) -> None:
+def test_ideal_conversion_keeps_geometry_cost_ownership_and_independent_state(
+    role: str, differential: bool, device: torch.device
+) -> None:
     common = {"area_per_inst__um2": 3.0, "leakage_per_inst__uW": 2.0}
     geometry = {"stride": (2, 1), "padding": (1, 0), "dilation": (1, 2), "groups": 1} if role == "conv2d" else {}
     config_type = LinearCimUnitConfig if role == "linear" else Conv2dCimUnitConfig
@@ -69,11 +71,13 @@ def test_ideal_conversion_keeps_geometry_cost_ownership_and_independent_state(ro
     )
     policy = policy_type(cim_macro_policy=IdealCimMacroPolicy())
     shape = (3, 2) if role == "linear" else (3, 2, 2, 2)
-    w = torch.ones(shape, dtype=torch.int64)
+    w = torch.ones(shape, dtype=torch.int64, device=device)
     w[1] = -1
-    unit = expected_type(config=config, policy=policy, w_logical_shape=w.shape, dtype=torch.float64, **geometry)
+    unit = expected_type(config=config, policy=policy, w_logical_shape=w.shape, dtype=torch.float64, **geometry).to(
+        device
+    )
     unit.set_temperature(333.0)
-    unit.program(w, torch.full((3,), 7, dtype=torch.int64))
+    unit.program(w, bias=torch.full((3,), 7, dtype=torch.int64, device=device))
 
     ideal = unit.to_ideal()
     assert ideal.x_value_range == (0, 3)
@@ -81,10 +85,22 @@ def test_ideal_conversion_keeps_geometry_cost_ownership_and_independent_state(ro
     assert ideal.config.area_per_inst__um2 == 3.0
     assert ideal.config.leakage_per_inst__uW == 2.0
     assert ideal.T__K == 333.0
-    x = torch.ones((2, 2), dtype=torch.int64) if role == "linear" else torch.ones((2, 2, 5, 6), dtype=torch.int64)
-    execute = getattr(ideal, role)
+    x_shape = (2, 2) if role == "linear" else (2, 2, 5, 6)
+    x = torch.ones(x_shape, dtype=torch.int64, device=device)
+    # Callers may compile a model around the unit's already-compiled entry.
+    execute = torch.compile(
+        lambda value: getattr(ideal, role)(value, quantization_mode=0, adc_active_bits=None),
+        dynamic=False,
+        fullgraph=True,
+    )
     ideal.program(2 * w)
-    expected = F.linear(x, w) if role == "linear" else F.conv2d(x, w, **geometry)
-    torch.testing.assert_close(execute(x, quantization_mode=0, adc_active_bits=None), 2 * expected)
-    original = getattr(unit, role)(x, quantization_mode=0, adc_active_bits=None)
+    expected = F.linear(x.cpu(), w.cpu()) if role == "linear" else F.conv2d(x.cpu(), w.cpu(), **geometry)
+    expected = expected.to(device)
+    torch.testing.assert_close(execute(x), 2 * expected)
+    execute_original = torch.compile(
+        lambda value: getattr(unit, role)(value, quantization_mode=0, adc_active_bits=None),
+        dynamic=False,
+        fullgraph=True,
+    )
+    original = execute_original(x)
     torch.testing.assert_close(original, expected + 7)

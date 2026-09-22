@@ -221,7 +221,6 @@ def run_solving_loop[StateT: SolvingState](
         init_state=init_state,
         cond_fn=solving_cond_fn,
         body_fn=solving_body_fn,
-        device=init_state.device,
     )
 
     if strict:
@@ -322,7 +321,6 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
         length=max_iter,
         body_fn=solving_body_fn,
         output_template=default_trace,
-        device=init_state.device,
     )
     # Shape: [iteration, ...] -> [..., iteration]
     trace = map_single_tensor_fields(lambda t: t.movedim(0, -1), trace)

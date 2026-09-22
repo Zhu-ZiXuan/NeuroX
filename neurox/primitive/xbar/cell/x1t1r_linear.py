@@ -69,9 +69,9 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
         for state_idx, entry in enumerate(self.g_cell_on_table__uS):
             self._require_non_neg(entry, f"g_cell_on_table__uS[{state_idx}]")
         for state_idx, entry in enumerate(self.vx_ratio_off_table):
-            self._require_in_closed_interval(entry, f"vx_ratio_off_table[{state_idx}]", 0.0, 1.0)
+            self._require_in_closed_interval(entry, f"vx_ratio_off_table[{state_idx}]", lower=0.0, upper=1.0)
         for state_idx, entry in enumerate(self.vx_ratio_on_table):
-            self._require_in_closed_interval(entry, f"vx_ratio_on_table[{state_idx}]", 0.0, 1.0)
+            self._require_in_closed_interval(entry, f"vx_ratio_on_table[{state_idx}]", lower=0.0, upper=1.0)
 
 
 class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
@@ -170,6 +170,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
     @torch.no_grad()
     def solve_dc(
         self,
+        *,
         v_bl__V: Tensor,
         v_sl__V: Tensor,
         snap: _Snap,
@@ -189,8 +190,8 @@ class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
     @torch.no_grad()
     def snapshot(
         self,
-        *,
         control: Tensor,
+        *,
         shape: tuple[int, ...],
     ) -> _Snap:
         """Bundle the programmed branch parameters with the WL control drive."""

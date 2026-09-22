@@ -106,7 +106,6 @@ class VoltageDriver(ProfileModule):
     # === Functional buffers ===
 
     _r_out__MOhm: Tensor  # Shape: []
-    _energy_per_op__fJ: Tensor  # Shape: []
 
     # === Nominal buffers ===
 
@@ -130,10 +129,6 @@ class VoltageDriver(ProfileModule):
             "_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
         )
-        self._register_nonpersistent_buffer(
-            "_energy_per_op__fJ",
-            torch.tensor(config.energy_per_op__fJ, dtype=dtype),
-        )
         self._register_fabrication_buffers(dtype=dtype)
 
     @property
@@ -153,15 +148,15 @@ class VoltageDriver(ProfileModule):
     def _sample_fabrication_variation(self) -> None:
         self._offset__V = apply_gaussian(
             self._nominal_offset__V.clone().expand(self.inst_shape),
-            self.config.offset_sigma__V,
+            sigma=self.config.offset_sigma__V,
             enabled=self.policy.offset,
         )
 
     @torch.no_grad()
     def snapshot(
         self,
-        *,
         v_ref__V: Tensor,
+        *,
         shape: tuple[int, ...],
     ) -> _Snap:
         """Sample the driver's static state and per-call noise at `shape`.
@@ -182,14 +177,14 @@ class VoltageDriver(ProfileModule):
         """
         v_ref__V = v_ref__V.expand(shape)
         v_perturb__V = self._offset__V.expand(shape) if self.policy.offset else self._nominal_offset__V.expand(shape)
-        v_perturb__V = apply_gaussian(v_perturb__V, self.config.thermal_sigma__V, enabled=self.policy.thermal)
+        v_perturb__V = apply_gaussian(v_perturb__V, sigma=self.config.thermal_sigma__V, enabled=self.policy.thermal)
         return _Snap(
             v_open__V=v_ref__V + v_perturb__V,
             r_out__MOhm=self._r_out__MOhm.expand(shape),
         )
 
     @torch.no_grad()
-    def drive(self, *, i_port__uA: Tensor, enable: Tensor | None = None) -> None:
+    def drive(self, i_port__uA: Tensor, *, enable: Tensor | None = None) -> None:
         """Record enabled boundary accesses at the port-current layout.
 
         `enable` selects startup events, independently of the current
@@ -197,17 +192,19 @@ class VoltageDriver(ProfileModule):
         the circuit supplying the port.
         """
         if self._is_profiler_active():
-            energy = self._energy_per_op__fJ.expand(i_port__uA.shape)
-            if enable is not None:
-                energy = energy.where(enable, 0)
-            self._record_dynamic_energy(energy)
+            # Mask presence specializes during tracing; only masked costs depend on its device.
+            if enable is None:
+                energy__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32)
+            else:
+                energy__fJ = enable.to(dtype=torch.float32) * self.config.energy_per_op__fJ
+            self._record_dynamic_energy(energy__fJ.expand(i_port__uA.shape))
 
     @torch.no_grad()
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snap: _Snap,
         *,
+        snap: _Snap,
         v_port_init__V: Tensor | None,
     ) -> _Dcop:
         """Solve the Thevenin driver's port voltage at the present port current.
@@ -223,7 +220,6 @@ class VoltageDriver(ProfileModule):
             — the derivative of that map, which the series drop makes
             non-positive.
         """
-        del v_port_init__V
         return _Dcop(
             v_port__V=snap.v_open__V - i_port__uA * snap.r_out__MOhm,
             dvport_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),

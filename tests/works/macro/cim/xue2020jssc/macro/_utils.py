@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TypedDict, Unpack
 
 import torch
 from torch import Tensor
@@ -27,48 +26,30 @@ from neurox.works.macro.cim.xue2020jssc import (
 )
 from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig, TmcsaPolicy
 
-# --- Tiny witness geometry ---
 TINY_OUTPUT_NUM = 4
 TINY_INPUT_NUM = 4
-TINY_MAX_ACTIVE_SIZE = 4
 TINY_LANE_NUM = 2
 TINY_SCAN_NUM = 2
 TINY_K = 2  # x_bit_num: two serial WL sub-phases, LSB first
 TINY_ADC_BITS = 3
-MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 7 — the 3-bit magnitude saturation
-QUANTIZATION_MODE = 0  # witness operating mode (single-mode reference)
+MAG_MAX = (1 << TINY_ADC_BITS) - 1
+QUANTIZATION_MODE = 0
 
-_DTYPE = torch.float64  # analytic near-ideal chain: double precision keeps the ladder crisp
+_DTYPE = torch.float64
 _G_LRS__uS = 100.0
 _V_BLC__V = 0.3
 _WIRE_SEGMENT_R__MOhm = 5.0e-6  # Positive and negligible beside the cell branch.
 
 
-class _BuildConfigKwargs(TypedDict, total=False):
-    input_num: int
-    max_active_num: int
-    lane_num: int
-    scan_num: int
-    w_digit_num: int
-    w_digit_radix: int
-    x_bit_num: int
-    adc_bits: int
-    t_sample__ns: float
-    t_settle__ns: float
-    latency_per_bit__ns: float
-    ref_levels__uA: tuple[float, ...] | None
-
-
 def _default_ref_levels(adc_bits: int) -> tuple[float, ...]:
-    """Placeholder strictly-increasing single-mode ladder (`2**adc_bits - 1` taps)."""
     return tuple(float(k) for k in range(1, 1 << adc_bits))
 
 
 def _linear_cell_config() -> XbarCell1t1rLinearConfig:
-    """Near-ideal linearized 1T1R cell: exact-zero HRS branch, LRS chord, WL-off cut off."""
+    """Linear cell with exact-zero HRS and WL-off currents."""
     return XbarCell1t1rLinearConfig(
-        g_cell_on_table__uS=(0.0, _G_LRS__uS),  # state 0 = HRS -> exact 0, state 1 = LRS
-        g_cell_off_table__uS=(0.0, 0.0),  # WL off -> no conduction
+        g_cell_on_table__uS=(0.0, _G_LRS__uS),
+        g_cell_off_table__uS=(0.0, 0.0),
         vx_ratio_on_table=(0.5, 0.5),
         vx_ratio_off_table=(0.5, 0.5),
         v_wl_on_threshold__V=0.5,
@@ -76,7 +57,6 @@ def _linear_cell_config() -> XbarCell1t1rLinearConfig:
 
 
 def _array_config() -> XbarArray1t1rConfig:
-    """Build the near-ideal test array."""
     return XbarArray1t1rConfig(
         row_cell_space__um=1.0,
         col_cell_space__um=1.0,
@@ -112,7 +92,7 @@ def build_config(
     return Xue2020JsscCimMacroConfig(
         input_num=input_num,
         area_per_inst__um2=0.0,
-        leakage_per_inst__uW=8.0,  # macro-owned lump (un-attributed remainder)
+        leakage_per_inst__uW=8.0,
         max_active_num=max_active_num,
         lane_num=lane_num,
         scan_num=scan_num,
@@ -143,7 +123,7 @@ def build_config(
         ),
         array_config=_array_config(),
         cablc_config=VoltageDriverConfig(
-            r_out__MOhm=0.0,  # ideal flat clamp (V_BL = V_BLC at the port); static leakage seat only
+            r_out__MOhm=0.0,
             offset_sigma__V=0.0,
             thermal_sigma__V=0.0,
             energy_per_op__fJ=0.0,  # CMD precharge belongs to the control block
@@ -157,7 +137,7 @@ def build_config(
             leakage_per_inst__uW=0.0,
         ),
         sl_driver_config=VoltageDriverConfig(
-            r_out__MOhm=0.0,  # ideal flat clamp; the SL reference is a plain 0 V tensor (ground tie)
+            r_out__MOhm=0.0,
             offset_sigma__V=0.0,
             thermal_sigma__V=0.0,
             energy_per_op__fJ=0.0,
@@ -175,7 +155,6 @@ def build_config(
 
 
 def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
-    """All-off (lossless baseline) composite policy — the scheme's only intended policy."""
     return Xue2020JsscCimMacroPolicy(
         array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
         cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
@@ -194,7 +173,6 @@ def build_macro(
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Xue2020JsscCimMacro:
-    """Build, fabricate, and name-stamp one test macro."""
     macro = CimMacro.from_config(
         config=config,
         policy=build_all_off_policy(),
@@ -211,12 +189,10 @@ def build_macro(
 
 
 def macro_device(macro: Xue2020JsscCimMacro) -> torch.device:
-    """Device the macro lives on (first buffer of the module tree)."""
     return next(macro.buffers()).device
 
 
 def with_ref_levels(config: Xue2020JsscCimMacroConfig, ref_levels__uA: tuple[float, ...]) -> Xue2020JsscCimMacroConfig:
-    """Install one single-mode TMCSA ladder."""
     return dataclasses.replace(
         config,
         tmcsa_iref_config=dataclasses.replace(
@@ -254,7 +230,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
 
 
 def midpoint_refs(grid: list[float], *, adc_bits: int = TINY_ADC_BITS) -> tuple[float, ...]:
-    """The `2**adc_bits - 1` mid-point thresholds `ref[k] = 0.5 * (I(k) + I(k+1))`."""
+    """Place thresholds between adjacent measured integer-MAC currents."""
     level_num = (1 << adc_bits) - 1
     assert len(grid) >= level_num + 1, f"grid too short: {len(grid)} < {level_num + 1}"
     return tuple(0.5 * (grid[k] + grid[k + 1]) for k in range(level_num))
@@ -264,10 +240,10 @@ def build_calibrated_macro(
     *,
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
-    **config_kwargs: Unpack[_BuildConfigKwargs],
+    w_digit_num: int = 2,
 ) -> Xue2020JsscCimMacro:
     """Build a macro with midpoint references derived from its transfer."""
-    config = build_config(**config_kwargs)
+    config = build_config(w_digit_num=w_digit_num)
     adc_bits = config.tmcsa_config.bits
     mag_max = (1 << adc_bits) - 1
     probe = build_macro(config, device=device)
