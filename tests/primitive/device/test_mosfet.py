@@ -1,4 +1,4 @@
-"""MOSFET current polarity, terminal derivatives, and deterministic fabrication."""
+"""MOSFET current polarity, monotonicity, and terminal derivatives."""
 
 from __future__ import annotations
 
@@ -8,51 +8,31 @@ from torch import Tensor
 
 from neurox.primitive.device.mosfet import Mosfet, MosfetConfig, MosfetPolicy, Nmos, Pmos
 
-_OFF = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
 
-_BASE_CONFIG: dict[str, float] = {
-    "mu0__cm2_per_V_s": 200.0,
-    "c_ox__fF_per_um2": 31.4,
-    "vth0__V": 0.40,
-    "n_factor": 1.25,
-    "T_nom__K": 300.0,
-    "ute": 1.5,
-    "kt1__V": -0.002,
-    "A_vt__mV_um": 0.0,
-    "A_beta_relative__um": 0.0,
-}
-
-
-def _config(**overrides: float) -> MosfetConfig:
-    """Build a `MosfetConfig` from the base field set with overrides."""
-    return MosfetConfig(**{**_BASE_CONFIG, **overrides})
-
-
-def _make(
-    cls: type[Mosfet],
-    *,
-    vth0__V: float,
-    inst_shape: tuple[int, ...],
-    policy: MosfetPolicy = _OFF,
-    W__um: float = 1.0,
-    L__um: float = 1.0,
-    **config_overrides: float,
-) -> Mosfet:
-    """Construct and fabricate a concrete MOSFET sized for the tests."""
+def _make(cls: type[Mosfet], *, vth0__V: float, inst_shape: tuple[int, ...]) -> Mosfet:
     dev = cls(
-        config=_config(vth0__V=vth0__V, **config_overrides),
-        policy=policy,
+        config=MosfetConfig(
+            mu0__cm2_per_V_s=200.0,
+            c_ox__fF_per_um2=31.4,
+            vth0__V=vth0__V,
+            n_factor=1.25,
+            T_nom__K=300.0,
+            ute=1.5,
+            kt1__V=-0.002,
+            A_vt__mV_um=0.0,
+            A_beta_relative__um=0.0,
+        ),
+        policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         inst_shape=inst_shape,
         dtype=torch.float64,
-        W__um=W__um,
-        L__um=L__um,
+        W__um=1.0,
+        L__um=1.0,
     )
     dev.fabricate()
     return dev
 
 
 def test_nmos_enhancement_conducts_and_partial_signs() -> None:
-    """Enhancement NMOS (vth0 > 0): forward bias conducts, ids rises with Vg, partial signs hold."""
     k = 3
     dev = _make(Nmos, vth0__V=0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,))
@@ -60,39 +40,28 @@ def test_nmos_enhancement_conducts_and_partial_signs() -> None:
     vd = torch.full((k,), 0.6, dtype=torch.float64)
     vs = torch.full((k,), 0.1, dtype=torch.float64)
     dc = dev.solve_dc(vg__V=vg, vd__V=vd, vs__V=vs, snap=snap)
-    # vd > vs and Vgs >= vth -> forward (drain -> source) conduction.
     assert torch.all(dc.ids__uA > 0.0)
-    # ids increases monotonically as the gate rises (gm >= 0).
     assert torch.all(dc.ids__uA[1:] - dc.ids__uA[:-1] > 0.0)
-    # Node-partial sign contract.
     assert torch.all(dc.did_dvd__uS >= 0.0)
     assert torch.all(dc.did_dvs__uS <= 0.0)
 
 
 def test_pmos_enhancement_conducts_negative() -> None:
-    """Enhancement PMOS (vth0 < 0): source-high / drain-low with a low gate conducts; ids < 0."""
     k = 3
     vdd = 0.9
     dev = _make(Pmos, vth0__V=-0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,))
-    # Gate swept low -> high; source held high (vdd), drain low (0).
     vg = torch.linspace(0.0, 0.5, k, dtype=torch.float64)
     vs = torch.full((k,), vdd, dtype=torch.float64)
     vd = torch.zeros(k, dtype=torch.float64)
     dc = dev.solve_dc(vg__V=vg, vd__V=vd, vs__V=vs, snap=snap)
-    # Real source -> drain flow gives a negative I_ds for a p-channel device.
     assert torch.all(dc.ids__uA < 0.0)
-    # A lower gate is a larger source-gate overdrive -> more negative current,
-    # so ids climbs monotonically toward 0 as Vg rises.
     assert torch.all(dc.ids__uA[1:] - dc.ids__uA[:-1] > 0.0)
-    assert dc.ids__uA[0] < dc.ids__uA[-1]
-    # The partial-sign contract is polarity-independent.
     assert torch.all(dc.did_dvd__uS >= 0.0)
     assert torch.all(dc.did_dvs__uS <= 0.0)
 
 
 def test_depletion_nmos_conducts_at_zero_gate() -> None:
-    """Depletion NMOS (vth0 < 0) is accepted by config and conducts at Vg = 0 with vd > vs."""
     dev = _make(Nmos, vth0__V=-0.4, inst_shape=(1,))
     snap = dev.snapshot(shape=(1,))
     dc = dev.solve_dc(
@@ -118,7 +87,6 @@ def test_partials_match_finite_difference(
     vd: list[float],
     vs: list[float],
 ) -> None:
-    """Central differences of ids w.r.t. each terminal match the analytic partials."""
     k = len(vg)
     dev = _make(cls, vth0__V=vth0, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,))

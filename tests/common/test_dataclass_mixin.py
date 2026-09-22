@@ -1,4 +1,4 @@
-"""Tests for the shared dataclass tensor-field traversal."""
+"""Dataclass traversal preserves nested tensor fields, scalar metadata, and inputs."""
 
 from __future__ import annotations
 
@@ -40,10 +40,7 @@ def test_map_transforms_nested_fields_without_mutating_the_input(device: torch.d
         torch.full((3,), 2.0, device=device),
     )
 
-    def fn(tensor: Tensor) -> Tensor:
-        return tensor + 1
-
-    result = map_single_tensor_fields(fn, tree)
+    result = map_single_tensor_fields(lambda tensor: tensor + 1, tree)
 
     torch.testing.assert_close(result.value, torch.ones(2, 3, device=device))
     torch.testing.assert_close(result.child.value, torch.full((2,), 2.0, device=device))
@@ -69,10 +66,7 @@ def test_single_inspection_visits_nested_fields_without_reconstruction(device: t
     tree = _Tree(torch.ones(2, 3, device=device), _Leaf(torch.ones(2, device=device)), "kept")
     visited: list[Tensor] = []
 
-    def inspect(tensor: Tensor) -> None:
-        visited.append(tensor)
-
-    visit_tensor_fields(inspect, tree)
+    visit_tensor_fields(visited.append, tree)
     assert len(visited) == 2
     torch.testing.assert_close(visited[0], tree.value)
     torch.testing.assert_close(visited[1], tree.child.value)

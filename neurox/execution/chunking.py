@@ -139,8 +139,6 @@ def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
     output_template: OutputsT,
     body_fn: Callable[[InputsT], OutputsT],
 ) -> OutputsT:
-    """Execute equal-sized chunks and flatten their collected outputs."""
-
     def evaluate_chunk(flat_indices: Tensor) -> OutputsT:
         coords = tuple(torch.unravel_index(flat_indices, leading_shape))
         chunk_operands = _slice_operands(
@@ -171,8 +169,6 @@ def _restore_result[OutputsT: _Dataclass](
     *,
     leading_shape: tuple[int, ...],
 ) -> OutputsT:
-    """Restore a flat result to its complete semantic leading shape."""
-
     def fn(tensor: Tensor) -> Tensor:
         # Shape: [position, ...] -> [*leading_shape, ...]
         return tensor.reshape((*leading_shape, *tensor.shape[1:]))
@@ -187,7 +183,6 @@ def _slice_operands[InputsT: _Dataclass](
     chunk_size: int,
     leading_shape: tuple[int, ...],
 ) -> InputsT:
-    """Slice every operand tensor onto one exact logical chunk axis."""
     leading_rank = len(leading_shape)
 
     def fn(tensor: Tensor) -> Tensor:

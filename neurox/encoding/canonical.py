@@ -15,6 +15,10 @@ class CanonicalTranscoder(Transcoder):
     form, where no two consecutive positions are non-zero.
     """
 
+    @property
+    def has_signed_digits(self) -> bool:
+        return True
+
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
         radix = self.radix
         all_digits: list[Tensor] = []

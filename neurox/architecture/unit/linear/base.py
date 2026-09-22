@@ -33,7 +33,16 @@ _Policy = LinearUnitPolicy
 
 
 class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
-    """Interface for an integer `torch.nn.functional.linear` replacement."""
+    """Interface for an integer `torch.nn.functional.linear` replacement.
+
+    Construction initializes the common unit and retains the logical weight
+    shape and dtype used by `to_ideal`. Implementations initialize any additional
+    implementation base explicitly after this constructor returns.
+
+    `w_logical_shape` accepts `weight.shape` and is stored as a fixed-length
+    `(output, input)` tuple. A different number of axes raises `ValueError`.
+    One basic operation for latency and profiling is one VMM.
+    """
 
     config: _Config
     policy: _Policy
@@ -50,11 +59,11 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=())
-        self._w_logical_shape = tuple(w_logical_shape)
-        self._dtype = dtype
         if len(w_logical_shape) != 2:
-            raise ValueError("linear weight shape must have 2 axes")
+            raise ValueError(f"linear w_logical_shape must have 2 axes; got {w_logical_shape}")
+        UnitBase.__init__(self, config=config, policy=policy)
+        self._w_logical_shape = w_logical_shape
+        self._dtype = dtype
 
     # === Public API ===
 
@@ -83,8 +92,8 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config = IdealLinearUnitConfig(
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
-            area_per_inst__um2=self.area__um2,
-            leakage_per_inst__uW=self.leakage__uW,
+            area_per_inst__um2=self._area_per_inst__um2,
+            leakage_per_inst__uW=self._leakage_per_inst__uW,
         )
         ideal = IdealLinearUnit(
             config=config,
@@ -118,13 +127,18 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
             preserved, exactly as `torch.nn.functional.linear`.
             Shape: `[..., N]`.
         """
-        return self._linear_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        output = self._linear_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        if self._is_profiler_active():
+            latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
+            latency = input.new_tensor(latency__ns, dtype=torch.float64)
+            self._record_latency(latency.expand(input.shape[: self._profile_leading_rank]))
+        return output
 
     # === For subclass to implement or override ===
 
     @abstractmethod
     def _linear_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
-        """Implement the linear operation, including the programmed bias."""
+        """Compute the linear output, including the programmed bias."""
         raise NotImplementedError
 
     @abstractmethod

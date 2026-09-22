@@ -1,7 +1,7 @@
-"""Digital modular-arithmetic accumulator over an integer-tensor axis.
+"""Modular accumulation over a temporal operand axis.
 
 See Also:
-    docs/reference/primitive/digital/accumulator.md
+    docs/reference/primitive/digital.md
 """
 
 from __future__ import annotations
@@ -13,17 +13,6 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class AccumulatorConfig(DigitalConfig):
-    # === Arithmetic ===
-
-    bit_width: int
-    """Signed output bit width; the result wraps modulo `2^bit_width` into
-    `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""
-
-    # === Timing ===
-
-    latency_per_op__ns: float
-    """Reduction window of one accumulate."""
-
     # === Dynamic energy ===
 
     energy_per_op__fJ: float
@@ -31,17 +20,6 @@ class AccumulatorConfig(DigitalConfig):
 
     def validate(self) -> None:
         super().validate()
-
-        # --- Arithmetic ---
-
-        self._require_pos(self.bit_width, "bit_width")
-
-        # --- Timing ---
-
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
-
-        # --- Dynamic energy ---
-
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 
 
@@ -50,7 +28,7 @@ _Policy = DigitalPolicy
 
 
 class Accumulator(DigitalBase):
-    """Modular adder-tree that sums an integer tensor along one axis."""
+    """One feedback register updated for every operand on the selected axis."""
 
     config: _Config
     policy: _Policy
@@ -64,25 +42,31 @@ class Accumulator(DigitalBase):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    def latency__ns(self) -> float:
-        """Latency of one accumulator evaluation."""
-        return self.config.latency_per_op__ns
-
     @torch.no_grad()
-    def accumulate(self, x: Tensor, dim: int) -> Tensor:
-        """Sum integer `x` along `dim` and wrap into the signed `bit_width` range.
+    def accumulate(self, x: Tensor, dim: int, *, enable: Tensor | None = None) -> Tensor:
+        """Reduce a complete arrival stream with signed register-width wrap.
 
-        One operation is one adder evaluation per operand element folded in.
+        Each output starts from zero. Disabled arrivals contribute zero and
+        incur no update energy.
+
+        Args:
+            x: Integer operands in arrival order along `dim`.
+                Shape: `[..., operand, ...]`.
+            enable: Optional arrival enables, broadcastable to `x`.
 
         Returns:
-            Modular-wrapped sum with `dim` reduced, preserving the input dtype.
+            Wrapped sum with `dim` removed, preserving the input dtype.
         """
-        bw = self.config.bit_width
-        half = 1 << (bw - 1)
-        full = 1 << bw
-        y = (x.sum(dim, dtype=x.dtype) + half) % full - half
+        if enable is not None:
+            x = x.where(enable, 0)
+        # Shape: [..., operand, ...] -> [...]
+        y = x.sum(dim, dtype=x.dtype)
+        y = self._wrap_output(y)
 
         if self._is_profiler_active():
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
-            self._record_dynamic_energy(e_op__fJ.expand(x.shape))
+            energy__fJ = e_op__fJ.expand(x.shape)
+            if enable is not None:
+                energy__fJ = energy__fJ.where(enable, 0)
+            self._record_dynamic_energy(energy__fJ)
         return y

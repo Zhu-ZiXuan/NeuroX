@@ -88,6 +88,10 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     control_config: UnmodeledBlockConfig
 
     @property
+    def supports_signed_weights(self) -> bool:
+        return True
+
+    @property
     def w_digit_n(self) -> int:
         return self.w_digit_num
 
@@ -222,8 +226,8 @@ class Xue2020JsscCimMacro(CimMacro):
         self.cablc = VoltageDriver(
             config=config.cablc_config,
             policy=policy.cablc_policy,
-            # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
-            inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
+            # Shape: [*inst_shape, x_bit=1, row=1, scan=1, lane, polarity, w_digit]
+            inst_shape=(*self.inst_shape, 1, 1, 1, lane_num, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
         )
         self.cablc_vref = Reference(
@@ -236,8 +240,8 @@ class Xue2020JsscCimMacro(CimMacro):
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
-            # Shape: [*inst_shape, x_bit=1, row=1, lane, scan=1, polarity, w_digit]
-            inst_shape=(*self.inst_shape, 1, 1, lane_num, 1, _POLARITY_NUM, w_digit_num),
+            # Shape: [*inst_shape, x_bit=1, row=1, scan=1, lane, polarity, w_digit]
+            inst_shape=(*self.inst_shape, 1, 1, 1, lane_num, _POLARITY_NUM, w_digit_num),
             dtype=dtype,
         )
 
@@ -258,8 +262,8 @@ class Xue2020JsscCimMacro(CimMacro):
         self.tmcsa = Tmcsa(
             config=config.tmcsa_config,
             policy=policy.tmcsa_policy,
-            # Shape: [*inst_shape, lane, scan=1]
-            inst_shape=(*self.inst_shape, lane_num, 1),
+            # Shape: [*inst_shape, scan=1, lane]
+            inst_shape=(*self.inst_shape, 1, lane_num),
             vdd__V=config.vdd__V,
             dtype=dtype,
         )
@@ -294,16 +298,7 @@ class Xue2020JsscCimMacro(CimMacro):
         """Maximum ADC magnitude resolution [bits]."""
         return self.tmcsa.bits
 
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        # Shape: [output] -> [lane, scan]
-        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
-            self.lane_num, self.scan_num
-        )
-        # Shape: [..., lane=1, scan=1]
-        return output_indices < effective_output_num[..., None, None]
-
     def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of one scan position."""
         self._check_adc_active_bits(adc_active_bits)
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         config = self.config
@@ -315,28 +310,20 @@ class Xue2020JsscCimMacro(CimMacro):
 
     @torch.no_grad()
     def program(self, w: Tensor) -> None:
-        """Encode logical weights into the physical cell grid.
-
-        Args:
-            w: Logical weight tensor; entries must lie in `w_value_range`.
-                Shape: `[*inst_shape, input, output]`.
-        """
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
-        # Shape: [*inst, input, output] -> [*inst, row, col, w_digit]
+        # Column groups follow logical outputs: every lane in a scan, then the next scan.
+        # Shape: [..., input, output] -> [..., row, output, w_digit]
         digits = self._w_transcoder.encode(w, dim=-1)
 
         # Positive digits occupy PWG; negative digits occupy NWG.
-        # Shape: [*inst, row, col, w_digit] -> [*inst, row, col, polarity, w_digit]
+        # Shape: [..., row, output, w_digit] -> [..., row, output, polarity, w_digit]
         state_idx = torch.stack((digits.clamp_min(0), (-digits).clamp_min(0)), dim=-2)
 
-        # col = lane * scan_num + scan
-        # Shape: [*inst, row, col, polarity, w_digit] -> [*inst, row, lane, scan, polarity, w_digit]
-        state_idx = state_idx.unflatten(-3, (self.lane_num, self.scan_num))
-        # Shape: [*inst, row, lane, scan, polarity, w_digit] -> [*inst, x_bit=1, row, phys_col]
-        state_idx = state_idx.flatten(-4, -1).unsqueeze(-3)
+        # Shape: [..., row, output, polarity, w_digit] -> [..., x_bit=1, row, col]
+        state_idx = state_idx.flatten(-3, -1).unsqueeze(-3)
         self.array.program(state_idx.contiguous())
 
     def _record_cablc_dynamic_energy(
@@ -346,7 +333,7 @@ class Xue2020JsscCimMacro(CimMacro):
         sample__ns: float,
         detect__ns: float,
     ) -> None:
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit]
+        # Shape: [..., x_bit, scan, lane, polarity, w_digit] -> [..., x_bit]
         i_phase__uA = i_dl__uA.sum(dim=(-4, -3, -2, -1))
         # Shape: [..., x_bit] -> [...]
         i_sample__uA = i_phase__uA.narrow(-1, 0, self.config.x_bit_num - 1).sum(dim=-1)
@@ -362,9 +349,9 @@ class Xue2020JsscCimMacro(CimMacro):
         sample__ns: float,
         detect__ns: float,
     ) -> None:
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity, w_digit] -> [..., x_bit, scan, lane, polarity]
         i_phase__uA = i_wdl__uA.abs().sum(dim=-1)
-        # Shape: [..., x_bit, lane, scan, polarity] -> [..., lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity] -> [..., scan, lane, polarity]
         i_sample__uA = i_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
         q__fC = q__fC + q_conduction__fC(i_phase__uA.select(-4, -1), detect__ns)
@@ -378,7 +365,7 @@ class Xue2020JsscCimMacro(CimMacro):
         sample__ns: float,
         detect__ns: float,
     ) -> None:
-        # Shape: [..., x_bit, lane, scan, polarity] -> [..., lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity] -> [..., scan, lane, polarity]
         i_sample__uA = i_sc_phase__uA.narrow(-4, 0, self.config.x_bit_num - 1).sum(dim=-4)
         q__fC = q_conduction__fC(i_sample__uA, sample__ns)
         q__fC = q__fC + q_conduction__fC(i_sc_phase__uA.select(-4, -1), detect__ns)
@@ -417,7 +404,7 @@ class Xue2020JsscCimMacro(CimMacro):
         sample__ns = config.t_sample__ns
         detect__ns = self.config.t_settle__ns + self.tmcsa.latency__ns(active_bits=adc_active_bits)
 
-        # Shape: [..., mode, tap] -> [..., lane=1, scan=1, tap]
+        # Shape: [..., mode, tap] -> [..., scan=1, lane=1, tap]
         adc_i_refs__uA = self.tmcsa_iref.values()[..., quantization_mode, :].unsqueeze(-2).unsqueeze(-2)
 
         # --- 1: Bit-expand x into K binary WL-drive phases (LSB first) ---
@@ -429,25 +416,29 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
-        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit]
+        # Shape: [..., x_bit, row=1, scan, lane, polarity, w_digit]
         seat_shape = (
             *leading_shape,
             config.x_bit_num,
             1,
-            self.lane_num,
             self.scan_num,
+            self.lane_num,
             _POLARITY_NUM,
             config.w_digit_num,
         )
-        # Shape: [...] -> [..., x_bit=1, row=1, lane=1, scan=1, polarity=1, w_digit=1]
-        bl_v_ref__V = self.cablc_vref.values()[..., None, None, None, None, None, None]
-        # Shape: [..., x_bit, row=1, lane, scan, polarity, w_digit]
+        bl_v_ref__V = self.cablc_vref.values()
+        bl_v_ref_shape = (*bl_v_ref__V.shape, 1, 1, 1, 1, 1, 1)
+        # Shape: [...] -> [..., x_bit=1, row=1, scan=1, lane=1, polarity=1, w_digit=1]
+        bl_v_ref__V = bl_v_ref__V.view(bl_v_ref_shape)
+        # Shape: [..., x_bit, row=1, scan, lane, polarity, w_digit]
         bl_driver_snap = self.cablc.snapshot(v_ref__V=bl_v_ref__V, shape=seat_shape)
         sl_driver_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V, shape=seat_shape)
 
-        # Shape: [..., lane, scan] -> [..., x_bit=1, row=1, lane, scan, polarity=1, w_digit=1]
-        seat_mask = None if phase_mask is None else phase_mask[..., None, None, :, :, None, None]
-        if seat_mask is not None:
+        seat_mask = None
+        if phase_mask is not None:
+            seat_mask_shape = (*phase_mask.shape[:-2], 1, 1, self.scan_num, self.lane_num, 1, 1)
+            # Shape: [..., scan, lane] -> [..., x_bit=1, row=1, scan, lane, polarity=1, w_digit=1]
+            seat_mask = phase_mask.reshape(seat_mask_shape)
             bl_driver_snap = replace(
                 bl_driver_snap, v_open__V=bl_driver_snap.v_open__V.where(seat_mask, self._sl_v_ref__V)
             )
@@ -457,7 +448,6 @@ class Xue2020JsscCimMacro(CimMacro):
         bl_driver_snap = bl_driver_snap.flatten_axes(-4, -1)
         sl_driver_snap = sl_driver_snap.flatten_axes(-4, -1)
 
-        # Shape: [..., x_bit, row, col=1]
         array_dcop = self.array.solve_dc(
             v_wl__V=v_wl__V,
             leading_shape=(*leading_shape, config.x_bit_num),
@@ -465,14 +455,14 @@ class Xue2020JsscCimMacro(CimMacro):
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
         )
-        seat_axes = (self.lane_num, self.scan_num, _POLARITY_NUM, config.w_digit_num)
-        # Shape: [..., x_bit, row=1, phys_col] -> [..., x_bit, row=1, lane, scan, polarity, w_digit]
+        seat_axes = (self.scan_num, self.lane_num, _POLARITY_NUM, config.w_digit_num)
+        # Shape: [..., x_bit, row=1, col] -> [..., x_bit, row=1, scan, lane, polarity, w_digit]
         i_bl_seat__uA = array_dcop.i_bl_port__uA.unflatten(-1, seat_axes)
         i_sl_seat__uA = array_dcop.i_sl_port__uA.unflatten(-1, seat_axes)
         self.cablc.drive(i_port__uA=i_bl_seat__uA, enable=seat_mask)
         self.sl_driver.drive(i_port__uA=i_sl_seat__uA, enable=seat_mask)
 
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit]
+        # Shape: [..., x_bit, scan, lane, polarity, w_digit]
         i_dl = array_dcop.i_bl_port__uA.squeeze(self.array.row_dim).unflatten(-1, seat_axes)
 
         # CABLC bills the whole VDD·I input branch; the array bills node capacitance.
@@ -483,7 +473,7 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 3: DSWCT place-value weighting -> I_WDL ---
 
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit]
+        # Shape: [..., x_bit, scan, lane, polarity, w_digit]
         i_wdl = i_dl * self._dswct_digit_ratios
 
         if record_dynamic_energy:
@@ -491,13 +481,13 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 4: SINWP-SC temporal input-radix combine -> I_DL_PN ---
 
-        # Shape: [x_bit] -> [x_bit, lane=1, scan=1, polarity=1, w_digit=1]
+        # Shape: [x_bit] -> [x_bit, scan=1, lane=1, polarity=1, w_digit=1]
         bit_ratios = self._sinwp_bit_ratios.view(config.x_bit_num, 1, 1, 1, 1)
-        # Shape: [..., x_bit, lane, scan, polarity, w_digit] -> [..., x_bit, lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity, w_digit] -> [..., x_bit, scan, lane, polarity]
         i_sc_increment = (i_wdl * bit_ratios).sum(dim=-1)
-        # Shape: [..., x_bit, lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity]
         i_sc_phase = i_sc_increment.cumsum(dim=-4)
-        # Shape: [..., x_bit, lane, scan, polarity] -> [..., lane, scan, polarity]
+        # Shape: [..., x_bit, scan, lane, polarity] -> [..., scan, lane, polarity]
         i_dl_pn = i_sc_phase.select(-4, -1)
 
         if record_dynamic_energy:
@@ -509,7 +499,7 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 5: PN-ISUB single-ended magnitude + sign ---
 
-        # Shape: [..., lane, scan, polarity] -> [..., lane, scan]
+        # Shape: [..., scan, lane, polarity] -> [..., scan, lane]
         i_p__uA = i_dl_pn[..., 0]
         i_n__uA = i_dl_pn[..., 1]
         i_sub__uA = (i_p__uA - i_n__uA).abs()
@@ -526,15 +516,15 @@ class Xue2020JsscCimMacro(CimMacro):
 
         # --- 6: TMCSA quantize against the per-instance reference ladder ---
 
-        # Shape: [..., lane, scan]
+        # Shape: [..., scan, lane]
         code = self.tmcsa.convert(i_sub__uA, adc_i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
-        # Shape: [..., lane, scan]
+        # Shape: [..., scan, lane]
         signed = torch.where(sign, -code, code)
 
         # --- 7: Control energy ---
 
-        scan_mask = None if phase_mask is None else phase_mask.any(dim=-2)
+        scan_mask = None if phase_mask is None else phase_mask.any(dim=-1)
         self.control.execute((*leading_shape, self.scan_num), enable=scan_mask)
 
-        # Shape: [..., lane, scan] -> [..., output]
+        # Shape: [..., scan, lane] -> [..., output]
         return signed.flatten(-2)

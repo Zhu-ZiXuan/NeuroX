@@ -88,7 +88,6 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
     origin = get_origin(tp)
     args = get_args(tp)
 
-    # Literal.
     if origin is typing.Literal:
         if value not in args:
             raise ValueError(f"value {value!r} not in Literal{list(args)}")
@@ -111,7 +110,6 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
             raise last_exc
         return value
 
-    # Nested dataclass.
     if _is_dataclass_type(tp):
         if not isinstance(value, Mapping):
             raise TypeError(f"Expected mapping for {tp.__name__}, got {type(value).__name__}")
@@ -124,11 +122,9 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
             return _dataclass_from_config_dict(concrete, filtered)
         return _dataclass_from_config_dict(tp, value)
 
-    # Enum.
     if _is_enum_type(tp):
         return tp(value)
 
-    # Generic containers.
     if origin in (list, tuple, set, frozenset):
         if not isinstance(value, list):
             raise TypeError(f"Expected list for {tp}, got {type(value).__name__}: {value!r}")
@@ -166,7 +162,6 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
             for k, v in value.items()
         }
 
-    # Primitive.
     if _is_primitive_type(tp):
         return _coerce_primitive(value, tp)
 

@@ -72,6 +72,10 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     timing_ctrl_config: UnmodeledBlockConfig
 
     @property
+    def supports_signed_weights(self) -> bool:
+        return False
+
+    @property
     def w_digit_n(self) -> int:
         return self.w_digit_num
 
@@ -182,16 +186,7 @@ class Ye2023JsscCimMacro(CimMacro):
             )
         self._register_functional_buffers(dtype=dtype)
 
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        # Shape: [output] -> [lane, scan]
-        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
-            self.lane_num, self.scan_num
-        )
-        # Shape: [..., lane, scan]
-        return output_indices < effective_output_num[..., None, None]
-
     def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
-        """Circuit latency of one output-row scan."""
         self._check_adc_active_bits(adc_active_bits)
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         return self.config.t_settle__ns + self.rscsa.latency__ns(active_bits=adc_active_bits)
@@ -242,8 +237,8 @@ class Ye2023JsscCimMacro(CimMacro):
         self.rscsa = RsCsaIadc(
             config=config.adc_config,
             policy=policy.adc_policy,
-            # Shape: [*inst_shape, lane, scan=1]
-            inst_shape=(*self.inst_shape, self.lane_num, 1),
+            # Shape: [*inst_shape, scan=1, lane]
+            inst_shape=(*self.inst_shape, 1, self.lane_num),
             dtype=dtype,
         )
 
@@ -272,14 +267,14 @@ class Ye2023JsscCimMacro(CimMacro):
         )
 
     def _register_functional_buffers(self, *, dtype: torch.dtype) -> None:
-        # Shape: [row, row] -> [lane, scan, row]
-        scan_wl_on = torch.eye(self.row_num, dtype=dtype).unflatten(0, (self.lane_num, self.scan_num))
-        # Shape: [lane, scan, row] -> [scan, row, col=1]
-        scan_wl_on = scan_wl_on.sum(dim=0).unsqueeze(self.array.col_dim)
+        # Shape: [row, row] -> [scan, lane, row]
+        scan_wl_on = torch.eye(self.row_num, dtype=dtype).unflatten(0, (self.scan_num, self.lane_num))
+        # Shape: [scan, lane, row] -> [scan, row, col=1]
+        scan_wl_on = scan_wl_on.sum(dim=1).unsqueeze(self.array.col_dim)
         # Shape: [scan] -> [scan, lane=1]
         scan_indices = torch.arange(self.scan_num).unsqueeze(-1)
         # Shape: [scan, lane]
-        tbl_row_indices = scan_indices + torch.arange(self.lane_num).unsqueeze(0) * self.scan_num
+        tbl_row_indices = scan_indices * self.lane_num + torch.arange(self.lane_num).unsqueeze(0)
 
         self._register_nonpersistent_buffer("_v_wl_scan__V", scan_wl_on * self.config.v_wl_on__V)
         self._register_nonpersistent_buffer("_scan_indices", scan_indices)
@@ -289,7 +284,6 @@ class Ye2023JsscCimMacro(CimMacro):
 
     @property
     def adc_bits(self) -> int:
-        """Maximum ADC resolution [bits] — the RS-CSA's physical resolution."""
         return self.rscsa.bits
 
     def _append_disabled_rsm(self, value: Tensor, *, dim: int) -> Tensor:
@@ -298,21 +292,16 @@ class Ye2023JsscCimMacro(CimMacro):
 
     @torch.no_grad()
     def program(self, w: Tensor) -> None:
-        """Encode logical weights onto the physical cell grid.
-
-        Args:
-            w: Logical unsigned weight tensor.
-                Shape: `[*inst_shape, input, output]`.
-        """
         expected_shape = (*self.inst_shape, self.input_num, self.output_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
 
-        # Shape: [..., input, output] -> [..., w_digit, input, output]
+        # Physical rows follow logical outputs: every lane in a scan, then the next scan.
+        # Shape: [..., input, output] -> [..., w_digit, input, row]
         digits = self._w_transcoder.encode(w, dim=-3)
-        # Shape: [..., w_digit, input, output] -> [..., w_digit=_w_digit_num+1, input, output]
+        # Shape: [..., w_digit, input, row] -> [..., w_digit=_w_digit_num+1, input, row]
         digits = self._append_disabled_rsm(digits, dim=-3)
-        # Shape: [..., w_digit, input, row] -> [..., row, w_digit, input] -> [..., row, col]
+        # Shape: [..., w_digit, input, row] -> [..., row, col]
         state_idx = digits.movedim(-1, -3).flatten(-2, -1)
         # Shape: [..., row, col] -> [..., scan=1, row, col]
         state_idx = state_idx.unsqueeze(-3)
@@ -345,8 +334,8 @@ class Ye2023JsscCimMacro(CimMacro):
         # Shape: [scan, row, col=1]
         v_wl__V = self._v_wl_scan__V
         if phase_mask is not None:
-            # Shape: [..., lane, scan] -> [..., scan=1, row, col=1]
-            row_mask = phase_mask.flatten(-2)[..., None, :, None]
+            # Shape: [..., scan, lane] -> [..., scan=1, row, col=1]
+            row_mask = phase_mask.flatten(-2).unsqueeze(-2).unsqueeze(-1)
             v_wl__V = v_wl__V.where(row_mask, 0)
 
         # --- 3: solve every scan phase ---
@@ -358,8 +347,8 @@ class Ye2023JsscCimMacro(CimMacro):
         bl_driver_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=port_shape)
         sl_driver_snap = self.sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=port_shape)
         # Enable BL/SL driving when at least one lane uses the scan.
-        # Shape: [..., lane, scan] -> [..., scan, row=1, col=1]
-        scan_enable = None if phase_mask is None else phase_mask.any(dim=-2)[..., None, None]
+        # Shape: [..., scan, lane] -> [..., scan, row=1, col=1]
+        scan_enable = None if phase_mask is None else phase_mask.any(dim=-1).unsqueeze(-1).unsqueeze(-1)
         if scan_enable is not None:
             bl_driver_snap = replace(bl_driver_snap, v_open__V=bl_driver_snap.v_open__V.where(scan_enable, 0))
             sl_driver_snap = replace(sl_driver_snap, v_open__V=sl_driver_snap.v_open__V.where(scan_enable, 0))
@@ -377,8 +366,6 @@ class Ye2023JsscCimMacro(CimMacro):
 
         # Shape: [..., scan, row] -> [..., scan, lane]
         i_tbl__uA = array_dcop.i_tbl_by_row__uA[..., self._scan_indices, self._tbl_row_indices]
-        # Shape: [..., scan, lane] -> [..., lane, scan]
-        i_tbl__uA = i_tbl__uA.movedim(-1, -2)
 
         # --- 4: array conduction ---
 
@@ -397,18 +384,18 @@ class Ye2023JsscCimMacro(CimMacro):
         # Shape: [..., mode] -> [...]
         i_refs__uA = self.rscsa_reference.values()[..., quantization_mode]
         i_refs_shape = (*i_refs__uA.shape, 1, 1, 1)
-        # Shape: [...] -> [..., lane=1, scan=1, tap=1]
+        # Shape: [...] -> [..., scan=1, lane=1, tap=1]
         i_refs__uA = i_refs__uA.view(i_refs_shape)
-        # Shape: [..., lane, scan]
+        # Shape: [..., scan, lane]
         i_signal__uA = i_tbl__uA - self.array.i_tbl_leak__uA
-        # Shape: [..., lane, scan]
+        # Shape: [..., scan, lane]
         code = self.rscsa.convert(i_signal__uA, i_refs__uA, active_bits=adc_active_bits, enable=phase_mask)
 
         # --- 6: shared peripheral energy per active scan ---
 
-        control_mask = None if phase_mask is None else phase_mask.any(dim=-2)
+        control_mask = None if phase_mask is None else phase_mask.any(dim=-1)
         self.mux_driver.execute((*leading_shape, self.scan_num), enable=control_mask)
         self.timing_ctrl.execute((*leading_shape, self.scan_num), enable=control_mask)
 
-        # Shape: [..., lane, scan] -> [..., output]
+        # Shape: [..., scan, lane] -> [..., output]
         return code.flatten(-2)

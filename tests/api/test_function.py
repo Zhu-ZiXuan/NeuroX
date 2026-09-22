@@ -18,16 +18,12 @@ class _Policy(PolicyBase):
 
 
 class _Node(NonProfileModule):
-    """NeuroX module that may hold NeuroX children."""
-
     def __init__(self, *children: nn.Module) -> None:
         super().__init__(config=_Config(), policy=_Policy(), inst_shape=())
         self.children_ = nn.ModuleList(children)
 
 
 class _Owner(nn.Module):
-    """A plain container binding one NeuroX child under a role name."""
-
     def __init__(self, node: nn.Module) -> None:
         super().__init__()
         self.leaf = node

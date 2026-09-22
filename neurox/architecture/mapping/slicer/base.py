@@ -4,29 +4,84 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-import torch
 from torch import Tensor
+
+from neurox.primitive.digital import RadixAccumulator, RadixSummator
 
 
 class Slicer(ABC):
-    """Decompose integers into a trailing slice axis."""
+    """Decompose integers along a caller-selected slice axis.
+
+    Construction binds an ordinary reference to the owner's recovery circuit.
+    A direct implementation has exactly one slice and no recovery circuit.
+    Encoded implementations have multiple slices and may use either a recovery
+    circuit or exact tensor arithmetic without register wrap or circuit cost.
+    Positional weights are the successive powers of `slice_radix`.
+    """
+
+    def __init__(
+        self,
+        *,
+        recovery_circuit: RadixSummator | RadixAccumulator | None,
+    ) -> None:
+        self.recovery_circuit = recovery_circuit
+
+    # === Public API ===
+
+    def recover(self, values: Tensor, *, dim: int, enable: Tensor | None = None) -> Tensor:
+        """Recover multiple slices through a circuit or tensor arithmetic, or pass one slice through.
+
+        Args:
+            values: Slice values or linear-operation results for each slice.
+                Shape: `[..., slice, ...]`.
+            dim: Axis indexing slices in least-significant-first order.
+            enable: Optional operand enables broadcastable to `values`.
+                Ignored for a single slice.
+
+        Returns:
+            Weighted sum with the slice axis removed, preserving the dtype.
+        """
+        if self.slice_num == 1:
+            return values.squeeze(dim)
+        # Circuit topology is fixed at construction, so dispatch resolves during tracing.
+        if isinstance(self.recovery_circuit, RadixAccumulator):
+            return self.recovery_circuit.radix_accumulate(values, dim=dim, radix=self.slice_radix, enable=enable)
+        if isinstance(self.recovery_circuit, RadixSummator):
+            return self.recovery_circuit.radix_sum(values, dim=dim, radix=self.slice_radix, enable=enable)
+        if enable is not None:
+            values = values.where(enable, 0)
+        # Shape: [slice]
+        scales = values.new_tensor(self.place_values)
+        # Shape: [..., slice, ...] -> [..., slice] -> [...]
+        return (values.movedim(dim, -1) * scales).sum(dim=-1, dtype=values.dtype)
 
     # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def place_values(self) -> tuple[int, ...]:
+        """Positive positional coefficients, one per slice, in emitted order."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def has_signed_slices(self) -> bool:
+        """Whether slice values can be negative."""
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def value_range(self) -> tuple[int, int]:
         """Inclusive algorithm-side integer range this slicer can encode.
 
-        A caller contract: `slice` neither clamps nor rejects a value outside
-        it.
+        `slice` neither clamps nor rejects values outside this range.
         """
         raise NotImplementedError
 
     @property
     @abstractmethod
     def slice_num(self) -> int:
-        """Number of positional slices."""
+        """Fixed number of positional slices; encoding does not append extra slices."""
         raise NotImplementedError
 
     @property
@@ -35,40 +90,16 @@ class Slicer(ABC):
         """Positional radix between adjacent slices."""
         raise NotImplementedError
 
-    @property
     @abstractmethod
-    def slice_weights(self) -> tuple[int, ...]:
-        """LSB-first positional weight of each slice.
-
-        Plain Python integers: a slicer owns no device and no dtype, so a
-        consumer materializes the tensor at its own boundary.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def slice(self, x: Tensor) -> Tensor:
-        """Decompose `x` into trailing positional slice values.
-
-        Returns:
-            Positional slice values.
-            Shape: `[..., slice]`.
-        """
-        raise NotImplementedError
-
-    def recover(self, values: Tensor, *, dim: int) -> Tensor:
-        """Sum partial results using the positional weights of this decomposition.
+    def slice(self, x: Tensor, *, dim: int = -1) -> Tensor:
+        """Decompose `x` into positional slice values.
 
         Args:
-            values: Slice values or linear-operation results for each slice.
-                Shape: `[..., slice, ...]`.
-            dim: Axis indexing slices in least-significant-first order.
+            x: Integer tensor to decompose.
+            dim: Axis at which the slice dimension is inserted.
 
         Returns:
-            Weighted sum with the slice axis removed, preserving the dtype.
-            No hardware register-width wrap is applied.
+            Positional slice values with a new axis at `dim`.
+            Shape: `[..., slice, ...]`.
         """
-        weights = torch.tensor(self.slice_weights, dtype=values.dtype, device=values.device)
-        # Shape: [..., slice, ...] -> [..., slice]
-        aligned = values.movedim(dim, -1)
-        # Shape: [..., slice] -> [...]
-        return (aligned * weights).sum(dim=-1, dtype=values.dtype)
+        raise NotImplementedError

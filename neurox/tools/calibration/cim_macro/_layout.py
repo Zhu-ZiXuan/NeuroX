@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import torch
 from torch import Tensor
+
+from neurox.architecture.mapping import InputPhaseSplitter
 
 
 def unroll_active_positions(
@@ -15,11 +16,9 @@ def unroll_active_positions(
 ) -> Tensor:
     """Partition inputs into planes aligned to the called macro's instances."""
     inst_rank = len(inst_shape)
-    plane_num = -(-input_num // max_active_num)
-    plane_of_input = torch.arange(input_num, device=x.device) // max_active_num
-    mask = plane_of_input == torch.arange(plane_num, device=x.device).unsqueeze(-1)
-    # Shape: [input_phase, input] -> [input_phase, *inst_shape=1, input]
-    mask_shape = (mask.shape[0], *(1,) * inst_rank, mask.shape[-1])
-    mask = mask.view(mask_shape)
-    planes = torch.where(mask, x.unsqueeze(-(inst_rank + 2)), x.new_zeros(()))
+    splitter = InputPhaseSplitter(input_num=input_num, max_active_num=max_active_num)
+    # Shape: [..., *inst_shape, input] -> [..., *inst_shape, input_phase, input]
+    planes = splitter.split(x)
+    # Shape: [..., *inst_shape, input_phase, input] -> [..., input_phase, *inst_shape, input]
+    planes = planes.movedim(-2, -(inst_rank + 2))
     return planes.expand(*planes.shape[: -(inst_rank + 1)], *inst_shape, input_num)

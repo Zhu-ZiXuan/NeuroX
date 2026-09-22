@@ -149,7 +149,7 @@ class Rram(NonProfileModule):
 
     @torch.no_grad()
     def program(self, target_g__uS: Tensor) -> None:
-        """Program the stored conductance with elapsed time fixed to zero.
+        """Store bounded conductance with programming variation.
 
         Args:
             target_g__uS: Target conductance tensor. Its device and dtype are
@@ -158,10 +158,6 @@ class Rram(NonProfileModule):
         g_min__uS = self.config.g_min__uS
         g__uS = target_g__uS.clamp(g_min__uS, self._g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
-        # if self.policy.drift and self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
-        #     drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
-        #     g__uS = g__uS * drift_factor
-
         g__uS = apply_stuck_at_fault(
             x=g__uS,
             config=self.config.stuck_at,

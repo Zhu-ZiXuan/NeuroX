@@ -21,26 +21,7 @@ if TYPE_CHECKING:
 
 
 class Conv2dUnitConfig(UnitConfig, base_only=True):
-    # === Convolution geometry ===
-
-    stride: tuple[int, int]
-    """Output step `(s_h, s_w)`."""
-    padding: tuple[int, int]
-    """Zero-pad extent `(p_h, p_w)` on each side."""
-    dilation: tuple[int, int]
-    """Kernel tap spacing `(d_h, d_w)`."""
-
-    def validate(self) -> None:
-        super().validate()
-
-        # --- Convolution geometry ---
-
-        self._require_pos(self.stride[0], "stride[0]")
-        self._require_pos(self.stride[1], "stride[1]")
-        self._require_non_neg(self.padding[0], "padding[0]")
-        self._require_non_neg(self.padding[1], "padding[1]")
-        self._require_pos(self.dilation[0], "dilation[0]")
-        self._require_pos(self.dilation[1], "dilation[1]")
+    pass
 
 
 class Conv2dUnitPolicy(PolicyBase, base_only=True):
@@ -54,7 +35,27 @@ _Policy = Conv2dUnitPolicy
 class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
     """Interface for an integer `torch.nn.functional.conv2d` replacement.
 
-    Grouped convolution is not supported.
+    Construction initializes the common unit and retains the logical kernel
+    shape and dtype used by `to_ideal`.
+    Implementations initialize any additional implementation base explicitly
+    after this constructor returns.
+
+    `w_logical_shape` accepts `weight.shape` and is stored as a fixed-length
+    `(output_channel, input_channel_per_group, kernel_h, kernel_w)` tuple.
+    Output channels must be divisible by `groups`. Runtime inputs have
+    `input_channel_per_group * groups` channels. Invalid shapes raise
+    `ValueError`.
+    One basic operation for latency and profiling is one complete image,
+    including its internal window schedule.
+
+    Convolution geometry is bound at construction independently of the hardware
+    config and is preserved by `to_ideal`.
+
+    Args:
+        stride: Positive output step `(s_h, s_w)`.
+        padding: Nonnegative zero-pad extent `(p_h, p_w)` on each side.
+        dilation: Positive kernel tap spacing `(d_h, d_w)`.
+        groups: Positive number of independent channel groups.
     """
 
     config: _Config
@@ -70,13 +71,33 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        dilation: tuple[int, int],
+        groups: int,
         dtype: torch.dtype,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=())
-        self._w_logical_shape = tuple(w_logical_shape)
-        self._dtype = dtype
+        if groups < 1:
+            raise ValueError(f"groups must be positive; got {groups}")
+        if len(stride) != 2 or any(step < 1 for step in stride):
+            raise ValueError(f"stride must contain two positive steps; got {stride}")
+        if len(padding) != 2 or any(extent < 0 for extent in padding):
+            raise ValueError(f"padding must contain two nonnegative extents; got {padding}")
+        if len(dilation) != 2 or any(step < 1 for step in dilation):
+            raise ValueError(f"dilation must contain two positive spacings; got {dilation}")
         if len(w_logical_shape) != 4:
-            raise ValueError("conv2d weight shape must have 4 axes")
+            raise ValueError(f"conv2d w_logical_shape must have 4 axes; got {w_logical_shape}")
+        if any(size <= 0 for size in w_logical_shape):
+            raise ValueError(f"conv2d weight dimensions must be positive; got {w_logical_shape}")
+        if w_logical_shape[0] % groups != 0:
+            raise ValueError("conv2d output channels must be divisible by groups")
+        UnitBase.__init__(self, config=config, policy=policy)
+        self._w_logical_shape = w_logical_shape
+        self._dtype = dtype
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
 
     # === Public API ===
 
@@ -87,11 +108,24 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        dilation: tuple[int, int],
+        groups: int,
         dtype: torch.dtype,
     ) -> Conv2dUnit:
         """Construct the conv2d implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
-        return impl(config=config, policy=policy, w_logical_shape=w_logical_shape, dtype=dtype)
+        return impl(
+            config=config,
+            policy=policy,
+            w_logical_shape=w_logical_shape,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            dtype=dtype,
+        )
 
     @final
     def to_ideal(self) -> IdealConv2dUnit:
@@ -106,16 +140,17 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config = IdealConv2dUnitConfig(
             x_value_range=self.x_value_range,
             w_value_range=self.w_value_range,
-            area_per_inst__um2=self.area__um2,
-            leakage_per_inst__uW=self.leakage__uW,
-            stride=self.config.stride,
-            padding=self.config.padding,
-            dilation=self.config.dilation,
+            area_per_inst__um2=self._area_per_inst__um2,
+            leakage_per_inst__uW=self._leakage_per_inst__uW,
         )
         ideal = IdealConv2dUnit(
             config=config,
             policy=IdealConv2dUnitPolicy(),
             w_logical_shape=self._w_logical_shape,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            groups=self.groups,
             dtype=self._dtype,
         )
         ideal.set_temperature(self.T__K)
@@ -148,10 +183,21 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
         Raises:
             ValueError: `input` is neither `[B, C_in, H, W]` nor its unbatched
-                `[C_in, H, W]` form, or the configured geometry yields an empty
-                output map.
+                `[C_in, H, W]` form, its channel count does not match the
+                grouped weights, or the configured geometry yields an empty output map.
         """
-        return self._conv2d_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        if input.ndim not in (3, 4):
+            raise ValueError(f"conv2d() expects input [C_in, H, W] or [B, C_in, H, W]; got ndim {input.ndim}")
+        input_channels = self._w_logical_shape[1] * self.groups
+        if input.shape[-3] != input_channels:
+            raise ValueError(f"conv2d() expects {input_channels} input channels; got {input.shape[-3]}")
+        output = self._conv2d_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        if self._is_profiler_active():
+            latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
+            sample_shape = (input.shape[0],) if input.ndim == 4 else (1,)
+            latency = input.new_tensor(latency__ns, dtype=torch.float64)
+            self._record_latency(latency.expand(sample_shape[: self._profile_leading_rank]))
+        return output
 
     # === For subclass to implement or override ===
 
@@ -161,7 +207,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
         Args:
             weight: Integer weight values.
-                Shape: `[C_out, C_in, kh, kw]`.
+                Shape: `[C_out, C_in/groups, kh, kw]`.
             bias: Per-channel integer bias added in the int64 accumulation
                 domain; `None` clears any programmed bias.
                 Shape: `[C_out]`.
@@ -170,7 +216,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @abstractmethod
     def _conv2d_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
-        """Implement the convolution operation, including the programmed bias."""
+        """Compute the convolution output, including the programmed bias."""
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
@@ -189,9 +235,9 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
             ValueError: the configured geometry yields an empty output map.
         """
         kh, kw = self._w_logical_shape[-2:]
-        s_h, s_w = self.config.stride
-        p_h, p_w = self.config.padding
-        d_h, d_w = self.config.dilation
+        s_h, s_w = self.stride
+        p_h, p_w = self.padding
+        d_h, d_w = self.dilation
         h_out = (h + 2 * p_h - d_h * (kh - 1) - 1) // s_h + 1
         w_out = (w + 2 * p_w - d_w * (kw - 1) - 1) // s_w + 1
         if h_out < 1 or w_out < 1:

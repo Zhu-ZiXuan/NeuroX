@@ -11,6 +11,10 @@ from .base import Transcoder
 class UnsignedTranscoder(Transcoder):
     """Ordinary unsigned base-`r` encoding."""
 
+    @property
+    def has_signed_digits(self) -> bool:
+        return False
+
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
         all_digits: list[Tensor] = []
         for _ in range(self.digit_count):

@@ -9,7 +9,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox import Profiler, Reporter
+from neurox import Profiler
 from tests.works.macro.cim.xue2020jssc.macro._utils import (
     QUANTIZATION_MODE,
     TINY_ADC_BITS,
@@ -90,21 +90,27 @@ def test_dynamic_energy_is_additive_over_the_ensemble(device: torch.device) -> N
     macro, w = _programmed(device, inst_shape)
     x = _die_inputs((), inst_shape)
 
-    with Profiler() as prof, torch.no_grad():
+    with Profiler(concat_dim=0) as prof, torch.no_grad():
         macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
-    ensemble__fJ = Reporter(macro).total_dynamic_energy__fJ(prof)
+    ensemble__fJ = sum(
+        item.dynamic_energy__fJ.sum().item() for item in prof.result.values() if item.dynamic_energy__fJ is not None
+    )
 
     separate__fJ = 0.0
     for die in range(inst_shape[0]):
         one = build_calibrated_macro(device=device)
         one.program(w[die].to(device))
-        with Profiler() as prof_one, torch.no_grad():
+        with Profiler(concat_dim=0) as prof_one, torch.no_grad():
             one.vec_mat_mul(
                 x[die].to(device),
                 quantization_mode=QUANTIZATION_MODE,
                 adc_active_bits=TINY_ADC_BITS,
             )
-        separate__fJ += Reporter(one).total_dynamic_energy__fJ(prof_one)
+        separate__fJ += sum(
+            item.dynamic_energy__fJ.sum().item()
+            for item in prof_one.result.values()
+            if item.dynamic_energy__fJ is not None
+        )
 
     assert ensemble__fJ == pytest.approx(separate__fJ)
     assert separate__fJ > 0.0

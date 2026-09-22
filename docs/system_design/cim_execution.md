@@ -1,27 +1,35 @@
 # CIM execution
 
-A CIM execution maps a logical operator onto finite hardware, schedules accesses, and assembles their results. The operator defines the computation, the engine determines its mapping and schedule, and the macro implements one access.
+CIM execution maps a logical operator onto finite hardware, schedules accesses, and assembles results. The operator defines the computation, the engine determines mapping and scheduling, and the macro implements one access.
 
-## Mapping a workload
+## Mapping responsibilities
 
-The workload supplies logical input and weight dimensions. The macro supplies fixed logical capacities, value ranges, and selection limits. Mapping partitions work against those capacities without requiring the engine to interpret the macro's internal rows, columns, or readout circuits.
+The operator supplies logical input and weight dimensions; the macro supplies capacities, value ranges, and selection limits. The unit composes accesses against those constraints without interpreting the macro's internal cell layout. Precision representation, physical placement, recovery order, and their governing equations are specified by the [CIM unit model](../reference/architecture/unit/cim.md).
 
-Digit encoding and slicing represent values in the ranges supported by the hardware. Placement assigns the resulting work to hardware instances and reuse slots. Input activation divides an access when the hardware cannot activate every required input together.
+The unit owns its arithmetic circuits. Mapping tools reference those circuits without introducing another hardware owner. Lane arithmetic belongs to the digital children; storage for partial sums belongs to the unit-local peripheral budget. An ideal macro provides a control through the same placement and recovery path.
 
-The mapping distinguishes parallel replication from temporal reuse. Replication determines the hardware population; reuse determines the access count and duration. A workload's number of output positions can change the required work without changing the constructed hardware.
+## Hardware multiplicity and reuse
 
-## Mapping and aggregation
+Replication determines hardware population; temporal reuse determines access count and duration. Changing the number of workload output positions can change work without changing hardware. Input-slot sharing reuses each allocated macro within the mapped operator.
 
-Each mapping has a corresponding aggregation: digit slices require positional weighting, contraction partitions require summation, and output partitions require restoration to logical order. Their pairing determines numerical meaning. Input-tile summation is evaluated functionally without modeled hardware cost; input-phase accumulation and precision reconstruction retain their digital accounting.
+Grouped convolution gives each group an independent macro population and local and global digital circuits. Mapping and input-slot sharing operate within each group; output recovery concatenates groups without summing them. Group multiplicity contributes to hardware cost and energy while group schedules run in parallel.
 
-Engine-side transformations use exact integer arithmetic. Padding represents zero, and trimming removes padded positions. The physical macro access introduces the modeled analog and conversion effects. An ideal access therefore provides a control for the same mapping and aggregation.
+The convolution adapter receives stride, padding, dilation, and group count as constructor context alongside the kernel shape. It validates and retains this geometry independently of the hardware config; ideal conversion preserves it through the target constructor.
 
-Input generation and requantization select int32 for quantized inputs and weights. Intermediate interfaces require integer values rather than a particular storage width; each operation states only its own numerical and representation requirements. Lookup operations convert their index expressions locally. ADCs and physical macro accesses produce int32 codes; ideal macro accesses produce int64 results. The engine widens macro results to int64 before digital aggregation. Digital blocks use their operands' integer dtype without imposing an independent int64 input requirement. Ideal integer multiply-accumulate paths widen operands before arithmetic. The caller-selected storage width must represent the values and intermediates required by each operation, independently of modeled digital register widths.
+The shared matrix interface always retains the group axis, including when its extent is one. Weights use `[group, output, input]`, inputs use `[..., group, input]`, and results use `[..., group, output]`. Operator adapters insert or restore this axis at their boundaries. Matrix execution follows one layout for every group count; construction uses that count only to size the physical circuits.
+
+## Access metadata
+
+Placement and valid output counts derive from the same unpadded geometry, including weight slices, partial tiles, and absent input slots. Different reuse slots can have different valid widths. Zero-valued weights remain valid. The placement owner keeps this metadata aligned with programmed weights, and the macro uses it consistently for electrical execution and timing. Local recovery preserves that correspondence until outputs are restored to logical order.
+
+## Timing and accounting
+
+Timing follows [operation-duration ownership](ppa_accounting.md#operation-duration). The unit combines macro durations with its digital work under the [CIM timing model](../reference/architecture/unit/cim.md#timing), including the scan overlap and global recovery pipeline. Numerical batching preserves this physical schedule.
+
+Circuits account for the operations and hardware they own under [PPA accounting](ppa_accounting.md). The task owner composes the unit's basic operations at retained batch, token, and timestep positions and determines any cross-unit overlap.
 
 ## One physical access
 
-A macro establishes the electrical boundaries and schedules the phases that use them. It owns peripheral sampling and the distinction between a boundary held across phases and a fresh boundary event. The array determines the electrical response of its cells and interconnect to those supplied conditions.
+A macro establishes electrical boundaries, schedules their phases, and owns peripheral sampling. It distinguishes a boundary held across phases from a fresh boundary event. The array evaluates its cells and interconnect under those supplied conditions and returns the terminal currents and voltages required by surrounding circuitry.
 
-The array's operating point provides the terminal currents and voltages needed by the surrounding circuitry. The numerical iterations that find this point are internal to the electrical evaluation. They do not add phases to the physical schedule.
-
-Shared boundaries follow the event lifetimes in [physical state](physical_state.md). Their establishment and phase-dependent activity contribute under [PPA accounting](ppa_accounting.md), regardless of how the numerical work is batched.
+Numerical iterations toward the operating point add no physical phases. Shared boundaries follow [physical-state lifetimes](physical_state.md); their establishment and phase-dependent activity contribute under [PPA accounting](ppa_accounting.md), independently of numerical batching.

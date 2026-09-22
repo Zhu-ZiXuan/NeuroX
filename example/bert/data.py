@@ -5,10 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
-# `transformers` and `datasets` are runtime dependencies of this
-# example only; install them with
-#     pip install transformers datasets
 from datasets import Dataset, load_dataset
 from torch.utils.data import DataLoader, Subset
 from transformers import AutoTokenizer
@@ -39,7 +35,6 @@ def _tokenize_split(split_name: str, dataset_dir: Path, model_name: str, max_len
 
 
 def _collate(batch: list[dict[str, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Stack a list of tokenized samples into 4 tensors."""
     input_ids = torch.stack([item["input_ids"] for item in batch])
     attention_mask = torch.stack([item["attention_mask"] for item in batch])
     token_type_ids = torch.stack([item["token_type_ids"] for item in batch])
@@ -63,17 +58,14 @@ def create_sst2_dataloader(
     Args:
         dataset_dir: Cache directory for the GLUE / SST-2 corpus and the
             tokenizer files, passed to HuggingFace as `cache_dir`.
-        batch_size: Samples per batch; the trailing batch may be short.
         device: Runtime device, consulted only to decide `pin_memory`.
         split: `"train"` selects the training split, anything else the
             validation split. GLUE ships the SST-2 test split unlabelled, so
             scoring runs on validation.
-        shuffle: Reshuffles the split on every epoch.
         max_length: Token sequence length every sample is padded or truncated
-            to. 128 covers the SST-2 distribution (median ≈ 11 tokens).
+            to.
         model_name: HuggingFace tokenizer identifier; must match the model it
             feeds so the vocabulary aligns.
-        indices: Subset indices for sharded evaluation.
 
     Returns:
         DataLoader yielding 4-tuples

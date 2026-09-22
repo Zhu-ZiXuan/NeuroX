@@ -1,23 +1,25 @@
 # Configuration and policy
 
-A module tree is built from a paired file set: one file carrying the immutable design, one carrying the run's policy. Each file is TOML or YAML, chosen by its suffix, and each loads into its own dataclass tree independently — nothing in the format binds the two, and the caller forms the pair. Why the split runs where it does, and how the loaded objects then select an implementation, is in [construction](../system_design/construction.md).
+Configuration and policy load independently from TOML or YAML files into dataclass trees. The caller pairs the hardware design with the run choices under [construction](../system_design/construction.md).
+
+Convolution geometry (`stride`, `padding`, `dilation`, and `groups`) is constructor context supplied with `w_logical_shape`, rather than fields in the hardware config. `conv2d_unit_from_file` also receives this geometry explicitly from its caller.
 
 ## The two files
 
 - **Config** — the immutable circuit design: module geometry, device and circuit parameters, and the calibrated tables the design carries. One config file fully specifies a chip and holds no nonideality switch.
 - **Policy** — the run's stance on that design: one `bool` per nonideality source (device mismatch, thermal noise, programming noise, ADC offsets, ...), plus the numerical knobs a run tunes, such as the array's `solve_chunk_size`. Its section tree mirrors the config's.
 
-The entry point names the pair. The bundled examples pass the two files as `--config` and `--policy` (the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md) runs them end to end); a calibration tool instead takes one run config that names the pair together with the section to pluck from each, under the rules in [tool conventions](../guides/calibration/tool_conventions.md). The file set a calibration campaign ships, and the provenance tag every physical value in it carries, are specified in [campaigns](../validation/campaigns.md).
+Each entry point selects the pair. Calibration uses one run config naming both files and their sections, under [tool conventions](../guides/calibration/tool_conventions.md); [campaigns](../validation/campaigns.md) defines the campaign file set and physical-value provenance tags.
 
 ## Structure
 
-A load plucks one named section from the file — a dotted name descends nested tables — or takes the file root when it names none. Under that section the tree mirrors the construction tree: a child module's config is a section nested under its owner's, at the field name the owner declares. Ownership, not physical adjacency, fixes that nesting: a peripheral block the macro itself constructs is a section under the macro, beside the array's own, even though it sits electrically at the array's edge. The policy mirrors the same ownership under its own field names.
+A load selects a named section, using dots to descend nested tables, or the file root when no section is given. Config and policy trees mirror ownership: each child is nested under its owner at the declared field name, independently of physical adjacency.
 
 Several files may feed one object, ordered by descending priority: the merge fills missing keys from the right, so the first file to state a key wins, and a key holding a table in one file and a scalar in another is rejected rather than reconciled.
 
 ## Directives
 
-A directive is a reserved key the loader interprets: a field takes a nested mapping carrying a `_neurox_*` key, which a stock TOML or YAML parser reads as ordinary data. The loader recognizes three:
+The loader interprets reserved `_neurox_*` keys in nested mappings:
 
 - `_neurox_class = "<Name>Config"` — selects the config class for a polymorphic field. The name resolves only within the declared class and its descendants; without the directive, the loader uses the declared class. This applies to both top-level targets and nested fields. The selected class is constructed normally, including its own construction constraints and validation.
 - `_neurox_use = "<file>:<section>"` — composes in another file's section, so a shared design fragment is written once. The path resolves against the directory of the file that carries the directive, and a path written without a suffix tries `.toml`, then `.yaml`, then `.yml`.
@@ -41,7 +43,7 @@ A value whose type does not match the field's declared type fails too: a `bool` 
 
 Before field construction, the loader normalizes every file to one format-independent value tree: `None`, `bool`, `int`, `float`, and `str` leaves; lists; and mappings with string keys. Values outside that contract are rejected at the file boundary. In particular, quote YAML values that would otherwise be inferred as dates or other YAML-specific Python objects.
 
-Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[cim_macro.array_config]` fields in [reference/primitive/xbar/array/1t1r](../reference/primitive/xbar/array/1t1r.md), with driver and readout fields under the Analog group in [Reference](../reference/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md).
+The owning field docstring defines its interface semantics. Model parameters, units, constraints, and provenance belong to the corresponding Reference document under the [parameter Source taxonomy](../conventions/module_parameter.md).
 
 ## TOML
 

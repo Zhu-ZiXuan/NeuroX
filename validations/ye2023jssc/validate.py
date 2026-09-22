@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 import logging
-import math
 import statistics
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from neurox import Reporter
+from neurox import ProfileItem, Profiler
 from neurox.tools.validation.cim_macro import (
     ValidationArgs,
     area_per_macro__um2,
     build_macro,
+    dynamic_energy_by_round__fJ,
     get_cli_args,
     mean_by_name,
     parse_cli_args,
     profile_vmm,
     render_run_summary,
-    static_energy_by_name__fJ,
+    static_energy_by_round__fJ,
     validation_run,
 )
 from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro
@@ -40,8 +40,8 @@ _GROUPS = ("array", "rscsa", "mux_driver", "timing_ctrl")
 
 _DYNAMIC_GROUPS = {
     "array": "array",
-    ".bl_conduction": "array",
-    ".tbl_conduction": "array",
+    "bl_conduction": "array",
+    "tbl_conduction": "array",
     "rscsa": "rscsa",
     "bl_driver": "mux_driver",
     "sl_driver": "mux_driver",
@@ -69,12 +69,13 @@ class PointMeasurement:
     paper_total__uW: float
     dynamic__fJ: dict[str, float]
     static__fJ: dict[str, float]
+    cycle__ns: float
     round_total__uW: tuple[float, ...]
 
     @property
     def model_by_group__uW(self) -> dict[str, float]:
         return {
-            group: (self.dynamic__fJ.get(group, 0.0) + self.static__fJ.get(group, 0.0)) / measurement_cycle__ns()
+            group: (self.dynamic__fJ.get(group, 0.0) + self.static__fJ.get(group, 0.0)) / self.cycle__ns
             for group in _GROUPS
         }
 
@@ -118,10 +119,6 @@ def _build_macro(*, device: torch.device, n_w: int) -> Ye2023JsscCimMacro:
     )
     if not isinstance(macro, Ye2023JsscCimMacro):
         raise TypeError(f"validation config built {type(macro).__name__}, expected Ye2023JsscCimMacro")
-    access__ns = macro.latency__ns(adc_active_bits=_ADC_ACTIVE_BITS) / macro.scan_num
-    cycle__ns = measurement_cycle__ns()
-    if not math.isclose(access__ns, cycle__ns, rel_tol=0.0, abs_tol=1e-12):
-        raise ValueError(f"validation access duration {access__ns} ns does not match measurement cycle {cycle__ns} ns")
     return macro
 
 
@@ -150,42 +147,40 @@ def _draw_input_uniform(gen: torch.Generator, *, n_x: int, n_w: int, input_num: 
     return torch.rand((n_x, n_w, input_num), generator=gen, device=gen.device)
 
 
-def _static_by_group__fJ(static_by_name__fJ: dict[str, float]) -> dict[str, float]:
-    result: dict[str, float] = {}
-    for name, energy__fJ in static_by_name__fJ.items():
-        group = _STATIC_GROUPS[name]
-        result[group] = result.get(group, 0.0) + energy__fJ
-    if result.get("other", 0.0) != 0.0:
-        raise ValueError("validation breakdown leaves nonzero static energy unassigned")
-    return result
-
-
 def measure(
-    dynamic_rounds: dict[float, list[dict[str, float]]],
-    static_by_name__fJ: dict[str, float],
+    profile_results: dict[float, dict[str, ProfileItem]],
+    *,
+    scan_num: int,
+    n_x: int,
+    powered_duration__ns: torch.Tensor,
 ) -> tuple[PointMeasurement, ...]:
-    """Measure and pool the two Fig. 19 workload points."""
+    """Measure and pool the two Fig. 19 points from per-macro reporting inputs."""
     input_sparsities = tuple(float(value) for value in _ANCHORS["data"]["input_sparsity"])
     paper_totals = tuple(float(value) for value in _ANCHORS["paper"]["total_power__uW"])
-    static = _static_by_group__fJ(static_by_name__fJ)
-    static__fJ = sum(static_by_name__fJ.values())
-
     points: list[PointMeasurement] = []
     for input_sparsity, paper_total in zip(input_sparsities, paper_totals, strict=True):
-        dynamic_by_name__fJ = mean_by_name(dynamic_rounds[input_sparsity])
-        dynamic: dict[str, float] = {}
-        for name, energy__fJ in dynamic_by_name__fJ.items():
-            group = _DYNAMIC_GROUPS[name]
-            dynamic[group] = dynamic.get(group, 0.0) + energy__fJ
+        result = profile_results[input_sparsity]
+        dynamic_rounds = dynamic_energy_by_round__fJ(result, scan_num=scan_num, n_x=n_x, groups=_DYNAMIC_GROUPS)
+        static_rounds = static_energy_by_round__fJ(
+            result, scan_num=scan_num, n_x=n_x, powered_duration__ns=powered_duration__ns, groups=_STATIC_GROUPS
+        )
+        cycle__ns = measurement_cycle__ns()
+        dynamic = mean_by_name(dynamic_rounds)
+        if dynamic.get("other", 0.0) != 0.0:
+            raise ValueError("validation breakdown leaves nonzero dynamic energy unassigned")
+        static = mean_by_name(static_rounds)
+        if static.get("other", 0.0) != 0.0:
+            raise ValueError("validation breakdown leaves nonzero static energy unassigned")
         points.append(
             PointMeasurement(
                 input_sparsity=input_sparsity,
                 paper_total__uW=paper_total,
                 dynamic__fJ=dynamic,
                 static__fJ=static,
+                cycle__ns=cycle__ns,
                 round_total__uW=tuple(
-                    (sum(round_data.values()) + static__fJ) / measurement_cycle__ns()
-                    for round_data in dynamic_rounds[input_sparsity]
+                    (sum(dynamic.values()) + sum(static.values())) / cycle__ns
+                    for dynamic, static in zip(dynamic_rounds, static_rounds, strict=True)
                 ),
             )
         )
@@ -331,15 +326,15 @@ def validate(args: ValidationArgs) -> None:
     # --- 1: construct the macro ensemble and static accounting ---
 
     macro = _build_macro(device=args.device, n_w=args.n_w)
-    reporter = Reporter(macro)
+    # Each retained input/weight position is one physical macro's full VMM.
+    macro.set_profile_leading_rank(2)
     data = _ANCHORS["data"]
     input_sparsities = tuple(float(value) for value in data["input_sparsity"])
-    static_by_name__fJ = static_energy_by_name__fJ(
-        macro,
-        reporter,
-        measurement_cycle__ns=measurement_cycle__ns(),
-    )
-    dynamic_rounds: dict[float, list[dict[str, float]]] = {input_sparsity: [] for input_sparsity in input_sparsities}
+    profilers = {
+        input_sparsity: Profiler(concat_dim=0, sync_device=torch.device("cpu")) for input_sparsity in input_sparsities
+    }
+    for profiler in profilers.values():
+        profiler.collect_static_data(macro)
 
     # --- 2: sample, program, and profile every round and operating point ---
 
@@ -361,19 +356,44 @@ def validate(args: ValidationArgs) -> None:
                 input_num=macro.input_num,
             )
             for input_sparsity in input_sparsities:
+                _LOG.info(
+                    "profiling round %d/%d, input sparsity %.1f%%",
+                    round_index + 1,
+                    args.repeat,
+                    input_sparsity * 100.0,
+                )
                 x = (input_uniform >= input_sparsity).long()
-                profiled = profile_vmm(
+                profile_vmm(
                     macro,
-                    reporter,
+                    profilers[input_sparsity],
                     x,
                     quantization_mode=_QUANTIZATION_MODE,
                     adc_active_bits=_ADC_ACTIVE_BITS,
                 )
-                dynamic_rounds[input_sparsity].append(profiled.dynamic_by_name_per_access__fJ)
 
     # --- 3: interpret the profiler rows against the paper anchors ---
 
-    points = measure(dynamic_rounds, static_by_name__fJ)
+    profile_results = {input_sparsity: profiler.result for input_sparsity, profiler in profilers.items()}
+    torch.save(profile_results, args.output_dir / "profile.pt")
+    report_results = {
+        sparsity: {
+            name: replace(
+                item,
+                area__um2=None if item.area__um2 is None else item.area__um2 / macro.inst_count,
+                leakage__uW=None if item.leakage__uW is None else item.leakage__uW / macro.inst_count,
+            )
+            for name, item in items.items()
+        }
+        for sparsity, items in profile_results.items()
+    }
+    points = measure(
+        report_results,
+        scan_num=macro.scan_num,
+        n_x=args.n_x,
+        powered_duration__ns=torch.tensor(macro.scan_num * measurement_cycle__ns(), dtype=torch.float64).expand(
+            args.repeat * args.n_x, args.n_w
+        ),
+    )
     run_summary = render_run_summary(
         device=args.device,
         n_w=args.n_w,
@@ -388,7 +408,7 @@ def validate(args: ValidationArgs) -> None:
     report = render_report(
         points,
         run_summary=run_summary,
-        macro_area__um2=area_per_macro__um2(macro, reporter),
+        macro_area__um2=area_per_macro__um2(report_results[input_sparsities[0]]),
     )
     _LOG.info("%s", report)
     plot_path = args.output_dir / "power_breakdown.svg"

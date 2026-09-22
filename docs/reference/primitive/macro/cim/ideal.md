@@ -22,7 +22,7 @@ then arithmetically shifted to the active resolution,
 
 $$\mathrm{code}_p=c_B\mathbin{\gg}(B-b).$$
 
-This is the centered-code form of adding the fixed offset $2^{B-1}$, truncating the unsigned ADC code, and removing the active-width offset. The offsets cancel algebraically, so the implementation needs no stored or value-range-dependent zero point. The returned code spans $[-2^{b-1},2^{b-1}-1]$.
+Adding the fixed offset $2^{B-1}$ before truncation and removing the active-width offset gives the same centered code, spanning $[-2^{b-1},2^{b-1}-1]$.
 
 ### Sign-magnitude mapping
 
@@ -36,11 +36,11 @@ $$\mathrm{code}_p=\operatorname{sgn}(M_p)\left(a_B\mathbin{\gg}(B-b)\right).$$
 
 Its output spans $[-(2^b-1),2^b-1]$. The two raw representations of zero collapse to integer zero at the macro boundary.
 
-With `adc_active_bits = None`, the ideal macro supplies its highest available precision: it returns $M_p$ unchanged and reports a rescale factor of one. A finite `adc_active_bits` applies the corresponding virtual quantization. Both paths validate the quantization-mode index.
+Exact ideal execution returns $M_p$ unchanged with rescale factor one; finite-resolution execution applies the corresponding virtual quantization.
 
 ## Numerical method
 
-The logical matrix is contracted directly with the input vector: fp32 `einsum` when the configured dot bound is below $2^{24}$, and int64 multiply-reduce otherwise. Zeroed positions contribute nothing. Quantization is always performed at $B$ bits before truncation to $b$ bits. Evaluation floors the scaled value; stochastic execution rounds upward according to its fractional part, so integral values remain deterministic.
+The dot product uses fp32 contraction when its configured bound is below $2^{24}$, and int64 arithmetic otherwise. Quantization operates at $B$ bits before truncation to $b$ bits; integral scaled values remain deterministic under stochastic rounding.
 
 ## Symbols
 

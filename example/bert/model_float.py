@@ -1,12 +1,4 @@
-"""BERT-small architecture for SST-2 binary classification.
-
-A 4-layer, 512-hidden, 8-head encoder wrapped by HuggingFace
-`BertForSequenceClassification`, which adds a single
-`nn.Linear(hidden, num_labels)` classifier on top of the `[CLS]` pooled
-output. Loading goes through the explicit `Bert*` classes: some community
-BERT-small checkpoints ship a `config.json` without the `model_type` key the
-`Auto*` loader routes on.
-"""
+"""Pretrained BERT-small construction for SST-2 classification."""
 
 import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
@@ -23,15 +15,14 @@ def create_bert_small(
     """Build BERT-small with a sequence-classification head.
 
     Args:
-        num_labels: Classifier width; 2 for SST-2 positive / negative.
         model_name: HuggingFace model identifier; must match the tokenizer
             the inputs are built with.
-        cache_dir: Cache directory for the pretrained weights.
 
     Returns:
         A `BertForSequenceClassification` with the pretrained encoder loaded
         and a randomly initialised classifier head.
     """
+    # Concrete BERT classes support checkpoints whose config omits `model_type`.
     config = BertConfig.from_pretrained(model_name, num_labels=num_labels, cache_dir=cache_dir)
     return BertForSequenceClassification.from_pretrained(
         model_name,

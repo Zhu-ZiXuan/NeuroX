@@ -80,10 +80,7 @@ class Transcoder(ABC):
     def decode(self, digits: Tensor, *, dim: int = -1) -> Tensor:
         """Reduce a digit tensor back to integers via positional weights.
 
-        Every encoding shares the reduction `M = Σ_i d_i·r^i` for
-        `i in {0, ..., D - 1}`, with `d_0` the least-significant digit. Horner
-        evaluation keeps the arithmetic exact integer, free of floating-point
-        error.
+        Integer Horner evaluation preserves the input dtype.
 
         Args:
             digits: Digit tensor produced by `encode`.
@@ -100,6 +97,12 @@ class Transcoder(ABC):
         return decoded
 
     # === For subclass to implement or override ===
+
+    @property
+    @abstractmethod
+    def has_signed_digits(self) -> bool:
+        """Whether this encoding can emit negative digit values."""
+        raise NotImplementedError
 
     @property
     @abstractmethod

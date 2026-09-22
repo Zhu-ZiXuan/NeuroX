@@ -6,7 +6,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox import Profiler, Reporter
+from neurox import Profiler
 from tests.works.macro.cim.xue2020jssc.macro._utils import (
     MAG_MAX,
     QUANTIZATION_MODE,
@@ -44,22 +44,22 @@ def _twin_pair(
     w = _mixed_weight(TINY_INPUT_NUM, output_num)
     big.program(w.to(device))
     for scan, twin in enumerate(twins):
-        twin.program(w[:, scan::scan_num].contiguous().to(device))
+        twin.program(w[:, scan * lane_num : (scan + 1) * lane_num].contiguous().to(device))
     return big, twins, w
 
 
 def test_vec_mat_mul_commutes_with_serialization(device: torch.device) -> None:
     scan_num = 2
-    big, twins, _w = _twin_pair(device, scan_num=scan_num)
+    # Unequal scan and lane counts expose swapped readout axes.
+    big, twins, _w = _twin_pair(device, scan_num=scan_num, output_num=6)
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0], [0, 1, 2, 3]], dtype=torch.int32, device=device)
 
     with torch.no_grad():
         out = big.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS).cpu()
         for scan, twin in enumerate(twins):
             twin_out = twin.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS).cpu()
-            assert torch.equal(out[..., scan::scan_num], twin_out), (
-                f"scan {scan} decode differs:\n{out[..., scan::scan_num].tolist()}\nvs\n{twin_out.tolist()}"
-            )
+            block = out[..., scan * big.lane_num : (scan + 1) * big.lane_num]
+            torch.testing.assert_close(block, twin_out)
     # Reject a witness that cannot expose column permutations.
     assert int(out.min()) < 0 < int(out.max()), f"witness decode is degenerate: {out.tolist()}"
 
@@ -74,9 +74,11 @@ def test_array_cap_energy_independent_of_scan_num(device: torch.device) -> None:
             device=device,
         )
         macro.program(w.to(device))
-        with Profiler() as prof, torch.no_grad():
+        with Profiler(concat_dim=0) as prof, torch.no_grad():
             macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
-        return Reporter(macro).by_name(prof)["array"]
+        energy__fJ = prof.result["array"].dynamic_energy__fJ
+        assert energy__fJ is not None
+        return energy__fJ.item()
 
     e_mux2 = array_row(2)
     e_mux4 = array_row(4)

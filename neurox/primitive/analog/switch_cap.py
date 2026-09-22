@@ -126,9 +126,7 @@ class SwitchCap(ProfileModule):
 
     def _sample_fabrication_variation(self) -> None:
         config = self.config
-        # The floor keeps a Gaussian tail from sampling a non-positive cap: the
-        # kT/C sigma takes a square root of its reciprocal and the charge-share
-        # denominator sums it.
+        # Positive capacitance keeps thermal noise and charge sharing defined.
         self._c__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
             config.cap_mismatch_sigma_relative,
@@ -160,7 +158,5 @@ class SwitchCap(ProfileModule):
         if self._is_profiler_active():
             # Shape: [..., cap] -> [...]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
-            # The cap axis is already summed above; the collector sums the
-            # remaining work and instance axes past the call's leading dims.
             self._record_dynamic_energy(e_caps__fJ + self.config.energy_per_sample_overhead__fJ)
         return v_out__V

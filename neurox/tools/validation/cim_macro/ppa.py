@@ -1,40 +1,32 @@
-"""Composable PPA measurement capabilities for CIM-macro validation."""
+"""Raw profiler collection and accounting helpers for CIM-macro validation."""
 
 from __future__ import annotations
 
-import math
 import statistics
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
 
-from neurox.api.profiler import Profiler
+from neurox.api.profiler import ProfileItem, Profiler
 from neurox.api.reporter import Reporter
 from neurox.primitive.macro.cim import CimMacro
 
-type _Macro = CimMacro
-
-
-@dataclass(frozen=True)
-class VmmProfile:
-    """Per-access dynamic energy from one complete batched VMM call."""
-
-    dynamic_by_name_per_access__fJ: dict[str, float]
-    vmm_num: int
-    access_num: int
-
 
 def profile_vmm(
-    macro: _Macro,
-    reporter: Reporter,
+    macro: CimMacro,
+    profiler: Profiler,
     x: Tensor,
     *,
     quantization_mode: int,
     adc_active_bits: int,
-) -> VmmProfile:
-    """Profile one complete VMM call and normalize it per serialized access.
+) -> None:
+    """Collect one full VMM batch and its modeled working duration.
+
+    Configure the macro's retained observation axes before collection. The
+    recorded duration comes from the macro's latency query and covers one
+    complete VMM at each sample position. Experimental powered intervals are
+    supplied separately to reporting.
 
     Args:
         x: Input samples with the macro-instance axes immediately before the
@@ -48,51 +40,77 @@ def profile_vmm(
     if input_inst_shape != macro.inst_shape:
         raise ValueError(f"x instance axes must equal macro.inst_shape {macro.inst_shape}; got {input_inst_shape}")
 
-    vmm_num = math.prod(x.shape[:-1])
-    access_num = vmm_num * macro.scan_num
-    with torch.no_grad(), Profiler() as profiler:
-        macro.vec_mat_mul(
-            x,
-            quantization_mode=quantization_mode,
-            adc_active_bits=adc_active_bits,
+    with torch.no_grad(), profiler:
+        macro.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
+        duration__ns = macro.latency__ns(adc_active_bits=adc_active_bits)
+        profiler.submit_latency(
+            name=macro.qualified_name,
+            latency__ns=x.new_tensor(duration__ns, dtype=torch.float64).expand(x.shape[:-1]),
         )
-    dynamic_by_name_per_access__fJ = {
-        name: energy__fJ / access_num for name, energy__fJ in reporter.by_name(profiler).items()
-    }
-    return VmmProfile(
-        dynamic_by_name_per_access__fJ=dynamic_by_name_per_access__fJ,
-        vmm_num=vmm_num,
-        access_num=access_num,
-    )
 
 
-def static_energy_by_name__fJ(
-    macro: _Macro,
-    reporter: Reporter,
+def dynamic_energy_by_round__fJ(
+    result: Mapping[str, ProfileItem], *, scan_num: int, n_x: int, groups: Mapping[str, str] | None = None
+) -> list[dict[str, float]]:
+    """Average VMM samples within each experimental repeat, then convert to scans.
+
+    The campaign supplies each repeat's input count `n_x`. Reporter preserves
+    every input and weight sample; paper grouping and statistics happen here.
+    """
+    reporter = Reporter(result)
+    return _rounds(reporter.breakdown("dynamic_energy"), n_x=n_x, divisor=scan_num, groups=groups)
+
+
+def static_energy_by_round__fJ(
+    result: Mapping[str, ProfileItem],
     *,
-    measurement_cycle__ns: float,
-) -> dict[str, float]:
-    """Return mean per-macro static energy over one measurement cycle."""
-    if measurement_cycle__ns <= 0.0:
-        raise ValueError(f"measurement_cycle__ns must be positive; got {measurement_cycle__ns}")
-    return {
-        entry.qualified_name: entry.leakage__uW / macro.inst_count * measurement_cycle__ns
-        for entry in reporter.static_entries
-    }
+    scan_num: int,
+    n_x: int,
+    powered_duration__ns: Tensor,
+    groups: Mapping[str, str] | None = None,
+) -> list[dict[str, float]]:
+    """Summarize per-macro static costs using the campaign's powered intervals."""
+    reporter = Reporter(result, powered_duration__ns={"": powered_duration__ns})
+    return _rounds(reporter.breakdown("static_energy"), n_x=n_x, divisor=scan_num, groups=groups)
 
 
-def area_per_macro__um2(macro: _Macro, reporter: Reporter) -> float:
-    """Return mean area per macro instance."""
-    area__um2: float = reporter.static.area__um2 / macro.inst_count
-    return area__um2
+def area_per_macro__um2(result: Mapping[str, ProfileItem]) -> float:
+    """Sum supplied local areas for one macro instance."""
+    reporter = Reporter(result)
+    values = [area for area in reporter.breakdown("area").values() if area is not None]
+    if not values:
+        raise ValueError("profile result contains no hardware area data")
+    return sum(values)
+
+
+def _rounds(
+    values: Mapping[str, Tensor | None],
+    *,
+    n_x: int,
+    divisor: int,
+    groups: Mapping[str, str] | None,
+) -> list[dict[str, float]]:
+    rounds: list[dict[str, float]] = []
+    for name, samples in values.items():
+        if samples is None:
+            continue
+        label = name if groups is None else groups.get(name, "other")
+        for index, repeat in enumerate(samples.split(n_x, dim=0)):
+            if index == len(rounds):
+                rounds.append({})
+            row = rounds[index]
+            row[label] = row.get(label, 0.0) + repeat.mean().item() / divisor
+    return rounds
 
 
 def mean_by_name(rounds: Sequence[Mapping[str, float]]) -> dict[str, float]:
-    """Average named scalar rows across equally weighted rounds."""
+    """Average named scalar rows across equally weighted, complete rounds."""
     if not rounds:
         raise ValueError("at least one round is required")
-    names = dict.fromkeys(name for round_data in rounds for name in round_data)
-    return {name: statistics.fmean(round_data.get(name, 0.0) for round_data in rounds) for name in names}
+    names = rounds[0].keys()
+    if any(round_data.keys() != names for round_data in rounds[1:]):
+        raise ValueError("rounds must contain the same energy names")
+    return {name: statistics.fmean(round_data[name] for round_data in rounds) for name in names}
 
 
 def render_run_summary(

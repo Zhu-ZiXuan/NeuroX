@@ -1,15 +1,9 @@
 """Independent tools for precision decomposition and matrix mapping."""
 
-from .input_activation import InputActivation
-from .merge import InputSlotMerge, Merge
-from .tiling import OutputSliceTiling, PlaneSliceTiling, Tiling, TilingMode
+from .input_phase_splitter import InputPhaseSplitter
+from .merge import InputSlotMerge
 
 __all__ = [
-    "InputActivation",
+    "InputPhaseSplitter",
     "InputSlotMerge",
-    "Merge",
-    "OutputSliceTiling",
-    "PlaneSliceTiling",
-    "Tiling",
-    "TilingMode",
 ]

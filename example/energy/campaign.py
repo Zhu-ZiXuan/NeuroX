@@ -9,7 +9,9 @@ import os
 import subprocess
 import sys
 import time
+from multiprocessing.process import BaseProcess
 from pathlib import Path
+from typing import Any
 
 from .evaluate import DATA
 from .factory import PRESETS, ROOT
@@ -58,6 +60,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--num-samples", type=int, default=1)
+    parser.add_argument("--ideal-macro", action="store_true")
     parser.add_argument("--datasets", nargs="+", default=list(DATA))
     parser.add_argument("--models", nargs="+", default=list(ARCHITECTURES))
     parser.add_argument(
@@ -78,7 +81,7 @@ def main() -> None:
             for dataset in args.datasets
         ]
         if family == "example":
-            cases = [(model, "ucihar") for model in ("lenet", "bert", "sorbet")]
+            cases = [("sorbet", "ucihar")]
         elif family == "hardware_comparable":
             cases = [("bert", "ucihar")]
         for model, dataset in cases:
@@ -95,7 +98,7 @@ def main() -> None:
                             "ready": 0.0,
                         }
                     )
-    running = {}
+    running: dict[int, tuple[BaseProcess, dict[str, Any]]] = {}
     failures = []
     while jobs or running:
         for gpu, (process, job) in list(running.items()):
@@ -140,6 +143,8 @@ def main() -> None:
                 "--output",
                 str(output_dir / f"{eligible['key']}.json"),
             ]
+            if args.ideal_macro:
+                command.append("--ideal-macro")
             process = multiprocessing.get_context("spawn").Process(target=_worker, args=(command[3:], gpu, str(log)))
             process.start()
             running[gpu] = (process, eligible)

@@ -31,7 +31,7 @@ class IdealConv2dUnit(Conv2dUnit):
     """Integer convolution evaluation through `torch.nn.functional.conv2d`.
 
     Args:
-        w_logical_shape: Logical kernel shape `(C_out, C_in, kh, kw)` bound to `program(...)`.
+        w_logical_shape: Logical kernel shape `(C_out, C_in/groups, kh, kw)` bound to `program(...)`.
     """
 
     config: _Config
@@ -39,7 +39,7 @@ class IdealConv2dUnit(Conv2dUnit):
 
     # === Programmed state ===
 
-    _weight: Tensor  # Shape: [output_channel, input_channel, kernel_h, kernel_w]
+    _weight: Tensor  # Shape: [output_channel, input_channel_per_group, kernel_h, kernel_w]
 
     def __init__(
         self,
@@ -47,12 +47,20 @@ class IdealConv2dUnit(Conv2dUnit):
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        dilation: tuple[int, int],
+        groups: int,
         dtype: torch.dtype,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             w_logical_shape=w_logical_shape,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
             dtype=dtype,
         )
 
@@ -83,27 +91,36 @@ class IdealConv2dUnit(Conv2dUnit):
         *,
         adc_active_bits: int | None,
     ) -> float:
-        """Zero — an exact integer convolution has no modeled latency.
+        """Zero — one image's ideal convolution has no modeled latency.
 
-        The unit has no modeled circuit latency; all output
-        positions are evaluated at once.
+        The operand layout does not change the zero modeled duration.
         """
-        del input_shape, adc_active_bits
         return 0.0
 
     @torch.no_grad()
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(
+        self,
+        weight: Tensor,
+        bias: Tensor | None = None,
+    ) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self._weight = weight.long()
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
-    def _conv2d_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
+    def _conv2d_impl(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         return F.conv2d(
             input.long(),
             self._weight,
             self._int_bias,
-            stride=self.config.stride,
-            padding=self.config.padding,
-            dilation=self.config.dilation,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            groups=self.groups,
         )

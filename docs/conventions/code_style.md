@@ -194,8 +194,8 @@ At an emission site the shape annotation writes the caller block as a named grou
 ## Config, policy, and cross-module data classes
 
 - Declare config and policy descendants as ordinary classes inheriting `ConfigBase` or `PolicyBase`.
-- A formal snapshot, DC operating point, or recorder row inherits `SnapBase`, `DcopBase`, or `RecordBase`. Other tensor data classes may use `TensorDataClassMixin`.
-- A variable holding one of those formal values ends in `_snap`, `_dcop`, or `_record`. The value owned by the current class or interface uses the bare `snap`, `dcop`, or `record`; a subordinate value carries its role as the prefix, such as `cell_dcop` or `bl_driver_snap`. Collections use the corresponding plural form, such as `records`.
+- A formal snapshot or DC operating point inherits `SnapBase` or `DcopBase`. Recorder payloads follow their owning interface; tensor payloads may use `TensorDataClassMixin`.
+- A snapshot, DC operating point, or record variable ends in `_snap`, `_dcop`, or `_record`. The value owned by the current class or interface uses the bare `snap`, `dcop`, or `record`; a subordinate value carries its role as the prefix, such as `cell_dcop` or `bl_driver_snap`. Collections use the corresponding plural form, such as `records`.
 - Which config a parameter belongs on follows the variability criterion in [module_parameter §Config layering](module_parameter.md#config-layering).
 - A dataclass field — however the transform is applied — an enum member, a named-tuple field, or a public instance attribute assigned in `__init__` carries its documentation as a string literal immediately below the declaration, written only where the member needs more than its name and type already state.
 - A field partition carries a class-scope banner. Partition names are per-config and free-form.

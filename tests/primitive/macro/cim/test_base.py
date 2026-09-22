@@ -1,4 +1,4 @@
-"""Ideal-twin conversion and lane scheduling owned by the CIM-macro base."""
+"""The CIM-macro boundary masks valid output prefixes across caller and instance axes."""
 
 from __future__ import annotations
 
@@ -6,60 +6,13 @@ import torch
 from torch import Tensor
 
 from neurox.encoding import Encoding
-from neurox.primitive.macro.cim import (
-    CimMacro,
-    CimMacroConfig,
-    CimMacroPolicy,
-    CimMacroQuantizationScheme,
-    IdealCimMacro,
-)
+from neurox.primitive.macro.cim import CimMacro, CimMacroQuantizationScheme, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
-class _StubMacroConfig(CimMacroConfig):
-    adc_bits: int
-    quantization_scheme: CimMacroQuantizationScheme
-
-    @property
-    def w_digit_n(self) -> int:
-        return 1
-
-    @property
-    def w_digit_r(self) -> int:
-        return 2
-
-    @property
-    def w_enc(self) -> Encoding:
-        return Encoding.TRUE_FORM
-
-    @property
-    def x_digit_n(self) -> int:
-        return 1
-
-    @property
-    def x_digit_r(self) -> int:
-        return 2
-
-    @property
-    def x_enc(self) -> Encoding:
-        return Encoding.UNSIGNED
-
-    @property
-    def quant_scheme(self) -> CimMacroQuantizationScheme:
-        return self.quantization_scheme
-
-
-class _StubMacroPolicy(CimMacroPolicy):
-    pass
-
-
-class _StubMacro(CimMacro):
+class _EchoMacro(CimMacro):
     @property
     def adc_bits(self) -> int:
-        return self.config.adc_bits
-
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        indices = torch.arange(self.output_num, device=effective_output_num.device).view(self.lane_num, self.scan_num)
-        return indices < effective_output_num[..., None, None]
+        return 8
 
     def program(self, w: Tensor) -> None:
         raise NotImplementedError
@@ -73,91 +26,44 @@ class _StubMacro(CimMacro):
         adc_active_bits: int | None,
         phase_mask: Tensor | None,
     ) -> Tensor:
-        del quantization_mode, adc_active_bits
-        return x[..., : self.output_num].expand(*leading_shape, self.output_num)
+        return x.expand(*leading_shape, self.output_num)
 
     def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
-        del adc_active_bits
         return 0.0
 
 
-def _stub_macro(
-    *,
-    factors: tuple[float, ...] = (1.0, 0.5),
-    adc_bits: int = 4,
-    input_num: int = 8,
-    lane_num: int = 1,
-    scan_num: int = 4,
-    max_active_num: int = 4,
-    inst_shape: tuple[int, ...] = (),
-    quantization_scheme: CimMacroQuantizationScheme = CimMacroQuantizationScheme.ZERO_POINT,
-) -> _StubMacro:
-    config = _StubMacroConfig(
-        input_num=input_num,
-        rescale_factors=factors,
-        area_per_inst__um2=1.0,
-        leakage_per_inst__uW=2.0,
-        max_active_num=max_active_num,
-        lane_num=lane_num,
-        scan_num=scan_num,
-        adc_bits=adc_bits,
-        quantization_scheme=quantization_scheme,
-    )
-    return _StubMacro(
-        config=config,
-        policy=_StubMacroPolicy(),
-        inst_shape=inst_shape,
+def test_effective_outputs_mask_each_mapped_access_independently(device: torch.device) -> None:
+    macro = _EchoMacro(
+        config=IdealCimMacroConfig(
+            input_num=4,
+            lane_num=2,
+            scan_num=2,
+            max_active_num=4,
+            rescale_factors=(1.0,),
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+            w_digit_num=1,
+            w_digit_radix=2,
+            w_encoding=Encoding.TRUE_FORM,
+            w_signed=True,
+            x_digit_num=1,
+            x_digit_radix=2,
+            x_encoding=Encoding.UNSIGNED,
+            x_value_range=(0, 1),
+            w_value_range=(-1, 1),
+            adc_bits=8,
+            quantization_scheme=CimMacroQuantizationScheme.ZERO_POINT,
+        ),
+        policy=IdealCimMacroPolicy(),
+        inst_shape=(2,),
         dtype=torch.float32,
-    )
-
-
-class TestToIdeal:
-    def test_twin_preserves_scales_and_geometry(self) -> None:
-        macro = _stub_macro(input_num=16, lane_num=2, scan_num=3, max_active_num=8, inst_shape=(2, 3))
-        macro.set_temperature(350.0)
-        twin = macro.to_ideal()
-        assert isinstance(twin, IdealCimMacro)
-        assert twin.T__K == macro.T__K
-        assert twin.config.rescale_factors == macro.config.rescale_factors
-        assert twin.adc_bits == macro.adc_bits
-        assert twin.x_value_range == macro.x_value_range
-        assert twin.w_value_range == macro.w_value_range
-        assert twin.inst_shape == macro.inst_shape
-        assert twin.max_active_num == macro.max_active_num
-        assert twin.lane_num == macro.lane_num
-        assert twin.scan_num == macro.scan_num
-
-    def test_twin_uses_the_physical_mode_scale(self) -> None:
-        macro = _stub_macro(
-            factors=(10.0,),
-            adc_bits=3,
-            quantization_scheme=CimMacroQuantizationScheme.SIGN_MAGNITUDE,
-            input_num=1,
-            scan_num=1,
-            max_active_num=1,
-        )
-        twin = macro.to_ideal()
-        twin.eval()
-        twin.program(torch.ones((1, 1), dtype=torch.int32))
-        dots = torch.tensor([[-80], [-69], [-10], [-9], [0], [9], [10], [69], [70], [80]])
-        code = twin.vec_mat_mul(dots, quantization_mode=0, adc_active_bits=3)
-        assert code.squeeze(-1).tolist() == [-7, -6, -1, 0, 0, 0, 1, 6, 7, 7]
-        assert twin.rescale_factor(quantization_mode=0, adc_active_bits=3) == 10.0
-
-
-def test_effective_outputs_broadcast_and_mask_in_logical_order(device: torch.device) -> None:
-    macro = _stub_macro(input_num=4, lane_num=2, scan_num=2).to(device)
-    x = torch.arange(1, 5, device=device).expand(3, 2, 4)
-    counts = torch.tensor([[0, 1], [2, 3], [4, 2]], device=device)
-    x = x.clone()
+    ).to(device)
+    x = torch.ones((3, 2, 4), dtype=torch.int64, device=device)
     x[0, 0] = 0
+    counts = torch.tensor([[0, 1], [2, 3], [4, 2]], device=device)
     actual = macro.vec_mat_mul(x, quantization_mode=0, adc_active_bits=None, effective_output_num=counts)
-    assert torch.equal(actual, x.where(torch.arange(4, device=device) < counts.unsqueeze(-1), 0))
-
-
-def test_latency_uses_longest_lane_not_total_output_count(device: torch.device, monkeypatch) -> None:
-    macro = _stub_macro(input_num=4, lane_num=2, scan_num=2).to(device)
-    monkeypatch.setattr(macro, "_latency_per_scan__ns", lambda **kwargs: 3.0)
-    counts = torch.arange(5, device=device)
-    actual = macro.latency__ns(adc_active_bits=None, effective_output_num=counts)
-    assert torch.equal(actual, torch.tensor([0, 3, 6, 6, 6], device=device))
+    expected = torch.tensor(
+        [[[0, 0, 0, 0], [1, 0, 0, 0]], [[1, 1, 0, 0], [1, 1, 1, 0]], [[1, 1, 1, 1], [1, 1, 0, 0]]],
+        device=device,
+    )
+    torch.testing.assert_close(actual, expected)

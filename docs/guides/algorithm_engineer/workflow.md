@@ -33,12 +33,12 @@ python -m example.bert.evaluate --device cuda:0 --checkpoint weight/bert_small_f
     --preset ye2023jssc --num-samples 10 --output log/energy/bert_ye.json
 ```
 
-Checkpoints and evaluation data must be available locally. `--num-samples` bounds the evaluation size. `--batch-chunk` and `--spatial-chunk` bound the work submitted to each measurement call. The Make targets `eval-lenet` and `eval-bert` accept `DEVICE`, `EVAL_CKPT`, `PRESET`, and `MAX_SAMPLES`.
+Checkpoints and evaluation data must be available locally. `--num-samples` bounds the evaluation size; each selected sample forms one inference batch. The Make targets `eval-lenet` and `eval-bert` accept `DEVICE`, `EVAL_CKPT`, `PRESET`, and `MAX_SAMPLES`.
 
-The energy observer maps operands using the bundled circuit presets and runs ideal macro twins. It reports configured digital-operation energy; analog dynamic energy is excluded. Operand encoding belongs to the independent measurement and does not alter the original model. Attention matrix products and operations outside the observed linear/convolution products are outside this report's scope.
+The observer uses physical macro presets by default; `--ideal-macro` selects ideal twins and excludes analog dynamic energy. Each logical operator position owns one unit programmed before measurement. Operand encoding preserves the original model's outputs. Grouped convolutions use independent hardware per group. Attention matrix products and operations outside the observed linear/convolution products are outside the report's scope. Unsupported input domains are reported in `<output>.unsupported.json` and stop preparation.
 
 ## Read the report
 
-The JSON output records the checkpoint, preset, sample count, correct predictions, whether logits were preserved, and the operator energy breakdown. Digital accumulator and shift-adder costs are explicit evaluation assumptions, so these results establish integration rather than calibrated physical-macro energy estimates.
+The JSON output records the checkpoint, preset, sample count, accuracy, logit-preservation check, and per-sample and per-operator PPA. Digital circuit costs and clock timing are evaluation assumptions defined in `example/energy/factory.py`, not measurements from the cited papers.
 
-For custom measurement code, `neurox.stamp_names` names an assembled module tree, `neurox.Profiler` collects dynamic-energy records, and `neurox.Reporter` aggregates static metrics and dynamic energy ([Python API](../../api/python.md)). Static metrics include leakage power; converting it to static energy requires a measurement period chosen by the caller, as described in [PPA accounting](../../system_design/ppa_accounting.md).
+The accompanying `.profile.pt` file retains named observations for custom analysis through the [Python API](../../api/python.md). Static energy defaults to each unit's working window; alternative supply-on schedules use powered-window overrides under [PPA accounting](../../system_design/ppa_accounting.md). Application analysis groups hardware and reduces operation axes to dataset samples.

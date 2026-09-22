@@ -1,6 +1,6 @@
 # NeuroX
 
-NeuroX is a PyTorch-based simulator for RRAM compute-in-memory accelerators. It connects device and circuit models to crossbar arrays, CIM macros, and neural-network operators so that one hardware configuration can be evaluated for functional accuracy and static PPA.
+NeuroX is a PyTorch-based simulator for RRAM compute-in-memory accelerators. It connects device and circuit models to crossbar arrays, CIM macros, and neural-network operators so that one hardware configuration can be evaluated for functional accuracy and circuit-level PPA.
 
 The supported library surface ends at `neurox.architecture.unit`. Model rewriting, training, and end-to-end evaluation pipelines live under `example/` as application code rather than stable API.
 

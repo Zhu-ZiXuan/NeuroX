@@ -69,12 +69,13 @@ def _run_paired(
     with torch.no_grad():
         ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=None)
 
-    if not prober.records:
+    result = prober.result
+    if not result:
         raise ValueError("the physical macro emitted no ADC input record")
-    names = {adc_record.input_name() for adc_record in prober.records}
+    names = {adc_record.input_name() for adc_record in result}
     if len(names) != 1:
         raise ValueError(f"one probe run emitted multiple ADC input quantities: {sorted(names)}")
-    input_parts = [adc_record.input_value().flatten().to("cpu", torch.float32) for adc_record in prober.records]
+    input_parts = [adc_record.input_value().flatten().to("cpu", torch.float32) for adc_record in result]
     input_value = torch.cat(input_parts)
     ideal_value = ideal_value.flatten().cpu().long()
     if input_value.numel() != ideal_value.numel():

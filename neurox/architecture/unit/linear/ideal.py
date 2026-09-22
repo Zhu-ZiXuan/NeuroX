@@ -74,7 +74,6 @@ class IdealLinearUnit(LinearUnit):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> float:
-        del quantization_mode, adc_active_bits
         return 1.0
 
     def latency__ns(
@@ -83,20 +82,29 @@ class IdealLinearUnit(LinearUnit):
         *,
         adc_active_bits: int | None,
     ) -> float:
-        """Zero — an exact integer matmul has no modeled latency.
+        """Zero — one ideal VMM has no modeled latency.
 
         The unit has no modeled circuit latency, so the
         operand layout does not affect this value.
         """
-        del input_shape, adc_active_bits
         return 0.0
 
     @torch.no_grad()
-    def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+    def program(
+        self,
+        weight: Tensor,
+        bias: Tensor | None = None,
+    ) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self._weight = weight.long()
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])
 
-    def _linear_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
+    def _linear_impl(
+        self,
+        input: Tensor,
+        *,
+        quantization_mode: int,
+        adc_active_bits: int | None,
+    ) -> Tensor:
         return F.linear(input.long(), self._weight, self._int_bias)

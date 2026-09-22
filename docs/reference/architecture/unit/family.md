@@ -1,20 +1,10 @@
 # Unit family
 
-A unit realizes one integer tensor operator. CIM implementations map it onto physical macros; ideal implementations execute the corresponding PyTorch operator.
-
-## Operator law
-
-Over its accepted integer value domain, a unit returns the result of its declared operator before requantization. Any deviation from exact integer arithmetic belongs to the execution substrate rather than to the lowering.
-
-A mapped implementation restores every representation axis introduced by its mapping. Linear input-leading axes pass through unchanged; convolution window positions are restored to the output spatial layout.
-
-When the operator carries an integer bias, the bias is programmed with the weight and added in the int64 accumulation domain after substrate aggregation. It introduces no execution cycle or dynamic-energy event of its own.
-
 ## Shared conventions
 
-A unit accepts integer weights and activations within its published value ranges and returns a pre-requantize integer tensor. Requantization to an activation grid is outside the unit model.
+A unit realizes one integer tensor operator over its accepted weight and activation ranges, returning the result before requantization. Requantization to an activation grid lies outside the model.
 
-Geometric placement partitions the contraction dimension, assigns logical output blocks to balanced groups, and restores those blocks to logical output order. It changes only the matrix geometry and never decomposes a value.
+Mapping restores every representation axis it introduces. Linear input-leading axes remain unchanged; convolution windows return to the output spatial layout. An integer bias is added after substrate aggregation and introduces no execution cycle or dynamic-energy event.
 
 ## Governing laws
 
@@ -26,9 +16,11 @@ with both operands restricted to the unit's accepted integer value ranges. The o
 
 If the contraction dimension is partitioned, results from its partitions are accumulated. Output blocks are not reduced; they are restored to logical output order.
 
+For internal operations with durations $t_i$, temporal reuse completes in $t_{\mathrm{serial}}=\sum_i t_i$. A stage of simultaneously started physical replicas completes in $t_{\mathrm{parallel}}=\max_i t_i$. A sequence of stages with completion barriers sums those stage durations. A unit latency covers one basic operation: one VMM for a linear unit, or one complete image for a convolution unit. The operation includes its internal pipelines. Batch, token and timestep counts belong to the caller, which combines actual operations independently for each sample.
+
 ## Noise & non-idealities
 
-Lowering, placement, accumulation, and shape restoration are exact integer operations. The unit adds no stochastic source of its own; modeled deviations enter only through the execution substrate.
+Lowering and shape restoration are exact integer operations. The unit adds no stochastic source; analog, conversion, and register-width effects belong to the execution substrate.
 
 ## Symbols
 
@@ -40,13 +32,10 @@ Lowering, placement, accumulation, and shape restoration are exact integer opera
 | $N$ | logical output width | — | weight shape |
 | $K$ | contraction width | — | weight and input shape |
 | $M$ | flattened operator-output positions | — | input shape |
-| $b$ | optional integer bias vector | — | programmed bias |
-
-## Assumptions, scope & validity
-
-- Weights and activations are integers inside the published value ranges.
-- Every lowering map has a matching inverse aggregation for the axes it introduces.
-- Requantization is outside the unit model.
+| $m,n,k$ | input-row, output, and contraction indices | — | — |
+| $t_i$ | duration of one internal operation | ns | — |
+| $t_{\mathrm{serial}}$ | duration of a serial sequence | ns | — |
+| $t_{\mathrm{parallel}}$ | duration of a parallel stage | ns | — |
 
 ## References
 

@@ -15,20 +15,7 @@ from torch import Tensor
 from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
-from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
-
-
-class DiffVadcRecord(AdcRecord):
-    v_pos__V: Tensor
-    """Positive-side input voltage the call was handed."""
-    v_neg__V: Tensor
-    """Negative-side input voltage the call was handed."""
-
-    def input_name(self) -> str:
-        return "v_diff__V"
-
-    def input_value(self) -> Tensor:
-        return self.v_pos__V - self.v_neg__V
+from neurox.primitive.analog.adc_probe import AdcProber
 
 
 class DiffVadcConfig(ConfigBase, base_only=True):
@@ -61,7 +48,6 @@ class DiffVadcPolicy(PolicyBase, base_only=True):
     pass
 
 
-_Record = DiffVadcRecord
 _Config = DiffVadcConfig
 _Policy = DiffVadcPolicy
 
@@ -69,15 +55,9 @@ _Policy = DiffVadcPolicy
 class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Base class for differential voltage-domain ADC implementations.
 
-    A converter owns its transfer structure and never its reference values:
-    every `convert` call carries the taps in. How many taps a call needs is the
-    concrete converter's own circuit property, so the base validates no tap
-    count.
-
-    A converter is mode-blind: reference selection and mode ranges remain
-    outside it, while `convert` receives only the electrical operating point
-    and the bit width.
-
+    Callers select and supply reference taps for every conversion. Each
+    implementation defines and validates its tap count; converters receive
+    no mode identifier.
     """
 
     config: _Config
@@ -105,11 +85,7 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> DiffVadc:
-        """Build the implementation registered for the config-policy pair.
-
-        Returns:
-            Registered voltage-ADC implementation.
-        """
+        """Build the implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
@@ -121,7 +97,6 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     @property
     @final
     def bits(self) -> int:
-        """Physical output bit width."""
         return self.config.bits
 
     @torch.no_grad()
@@ -136,12 +111,9 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         """Digitise a differential analog voltage into a raw unsigned code.
 
         Args:
-            v_pos__V: Positive-side analog input voltage.
             v_neg__V: Negative-side analog input voltage, at the same shape as
                 `v_pos__V`.
             v_refs__V: Injected reference taps, with the taps on the last axis.
-                The tap count `n_ref` is the concrete converter's circuit
-                property, not a base-level contract.
                 Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
 
@@ -172,28 +144,18 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         torch_assert_async(((code >= min_code) & (code <= max_code)).all(), "ADC output code outside active-bit range")
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
-        if AdcProber.active():
-            AdcProber.submit(_Record(v_pos__V=v_pos__V, v_neg__V=v_neg__V))
+        self._record_input(v_pos__V, v_neg__V)
         return code
 
     @final
     def unsigned_range(self, active_bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
-
-        Every differential voltage ADC emits the family's full raw
-        offset-binary active-bit range.
-        """
+        """Return the inclusive full offset-binary range at `active_bits`."""
         self._check_active_bits(active_bits)
         return 0, (1 << active_bits) - 1
 
     @final
     def zero_offset(self, active_bits: int) -> int:
-        """Return the raw code representing analog zero at `active_bits`.
-
-        Subtract this offset before scaling:
-        `(code - zero_offset(active_bits)) · rescale_factor`. Sign and offset
-        are not folded into the emitted code.
-        """
+        """Return the raw analog-zero code to subtract before scaling."""
         self._check_active_bits(active_bits)
         return 1 << (active_bits - 1)
 
@@ -213,7 +175,7 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
 
     @abstractmethod
     def latency__ns(self, *, active_bits: int) -> float:
-        """Duration of one `convert` call at `active_bits` [ns].
+        """Duration of one `convert` call.
 
         Args:
             active_bits: Active conversion resolution in `[1, bits]`.
@@ -246,6 +208,12 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
+
+    @final
+    def _record_input(self, v_pos__V: Tensor, v_neg__V: Tensor) -> None:
+        prober = AdcProber.current()
+        if prober is not None:
+            prober.submit_diff_voltage(v_pos__V=v_pos__V, v_neg__V=v_neg__V)
 
     @final
     def _check_active_bits(self, active_bits: int) -> None:

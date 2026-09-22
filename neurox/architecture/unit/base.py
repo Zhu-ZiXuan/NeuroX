@@ -7,7 +7,7 @@ from typing import final
 
 from torch import Tensor
 
-from neurox.common.module import ConfigBase, ProfileModule
+from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 
 
 class UnitConfig(ConfigBase, base_only=True):
@@ -33,13 +33,17 @@ _Config = UnitConfig
 
 
 class UnitBase(ProfileModule, ABC, base_only=True):
-    """Profiled integer operators with shared value-domain and execution metadata.
-
-    Every implementation, including an ideal operator, retains the unit's
-    local static-cost contract. Child circuits report their costs separately.
-    """
+    """Single-instance integer operators with value-domain and execution metadata."""
 
     config: _Config
+
+    def __init__(
+        self,
+        *,
+        config: _Config,
+        policy: PolicyBase,
+    ) -> None:
+        super().__init__(config=config, policy=policy, inst_shape=())
 
     # === Required by base class ===
 
@@ -95,12 +99,19 @@ class UnitBase(ProfileModule, ABC, base_only=True):
         input_shape: tuple[int, ...],
         *,
         adc_active_bits: int | None,
-    ) -> float | Tensor:
-        """Latency of one complete operator call.
+    ) -> float:
+        """Duration of one basic operation, shared by all caller batch positions.
 
-        The unit derives runtime-dependent serial extents from
-        `input_shape`; construction fixes the remaining extents. An
-        implementation whose latency is fully fixed may ignore the shape.
+        Leading batch and token extents do not multiply this value. Public
+        execution methods submit this scalar unchanged. The model owner
+        configures profiling so every retained energy element corresponds to
+        one basic operation.
+
+        `input_shape` supplies internal runtime extents; construction fixes
+        the remaining geometry. Timing is available before programming or
+        numerical execution. Implementations compose internal durations before
+        returning a scalar; extracting a value from a device tensor may synchronize
+        that device.
 
         Args:
             input_shape: Layout of the operand the unit's operator receives.

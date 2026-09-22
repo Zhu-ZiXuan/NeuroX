@@ -43,9 +43,6 @@ def test_config_and_policy_both_select_family_members() -> None:
     assert Family._lookup_impl(config=_Config(), policy=_Policy()) is First
     assert Family._lookup_impl(config=_OtherConfig(), policy=_Policy()) is Second
     assert Family._lookup_impl(config=_Config(), policy=_OtherPolicy()) is Third
-    implementation = Family._lookup_impl(config=_OtherConfig(), policy=_Policy())
-    instance = implementation(config=_OtherConfig(), policy=_Policy(), inst_shape=())
-    assert type(instance) is Second
 
 
 def test_family_bindings_are_independent_and_conflicts_preserve_the_first_registration() -> None:

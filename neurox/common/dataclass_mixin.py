@@ -1,10 +1,4 @@
-"""Construction, PyTree registration, and traversal for tensor data classes.
-
-What a tensor field costs a data class — equality, freezing, the keyword-only
-call — is settled here once for classes that opt into this hierarchy.
-Mapping transforms tensor fields into a dataclass of the same type; visiting
-inspects tensor fields without reconstructing their enclosing objects.
-"""
+"""Construction, PyTree registration, and traversal for tensor data classes."""
 
 from __future__ import annotations
 
@@ -23,15 +17,11 @@ if TYPE_CHECKING:
 class TensorDataClassMixin:
     """Supply identity equality and immutable construction to tensor data.
 
-    A tensor compares elementwise, so a field holding one leaves value `==`
-    ill-defined: the comparison returns a tensor rather than a verdict. Every
-    class here therefore equals only itself, and `==` and `hash()` use identity
-    throughout the hierarchy.
+    Equality and hashing use identity throughout the hierarchy.
 
     A subclass declares its fields as annotations without initial values, and
-    must not apply `@dataclass` or define `__init__`;
-    this mixin supplies a frozen, keyword-only dataclass to every descendant,
-    however deep. The transformation completes before delegating to later
+    must not apply `@dataclass` or define `__init__`. This mixin supplies a
+    frozen, keyword-only dataclass to every descendant before delegating to later
     class-initialization hooks, so they can inspect the complete fields.
     """
 

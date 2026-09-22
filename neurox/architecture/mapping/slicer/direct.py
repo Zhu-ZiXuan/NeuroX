@@ -8,17 +8,25 @@ from .base import Slicer
 
 
 class DirectSlicer(Slicer):
-    """Append one size-one slice axis.
+    """Insert one size-one slice axis.
 
-    Args:
-        value_range: Inclusive integer range represented by the direct path.
+    Recovery removes that axis without arithmetic or circuit cost.
     """
 
     def __init__(self, *, value_range: tuple[int, int]) -> None:
+        super().__init__(recovery_circuit=None)
         lo, hi = value_range
         if lo >= hi:
             raise ValueError(f"require: value_range lo ({lo}) < hi ({hi})")
         self._value_range = (int(lo), int(hi))
+
+    @property
+    def place_values(self) -> tuple[int, ...]:
+        return (1,)
+
+    @property
+    def has_signed_slices(self) -> bool:
+        return self.value_range[0] < 0
 
     @property
     def value_range(self) -> tuple[int, int]:
@@ -33,20 +41,6 @@ class DirectSlicer(Slicer):
         lo, hi = self._value_range
         return hi - lo + 1
 
-    @property
-    def slice_weights(self) -> tuple[int, ...]:
-        return (1,)
-
-    def slice(self, x: Tensor) -> Tensor:
-        """Append the structural slice axis.
-
-        Returns:
-            `x` with one appended slice axis.
-            Shape: `[..., slice=1]`.
-        """
-        # Shape: [...] -> [..., slice=1]
-        return x.unsqueeze(-1)
-
-    def recover(self, values: Tensor, *, dim: int) -> Tensor:
-        # Shape: [..., slice=1, ...] -> [..., ...]
-        return values.squeeze(dim)
+    def slice(self, x: Tensor, *, dim: int = -1) -> Tensor:
+        # Shape: [...] -> [..., slice=1, ...]
+        return x.unsqueeze(dim)

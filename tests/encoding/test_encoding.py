@@ -48,7 +48,7 @@ def test_true_form_digits_are_lsb_first() -> None:
     assert torch.equal(digits, expected)
 
 
-def test_complement_digits_are_lsb_first_with_folded_msb() -> None:
+def test_binary_complement_keeps_the_highest_digit_signed() -> None:
     transcoder = ComplementTranscoder(radix=2, digit_count=4)
     x = torch.tensor([-1, -4, 3], dtype=torch.int32)
     digits = transcoder.encode(x)
@@ -61,6 +61,25 @@ def test_complement_digits_are_lsb_first_with_folded_msb() -> None:
         dtype=torch.int32,
     )
     assert torch.equal(digits, expected)
+    assert transcoder.place_values == (1, 2, 4, 8)
+    assert transcoder.has_signed_digits
+    assert torch.equal(transcoder.decode(digits), x)
+
+
+@pytest.mark.parametrize("radix", [2, 3, 5, 8, 10])
+@pytest.mark.parametrize("digit_count", [1, 2, 3])
+@pytest.mark.parametrize("dim", [0, -1])
+def test_complement_decoder_preserves_fixed_count_and_radix_interval(radix: int, digit_count: int, dim: int) -> None:
+    transcoder = ComplementTranscoder(radix=radix, digit_count=digit_count)
+    lo = -(radix // 2) * radix ** (digit_count - 1)
+    period = radix**digit_count
+    values = torch.arange(lo - period, lo + 2 * period, dtype=torch.int64).reshape(3, period)
+    digits = transcoder.encode(values, dim=dim)
+    assert digits.shape[dim] == digit_count
+    expected = (values - lo).remainder(period) + lo
+    torch.testing.assert_close(transcoder.decode(digits, dim=dim), expected)
+    assert transcoder.has_signed_digits
+    assert transcoder.place_values == tuple(radix**i for i in range(digit_count))
 
 
 @pytest.mark.parametrize(

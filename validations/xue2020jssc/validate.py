@@ -5,22 +5,23 @@ from __future__ import annotations
 import logging
 import statistics
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from neurox import Reporter
+from neurox import Profiler
 from neurox.tools.validation.cim_macro import (
     ValidationArgs,
     build_macro,
+    dynamic_energy_by_round__fJ,
     get_cli_args,
     mean_by_name,
     parse_cli_args,
     profile_vmm,
     render_run_summary,
-    static_energy_by_name__fJ,
+    static_energy_by_round__fJ,
     validation_run,
 )
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
@@ -44,10 +45,10 @@ _PAIRED_SLICES: dict[str, tuple[str, ...]] = {
 _PAIR_MEMBERS = tuple(name for members in _PAIRED_SLICES.values() for name in members)
 
 _DYN_NAMES: dict[str, tuple[str, ...]] = {
-    "cablc": (".cablc", "array"),
-    "dswct": (".dswct",),
-    "sinwp_sc": (".sinwp_sc",),
-    "pn_isub": (".pn_isub",),
+    "cablc": ("cablc", "array"),
+    "dswct": ("dswct",),
+    "sinwp_sc": ("sinwp_sc",),
+    "pn_isub": ("pn_isub",),
     "control": ("control",),
     "tmcsa": ("tmcsa",),
 }
@@ -70,7 +71,7 @@ type Anchors = dict[str, Any]
 
 
 def measurement_cycle__ns(anchors: Anchors) -> float:
-    """Paper measurement period used for leakage integration [ns]."""
+    """Paper measurement period used for leakage integration."""
     return float(anchors["measurement"]["cycle__ns"])
 
 
@@ -197,6 +198,7 @@ class Measurement:
     dynamic__fJ: float
     static__fJ: float
     slices: tuple[SliceEnergy, ...]
+    unmapped_dynamic__fJ: float
     unmapped_static__fJ: float
     rel_std: float
 
@@ -205,27 +207,28 @@ class Measurement:
 
 
 def measure(
-    dynamic_by_name__fJ: dict[str, float],
-    static_by_name__fJ: dict[str, float],
+    dynamic_by_group__fJ: dict[str, float],
+    static_by_group__fJ: dict[str, float],
     round_total__fJ: tuple[float, ...],
     anchors: Anchors,
 ) -> Measurement:
-    """Map profiled PPA rows onto the Fig.18 accounting slices."""
+    """Compare campaign-grouped circuit costs with the Fig.18 accounting slices."""
     target_total = anchors["target"]["per_access__fJ"]
     shares = anchors["fig18_shares"]
+    dynamic = dynamic_by_group__fJ
+    static = static_by_group__fJ
     slices = tuple(
         SliceEnergy(
             name=s,
-            dynamic__fJ=sum(dynamic_by_name__fJ.get(k, 0.0) for k in _DYN_NAMES.get(s, ())),
-            static__fJ=sum(static_by_name__fJ.get(k, 0.0) for k in _STATIC_NAMES.get(s, ())),
+            dynamic__fJ=dynamic.get(s, 0.0),
+            static__fJ=static.get(s, 0.0),
             target__fJ=0.0 if s in _PAIR_MEMBERS else shares[s] / 100.0 * target_total,
         )
         for s in _ALL_SLICES
     )
-    dynamic__fJ = sum(dynamic_by_name__fJ.values())
-    static__fJ = sum(static_by_name__fJ.values())
+    dynamic__fJ = sum(dynamic_by_group__fJ.values())
+    static__fJ = sum(static_by_group__fJ.values())
     total__fJ = dynamic__fJ + static__fJ
-    mapped_static = sum(static_by_name__fJ.get(k, 0.0) for s in _ALL_SLICES for k in _STATIC_NAMES.get(s, ()))
     rel_std = statistics.stdev(round_total__fJ) / total__fJ if len(round_total__fJ) > 1 and total__fJ else 0.0
 
     return Measurement(
@@ -233,13 +236,14 @@ def measure(
         dynamic__fJ=dynamic__fJ,
         static__fJ=static__fJ,
         slices=slices,
-        unmapped_static__fJ=static__fJ - mapped_static,
+        unmapped_dynamic__fJ=dynamic.get("other", 0.0),
+        unmapped_static__fJ=static.get("other", 0.0),
         rel_std=rel_std,
     )
 
 
 def gate(m: Measurement, anchors: Anchors) -> tuple[bool, float]:
-    """Hard gate: total energy per access within +-tol of the target. Return ``(pass, rel_error)``."""
+    """Return `(passed, relative_error)` against the configured energy tolerance."""
     target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
     rel = (m.total__fJ - target) / target
@@ -267,9 +271,10 @@ def energy_table(m: Measurement, anchors: Anchors) -> str:
     lines.extend(row(s, basis="modeled pair") for s in comparable[2:4])
     lines.append(row(comparable[4], basis="modeled"))
     lines.extend(row(m.slice(name), basis="pair member") for name in _PAIR_MEMBERS)
-    if abs(m.unmapped_static__fJ) > 1e-9:
+    unmapped__fJ = m.unmapped_dynamic__fJ + m.unmapped_static__fJ
+    if abs(unmapped__fJ) > 1e-9:
         lines.append(
-            f"| (unmapped static) | {m.unmapped_static__fJ:8.3f} | {0.0:7.3f} | {m.unmapped_static__fJ:6.3f} | "
+            f"| (unmapped) | {unmapped__fJ:8.3f} | {m.unmapped_dynamic__fJ:7.3f} | {m.unmapped_static__fJ:6.3f} | "
             f"{0.0:8.3f} |    -   | residual |"
         )
     within, rel = gate(m, anchors)
@@ -288,6 +293,7 @@ def plot_energy_breakdown(m: Measurement, anchors: Anchors, output_path: Path) -
     mpl.use("Agg")
     mpl.rcParams["svg.fonttype"] = "none"
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
 
     slices = comparison_slices(m, anchors)
     labels: tuple[str, ...] = ("Control", "Reference", "CABLC + DSWCT", "SINWP-SC + PN-ISUB", "TMCSA")
@@ -342,7 +348,7 @@ def plot_energy_breakdown(m: Measurement, anchors: Anchors, output_path: Path) -
             fontsize=9,
         )
 
-    legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=color) for color in colors]
+    legend_handles = [Rectangle((0, 0), 1, 1, facecolor=color) for color in colors]
     ax.legend(
         legend_handles,
         labels,
@@ -431,23 +437,19 @@ def validate(args: ValidationArgs) -> None:
     )
     if not isinstance(macro, Xue2020JsscCimMacro):
         raise TypeError(f"validation config built {type(macro).__name__}, expected Xue2020JsscCimMacro")
-    reporter = Reporter(macro)
+    # Each retained input/weight position is one physical macro's full VMM.
+    macro.set_profile_leading_rank(2)
+    profiler = Profiler(concat_dim=0, sync_device=torch.device("cpu"))
+    profiler.collect_static_data(macro)
     data = anchors["data"]
     w_lo, w_hi = data["weight_range"]
     x_lo, x_hi = data["input_range"]
-    static_by_name__fJ = static_energy_by_name__fJ(
-        macro,
-        reporter,
-        measurement_cycle__ns=measurement_cycle__ns(anchors),
-    )
-    static__fJ = sum(static_by_name__fJ.values())
-    dynamic_rounds: list[dict[str, float]] = []
-    round_total__fJ: list[float] = []
 
     # --- 2: sample, program, and profile every independent round ---
 
     with torch.no_grad():
         for round_index in range(args.repeat):
+            _LOG.info("profiling round %d/%d", round_index + 1, args.repeat)
             gen = torch.Generator(device=args.device).manual_seed(args.seed + round_index)
             weight = _draw_weight(
                 gen,
@@ -468,23 +470,51 @@ def validate(args: ValidationArgs) -> None:
                 hi=x_hi,
                 nonzero_probability=float(data["input_nonzero_probability"]),
             )
-            profiled = profile_vmm(
+            profile_vmm(
                 macro,
-                reporter,
+                profiler,
                 x,
                 quantization_mode=_QUANTIZATION_MODE,
                 adc_active_bits=_ADC_BITS,
             )
-            dynamic_rounds.append(profiled.dynamic_by_name_per_access__fJ)
-            round_total__fJ.append(sum(profiled.dynamic_by_name_per_access__fJ.values()) + static__fJ)
 
     # --- 3: interpret the profiler rows against the paper anchors ---
 
-    dynamic_by_name__fJ = mean_by_name(dynamic_rounds)
+    profile_items = profiler.result
+    torch.save(profile_items, args.output_dir / "profile.pt")
+    report_items = {
+        name: replace(
+            item,
+            area__um2=None if item.area__um2 is None else item.area__um2 / macro.inst_count,
+            leakage__uW=None if item.leakage__uW is None else item.leakage__uW / macro.inst_count,
+        )
+        for name, item in profile_items.items()
+    }
+    dynamic_rounds = dynamic_energy_by_round__fJ(
+        report_items,
+        scan_num=macro.scan_num,
+        n_x=args.n_x,
+        groups={name: label for label, names in _DYN_NAMES.items() for name in names},
+    )
+    static_rounds = static_energy_by_round__fJ(
+        report_items,
+        scan_num=macro.scan_num,
+        n_x=args.n_x,
+        powered_duration__ns=torch.tensor(macro.scan_num * measurement_cycle__ns(anchors), dtype=torch.float64).expand(
+            args.repeat * args.n_x, args.n_w
+        ),
+        groups={name: label for label, names in _STATIC_NAMES.items() for name in names},
+    )
+    round_total__fJ = tuple(
+        sum(dynamic.values()) + sum(static.values())
+        for dynamic, static in zip(dynamic_rounds, static_rounds, strict=True)
+    )
+    dynamic_by_group__fJ = mean_by_name(dynamic_rounds)
+    static_by_group__fJ = mean_by_name(static_rounds)
     m = measure(
-        dynamic_by_name__fJ,
-        static_by_name__fJ,
-        tuple(round_total__fJ),
+        dynamic_by_group__fJ,
+        static_by_group__fJ,
+        round_total__fJ,
         anchors,
     )
     run_summary = render_run_summary(

@@ -9,12 +9,16 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch import Tensor, nn
 
+from neurox import Profiler
+
 from .factory import PRESETS, ROOT, UnitFactory
-from .sidecar import EnergySidecar
+from .observer import EnergyObserver, UnsupportedLayersError
+from .report import summarize_profile
 
 DATA = {
     "ucihar": "data/ucihar/UCI_HAR_Dataset",
@@ -32,8 +36,10 @@ DATA = {
 }
 FAMILIES = ("example", "hardware_comparable", "lenet_sparse_adc", "soul_fullgrid_sparse_adc")
 
+type _Batch = tuple[tuple[Any, ...], dict[str, Any], int]
 
-def load_soul(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
+
+def load_soul(args: argparse.Namespace) -> tuple[nn.Module, list[_Batch], str]:
     root = ROOT / args.family
     sys.path.insert(0, str(root))
     os.environ["SOUL_ROOT"] = str(root)
@@ -59,14 +65,16 @@ def load_soul(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
                 layer.adc_uses_tile = True
     qfull.set_mode(model, mode="adc", adc_bits=args.reference_adc_bits, calib=False)
     selected = torch.randperm(len(test), generator=torch.Generator().manual_seed(args.seed))[: args.num_samples]
-    samples = []
+    samples: list[_Batch] = []
     for index in selected.tolist():
         x, label = test[index]
         samples.append(((x.unsqueeze(1).to(args.device),), {}, int(label)))
     return model.to(args.device).eval(), samples, str(checkpoint)
 
 
-def load_example(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
+def load_example(args: argparse.Namespace) -> tuple[nn.Module, list[_Batch], str]:
+    model: nn.Module
+    samples: list[_Batch]
     if args.model == "lenet":
         from torchvision import datasets, transforms
 
@@ -121,7 +129,7 @@ def load_example(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
     return model.to(args.device).eval(), samples, str(checkpoint)
 
 
-def load_sorbet(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
+def load_sorbet(args: argparse.Namespace) -> tuple[nn.Module, list[_Batch], str]:
     root = ROOT / ("hardware_comparable" if args.family == "hardware_comparable" else "example/Sorbet_SST2_infer")
     sys.path.insert(0, str(root))
     from transformer.configuration_bert import BertConfig
@@ -153,7 +161,7 @@ def load_sorbet(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
         "classification",
     )
     dataset, _ = get_tensor_data("classification", features)
-    samples = [
+    samples: list[_Batch] = [
         (
             (
                 row[0].unsqueeze(0).to(args.device),
@@ -171,9 +179,10 @@ def load_sorbet(args: argparse.Namespace) -> tuple[nn.Module, list, str]:
 def logits(output: object) -> Tensor:
     if isinstance(output, torch.Tensor):
         return output
-    if hasattr(output, "logits"):
-        return output.logits
-    return output[0]
+    value = output[0] if isinstance(output, (tuple, list)) else getattr(output, "logits", None)
+    if not isinstance(value, Tensor):
+        raise TypeError("model output must provide a logits tensor")
+    return value
 
 
 def main(family: str | None = None, *, model: str = "lenet") -> None:
@@ -189,9 +198,8 @@ def main(family: str | None = None, *, model: str = "lenet") -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--reference-adc-bits", type=int, default=6)
     parser.add_argument("--sequence-length", type=int, default=64)
-    parser.add_argument("--batch-chunk", type=int, default=1)
-    parser.add_argument("--spatial-chunk", type=int, default=32)
-    parser.add_argument("--merge", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--ideal-macro", action="store_true", help="Measure digital operations with ideal macro twins.")
+    parser.add_argument("--merge", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -202,25 +210,38 @@ def main(family: str | None = None, *, model: str = "lenet") -> None:
     loader = (
         load_example if args.family == "example" else load_sorbet if args.family == "hardware_comparable" else load_soul
     )
-    model, samples, checkpoint = loader(args)
-    sidecar = EnergySidecar(
-        model,
-        UnitFactory(args.preset, merge=args.merge),
-        batch_chunk=args.batch_chunk,
-        spatial_chunk=args.spatial_chunk,
+    model_dir = (
+        ROOT / "example" / ("Sorbet_SST2_infer" if args.model == "sorbet" else args.model)
+        if args.family == "example"
+        else ROOT / args.family / "neurox_eval"
     )
+    try:
+        factory = UnitFactory(model_dir / "configs", args.preset, merge=args.merge, ideal_macro=args.ideal_macro)
+    except ValueError as error:
+        parser.error(str(error))
+    network, samples, checkpoint = loader(args)
+    observer = EnergyObserver(network, factory)
+    try:
+        observer.prepare(samples[0][0], samples[0][1])
+    except UnsupportedLayersError as error:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.with_suffix(".unsupported.json").write_text(json.dumps(error.layers, indent=2) + "\n")
+        raise SystemExit(str(error)) from error
+    profiler = Profiler(concat_dim=0, sync_device=torch.device("cpu"))
+    profiler.collect_static_data(network)
     correct = 0
     with torch.no_grad():
         for operands, kwargs, label in samples:
-            state = {name: value.clone() for name, value in model.state_dict().items()}
+            state = {name: value.clone() for name, value in network.state_dict().items()}
             with torch.random.fork_rng(devices=[torch.device(args.device).index or 0] if "cuda" in args.device else []):
-                expected = logits(model(*operands, **kwargs)).clone()
-            model.load_state_dict(state)
-            with sidecar:
-                actual = logits(model(*operands, **kwargs))
+                expected = logits(network(*operands, **kwargs)).clone()
+            network.load_state_dict(state)
+            with observer, profiler:
+                actual = logits(network(*operands, **kwargs))
             torch.testing.assert_close(actual, expected, rtol=0, atol=0)
             correct += int(actual.argmax(-1).item() == label)
-    result = sidecar.report() | {
+    profile_result = profiler.result
+    result = summarize_profile(profile_result, observer, single_sample_batches=True) | {
         "family": args.family,
         "model": args.model,
         "dataset": args.dataset
@@ -237,6 +258,7 @@ def main(family: str | None = None, *, model: str = "lenet") -> None:
     if result["operator_calls"] == 0:
         raise RuntimeError("no supported operators were observed")
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(profile_result, args.output.with_suffix(".profile.pt"))
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     sys.stdout.write(json.dumps({k: v for k, v in result.items() if k != "operators"}) + "\n")
 

@@ -1,42 +1,46 @@
 # Conv2d mapping
 
-The conv2d operator dimension lowers `F.conv2d` to a matrix multiplication without replicating the programmed kernels. The weight is flattened once; runtime convolution windows form the serial input-vector axis.
+Convolution lowers to one independent matrix multiplication per channel group, with one copy of each kernel. Flattened convolution windows supply successive input vectors.
 
 ## Governing laws
 
-The input is $[B, C_{\mathrm{in}}, H, W]$ and the output is $[B, C_{\mathrm{out}}, H_{\mathrm{out}}, W_{\mathrm{out}}]$. A 3-D $[C_{\mathrm{in}}, H, W]$ input is read as $B=1$ and returns a 3-D output, exactly as `F.conv2d`. For kernel $(k_h, k_w)$, stride $(s_h, s_w)$, padding $(p_h, p_w)$, and dilation $(d_h, d_w)$,
+The input is $[B, C_{\mathrm{in}}, H, W]$ and the output is $[B, C_{\mathrm{out}}, H_{\mathrm{out}}, W_{\mathrm{out}}]$. A 3-D $[C_{\mathrm{in}}, H, W]$ input is read as $B=1$ and returns a 3-D output. For kernel $(k_h, k_w)$, stride $(s_h, s_w)$, padding $(p_h, p_w)$, and dilation $(d_h, d_w)$,
 
 $$H_{\mathrm{out}} =
 \left\lfloor
 \frac{H + 2p_h - d_h(k_h-1) - 1}{s_h}
 \right\rfloor + 1,$$
 
-and analogously for $W_{\mathrm{out}}$. The lowered dimensions are
+and analogously for $W_{\mathrm{out}}$. With $G$ groups, both channel counts are divisible by $G$. The weight shape is $[C_{\mathrm{out}},C_{\mathrm{in}}/G,k_h,k_w]$, and the lowered dimensions per group are
 
-$$K=C_{\mathrm{in}}k_hk_w,\qquad
+$$K=\frac{C_{\mathrm{in}}}{G}k_hk_w,\qquad
 M=H_{\mathrm{out}}W_{\mathrm{out}},\qquad
-N=C_{\mathrm{out}}.$$
+N=\frac{C_{\mathrm{out}}}{G}.$$
 
-**Weight lowering.** Each output-channel kernel is flattened in $(C_{\mathrm{in}}, k_h, k_w)$ row-major order:
+**Weight lowering.** Each output-channel kernel is flattened in $(C_{\mathrm{in}}/G, k_h, k_w)$ row-major order within its group:
 
-$$W_{\mathrm{matrix}}[n,:]
-=\operatorname{flatten}(W[n,:,:,:]).$$
+$$W_{\mathrm{matrix}}[g,n,:]
+=\operatorname{flatten}(W[gN+n,:,:,:]).$$
 
-The resulting $[N,K]$ matrix contains exactly one copy of every weight.
+The resulting $[G,N,K]$ tensor contains exactly one copy of every weight.
 
-**Window lowering.** Every output position $(h_o,w_o)$ produces one input vector. Entry $(c_i,i,j)$ reads
+**Window lowering.** Every output position $(h_o,w_o)$ produces one input vector per group. Entry $(c_i,i,j)$ in group $g$ reads
 
-$$X\left[c_i,\ h_os_h-p_h+i d_h,\ w_os_w-p_w+j d_w\right],$$
+$$X\left[g\frac{C_{\mathrm{in}}}{G}+c_i,\ h_os_h-p_h+i d_h,\ w_os_w-p_w+j d_w\right],$$
 
-with out-of-bounds positions replaced by zero. Flattening the window in the same $(C_{\mathrm{in}}, k_h, k_w)$ order gives one row of the $[B,M,K]$ input matrix, per batch element.
+with out-of-bounds positions replaced by zero. Flattening each group's window in the same order gives a $[B,M,G,K]$ input tensor.
 
 **Execution and fold.**
 
-$$Y_{\mathrm{matrix}}=X_{\mathrm{windows}}W_{\mathrm{matrix}}^\mathsf{T}$$
+$$Y_{\mathrm{matrix}}[:,:,g,:]=X_{\mathrm{windows}}[:,:,g,:]W_{\mathrm{matrix}}[g,:,:]^\mathsf{T}$$
 
-produces $[B,M,C_{\mathrm{out}}]$. The window axis is restored to $[H_{\mathrm{out}},W_{\mathrm{out}}]$, the output-channel axis is moved to the front, and the integer bias is added once per output element.
+produces $[B,M,G,N]$. Group outputs are concatenated into $C_{\mathrm{out}}$ channels without summation. The window axis is restored to $[H_{\mathrm{out}},W_{\mathrm{out}}]$, the output-channel axis is moved to the front, and the integer bias is added once per output element.
 
-All windows reuse the same programmed weight. Their $M$ axis is a runtime serial-work axis; it is not a weight-replication or physical-instance axis. The substrate remains responsible for input-axis block packing, activation phases, precision slicing, and digital aggregation.
+The $M$ windows reuse the programmed weight through the [CIM input pipeline](cim.md#input-pipeline). Local work overlaps its predecessor's global processing, with startup and drain counted once per image. Batch size does not change one image's duration.
+
+Groups own independent macros and local and global recovery circuits and execute in parallel. Area, leakage and dynamic energy sum across groups; image latency is the maximum group latency. Equal group geometry and a common configuration give identical schedules, so group count does not multiply the per-group duration. Unit-local peripheral costs retain their whole-unit meaning.
+
+Input-slot merge operates within each group. For depth-wise convolution, $G=C_{\mathrm{in}}$, $K=k_hk_w$, and $N$ is the channel multiplier. Merge reduces macro count only when a group has multiple output tiles and a macro can hold multiple input slots. Different depth-wise groups never share a macro. A point-wise kernel uses the same mapping with $k_h=k_w=1$.
 
 ## Noise & non-idealities
 
@@ -47,17 +51,16 @@ Window gather, weight flattening, output folding, and bias addition are exact in
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
 | $B$ | batch size | — | runtime input axis |
-| $C_{\mathrm{in}}, C_{\mathrm{out}}$ | input / output channels | — | `w_logical_shape` |
+| $C_{\mathrm{in}}, C_{\mathrm{out}}$ | total input / output channels | — | `w_logical_shape`, `groups` |
+| $G$ | independently mapped convolution groups | — | `groups` |
 | $k_h, k_w$ | kernel extent | — | `w_logical_shape` |
 | $s_h, s_w$; $p_h, p_w$; $d_h, d_w$ | stride; padding; dilation | — | `stride`, `padding`, `dilation` |
-| $K$ | flattened convolution-window length | — | flattened kernel shape |
+| $K$ | flattened convolution-window length per group | — | flattened kernel shape |
 | $M$ | output-window count | — | runtime input axis |
-| $N$ | output-channel count | — | flattened kernel shape |
+| $N$ | output-channel count per group | — | flattened kernel shape |
 | $b$ | integer bias vector of length $C_{\mathrm{out}}$ | — | `_int_bias` |
 
 ## Assumptions, scope & validity
 
-- Operands are integers within the published value ranges; requantization lies outside the unit.
-- The input is $[B, C_{\mathrm{in}}, H, W]$, or its 3-D $[C_{\mathrm{in}}, H, W]$ form read as $B=1$; no other rank is accepted, and the output takes the rank of the input.
 - Non-zero padding requires the activation value range to contain zero.
-- Grouped convolution is out of scope.
+- Group count is positive and divides both channel counts.

@@ -38,6 +38,8 @@ class IdealCimMacroConfig(CimMacroConfig):
 
     # === Value ranges ===
 
+    w_signed: bool
+    """Explicit native signed-weight capability of the modeled macro."""
     x_value_range: tuple[int, int]
     """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
@@ -49,6 +51,10 @@ class IdealCimMacroConfig(CimMacroConfig):
     """Maximum selectable virtual ADC resolution."""
     quantization_scheme: CimMacroQuantizationScheme
     """Macro output quantization scheme."""
+
+    @property
+    def supports_signed_weights(self) -> bool:
+        return self.w_signed
 
     @property
     def w_digit_n(self) -> int:
@@ -108,6 +114,8 @@ class IdealCimMacro(CimMacro):
     config: _Config
     policy: _Policy
 
+    # === Programmed state ===
+
     _w: Tensor  # Shape: [*inst_shape, input, output]
 
     def __init__(
@@ -131,14 +139,6 @@ class IdealCimMacro(CimMacro):
         self._max_plane_dot_abs = config.max_active_num * max_w_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
-
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        # Shape: [output] -> [lane, scan]
-        output_indices = torch.arange(self.output_num, device=effective_output_num.device).view(
-            self.lane_num, self.scan_num
-        )
-        # Shape: [..., lane=1, scan=1]
-        return output_indices < effective_output_num[..., None, None]
 
     def _latency_per_scan__ns(self, *, adc_active_bits: int | None) -> float:
         """Zero — an arithmetic oracle has no circuit latency."""

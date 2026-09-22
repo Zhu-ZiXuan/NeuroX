@@ -7,24 +7,27 @@ from typing import assert_never
 from torch import Tensor
 
 from neurox.encoding import Encoding, Transcoder
+from neurox.primitive.digital import RadixAccumulator, RadixSummator
 
 from .base import Slicer
 
 
 class SimpleSlicer(Slicer):
-    """Decompose integer values into slices bounded by a carrier's range.
+    """Decompose integers into a fixed number of slices bounded by a carrier.
 
-    Select the largest radix whose digit intervals fit `slice_value_range`.
+    Compute the largest radix, at most the carrier maximum plus one, from
+    the encoding's digit bounds and `slice_value_range`.
     Every emitted digit fits that carrier range, including for integer inputs
     outside `value_range`. Such inputs may not recover their original value.
-    True-form, canonical, and complement encoding require a carrier that admits
-    negative digits.
 
     Args:
-        slice_num: Number of positional slices.
+        slice_num: Exact number of emitted slices; greater than one.
         slice_value_range: Inclusive integer interval carried by every slice.
             It must contain the digit ranges required by the selected encoding.
-        encoding: Positional encoding used across slices.
+        encoding: `UNSIGNED`, `TRUE_FORM`, or `CANONICAL`.
+
+    Raises:
+        ValueError: `COMPLEMENT` is not supported for slicing.
     """
 
     def __init__(
@@ -33,34 +36,23 @@ class SimpleSlicer(Slicer):
         slice_num: int,
         slice_value_range: tuple[int, int],
         encoding: Encoding,
+        recovery_circuit: RadixSummator | RadixAccumulator | None = None,
     ) -> None:
-        if slice_num < 1:
-            raise ValueError(f"require: slice_num ({slice_num}) >= 1")
-
+        if slice_num <= 1:
+            raise ValueError(f"require: slice_num ({slice_num}) > 1")
+        super().__init__(recovery_circuit=recovery_circuit)
         lo, hi = slice_value_range
-
         match encoding:
             case Encoding.UNSIGNED:
                 if not (lo <= 0 and hi >= 1):
                     raise ValueError(f"unsigned slices require a range containing [0, 1]; got {slice_value_range}")
                 radix = hi + 1
-            case Encoding.TRUE_FORM:
+            case Encoding.TRUE_FORM | Encoding.CANONICAL:
                 if not (lo <= -1 and hi >= 1):
-                    raise ValueError(f"true-form slices require a range containing [-1, 1]; got {slice_value_range}")
-                radix = min(-lo, hi) + 1
-            case Encoding.CANONICAL:
-                if not (lo <= -1 and hi >= 1):
-                    raise ValueError(f"canonical slices require a range containing [-1, 1]; got {slice_value_range}")
+                    raise ValueError(f"{encoding} slices require a range containing [-1, 1]; got {slice_value_range}")
                 radix = min(-lo, hi) + 1
             case Encoding.COMPLEMENT:
-                min_hi = 0 if slice_num == 1 else 1
-                if not (lo <= -1 and hi >= min_hi):
-                    raise ValueError(
-                        f"{slice_num} complement slices require a range containing [-1, {min_hi}]; "
-                        f"got {slice_value_range}"
-                    )
-                # Only the highest digit is signed; lower digits must fit [0, r-1].
-                radix = min(-2 * lo + 1, 2 * hi + 2 if slice_num == 1 else hi + 1)
+                raise ValueError("complement encoding is not supported for slicing")
             case _:
                 assert_never(encoding)
 
@@ -71,6 +63,14 @@ class SimpleSlicer(Slicer):
             digit_count=slice_num,
         )
         self._slice_radix = radix
+
+    @property
+    def place_values(self) -> tuple[int, ...]:
+        return self._transcoder.place_values
+
+    @property
+    def has_signed_slices(self) -> bool:
+        return self._transcoder.has_signed_digits
 
     @property
     def value_range(self) -> tuple[int, int]:
@@ -84,11 +84,6 @@ class SimpleSlicer(Slicer):
     def slice_radix(self) -> int:
         return self._slice_radix
 
-    @property
-    def slice_weights(self) -> tuple[int, ...]:
-        r = self._slice_radix
-        return tuple(r**i for i in range(self._slice_num))
-
-    def slice(self, x: Tensor) -> Tensor:
-        # Shape: [...] -> [..., slice]
-        return self._transcoder.encode(x, dim=-1)
+    def slice(self, x: Tensor, *, dim: int = -1) -> Tensor:
+        # Shape: [...] -> [..., slice, ...]
+        return self._transcoder.encode(x, dim=dim)

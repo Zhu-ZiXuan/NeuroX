@@ -22,9 +22,12 @@ _ROOT_LIFT_EXCEPTIONS = {
     "api": frozenset(
         {
             "Profiler",
+            "ProfileItem",
             "Reporter",
+            "ReportItem",
             "check_unique_binding",
             "fabricate",
+            "set_profile_leading_rank",
             "set_temperature",
             "stamp_names",
             "cim_macro_from_file",

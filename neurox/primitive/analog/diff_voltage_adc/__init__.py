@@ -1,9 +1,4 @@
-from .base import (
-    DiffVadc,
-    DiffVadcConfig,
-    DiffVadcPolicy,
-    DiffVadcRecord,
-)
+from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 from .mcs_sar import (
     McsSarDiffVadc,
     McsSarDiffVadcConfig,
@@ -14,7 +9,6 @@ __all__ = [
     "DiffVadc",
     "DiffVadcConfig",
     "DiffVadcPolicy",
-    "DiffVadcRecord",
     "McsSarDiffVadc",
     "McsSarDiffVadcConfig",
     "McsSarDiffVadcPolicy",

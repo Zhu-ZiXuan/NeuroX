@@ -1,92 +1,296 @@
-"""Side-channel dynamic-energy profiler for NeuroX circuit-level simulation."""
+"""Collect and expose hardware snapshots and execution observations."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Literal
+
 import torch
+import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.recorder import RecordBase, RecorderBase
+from neurox.common.dataclass_mixin import TensorDataClassMixin
+from neurox.common.module import neurox_profile_modules
+from neurox.common.recorder import RecorderBase
+
+from .function import stamp_names
 
 
-class EnergyRecord(RecordBase):
-    qualified_name: str
-    """Hierarchical name the emitter was stamped with."""
-    dynamic_energy__fJ: Tensor
-    """Switching energy attributed to this call, one element per unit operation;
-    a 0-dim scalar when the caller owns no leading dims.
-    Shape: `[*caller_leading]`."""
+@dataclass(eq=False, kw_only=True)
+class ProfileItem:
+    area__um2: float | None
+    """Local area of all instances, excluding children; `None` when unavailable."""
+    leakage__uW: float | None
+    """Local leakage of all instances, excluding children; `None` when unavailable."""
+    dynamic_energy__fJ: Tensor | None
+    """Energy concatenated in collection order along the configured axis;
+    all other sample axes are preserved. `None` when no energy was submitted.
+    Shape: `[*measurement]`."""
+    working_duration__ns: Tensor | None
+    """This name's concatenated basic-operation durations over sample positions;
+    `None` when no timing was submitted. Ancestor timing is not inherited here.
+    Shape: `[*measurement]`."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class _StaticItem:
+    area__um2: float
+    """Local area of all instances, excluding children."""
+    leakage__uW: float
+    """Local leakage of all instances, excluding children."""
+
+
+@dataclass(eq=False, kw_only=True)
+class _DynamicItem:
+    dynamic_energy__fJ: Tensor | None = None
+    """One context's combined contributions, preserving the submitted layout;
+    `None` when this name received no energy submission.
+    Shape: `[*measurement]`."""
+    working_duration__ns: Tensor | None = None
+    """Basic-operation durations over this context's sample positions; `None`
+    when no latency was submitted. Child costs are not inferred.
+    Shape: `[*measurement]`."""
+
+
+type _History = dict[str, _DynamicItem]
+
+
+class _EnergyRecord(TensorDataClassMixin):
+    name: str
     channel: str | None
-    """Virtual submodule the energy is billed under; `None` for a plain record."""
+    dynamic_energy__fJ: Tensor
 
 
-_Record = EnergyRecord
+class _LatencyRecord(TensorDataClassMixin):
+    name: str
+    latency__ns: Tensor
 
 
-class Profiler(RecorderBase[_Record]):
-    """Ledger capturing physical modules' dynamic-energy records.
+class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, ProfileItem]]):
+    """Snapshot hardware costs and collect named execution data per context.
 
-    Every emitter names itself from the stamp its tree gave it, so the model is
-    named once after assembly. Read the collected records, or hand them to a
-    `neurox.Reporter`, after leaving the context:
+    `collect_static_data` names an assembled model and snapshots local area and
+    leakage after physical-state setup. For dynamic-only collection, name the
+    model with `stamp_names` instead. Keep names and hardware state fixed across
+    the measurement. Each completed context retains only submitted names;
+    an empty context is retained too.
 
-        stamp_names(model)
-        with Profiler() as profiler:
-            model(...)
-        print(Reporter(model).render(profiler))
+    Each energy element represents one basic operation of its owning unit. The
+    model owner configures module profile ranks to preserve those positions.
+    Emitters reduce internal energy contributions and submit matching operation
+    durations. Each unit contributes one completed operation per model-batch
+    context, aggregating its phases and numerical chunks before submission;
+    distinct operator positions own distinct units.
 
     Args:
-        leading_rank: Number of leading dims the caller owns, `0` when the
-            measured call has none. It belongs to the measurement rather than to
-            any module, and sets how finely the per-unit-operation view
-            resolves, never a total.
-        sync_device: Device a clean exit parks the collected records on; `None`
-            leaves each record where it was recorded.
+        concat_dim: Fixed export concatenation axis for all names and tensor
+            fields. Other axes must match across contexts; no axes are reduced
+            or inserted.
+        on_repeat: `"sum"` adds same-name energy contributions elementwise,
+            requiring equal shapes; `"replace"` retains the last contribution.
+            This policy does not combine independent unit calls or sum time.
+        sync_device: Destination for newly completed energy and duration tensors;
+            `None` retains each tensor on its current device.
+
+    Raises:
+        ValueError: Context-exit validation finds incompatible summed shapes or
+            repeated unit timing submissions.
     """
 
-    def __init__(self, *, leading_rank: int = 0, sync_device: torch.device | None = None) -> None:
-        if leading_rank < 0:
-            raise ValueError(f"leading_rank must be non-negative; got {leading_rank}")
-        super().__init__(sync_device=sync_device)
-        self._leading_rank = leading_rank
-
-    @property
-    def leading_rank(self) -> int:
-        return self._leading_rank
-
-    def lay_out(
+    def __init__(
         self,
         *,
-        qualified_name: str,
-        dynamic_energy__fJ: Tensor,
-        channel: str | None,
-    ) -> _Record:
-        """Build one record by folding an energy tensor onto `[*caller_leading]`.
+        concat_dim: int,
+        on_repeat: Literal["sum", "replace"] = "sum",
+        sync_device: torch.device | None = None,
+    ) -> None:
+        super().__init__(sync_device=sync_device)
+        self._concat_dim = concat_dim
+        self._on_repeat = on_repeat
+        self._static_data: dict[str, _StaticItem] = {}
 
-        The ledger owns the layout rule and runs it in the emitter's frame:
-        every axis past the caller's leading dims is summed, whatever the
-        emitter put there — digit, phase, serial round, output, instance — and
-        the leading dims are kept untouched. A record's tensor element is
-        therefore one unit operation's energy rather than a figure already
-        collapsed across the caller-owned leading axes. An input with shape
-        `[*caller_leading, ...]` yields `[*caller_leading]`.
+    # === Public API ===
+
+    @property
+    def on_repeat(self) -> Literal["sum", "replace"]:
+        return self._on_repeat
+
+    @property
+    def result(self) -> dict[str, ProfileItem]:
+        """Validate completed observations and concatenate their named tensors.
+
+        Each access traverses history and concatenates multiple contexts into
+        new tensors; a single context can share its tensors. Static costs are
+        included once, and only directly submitted durations are exported.
+
+        Energy and timing submitted under the same name must describe the same
+        sample layout in each context. Names are handled independently; absent
+        timing remains `None`.
+
+        Raises:
+            ValueError: Contexts disagree on names or field presence, or energy
+                and timing submitted under the same name have different layouts.
+            RuntimeError: Tensor layouts cannot be concatenated. Multiple
+                scalar observations require an explicit retained sample axis.
+        """
+        history = self._history_records
+
+        # --- 1: initialize results from the static snapshot ---
+
+        data = {
+            name: ProfileItem(
+                area__um2=static.area__um2,
+                leakage__uW=static.leakage__uW,
+                dynamic_energy__fJ=None,
+                working_duration__ns=None,
+            )
+            for name, static in self._static_data.items()
+        }
+
+        if not history:
+            return data
+
+        # --- 2: validate names, field presence, and sample layouts ---
+
+        first_batch = history[0]
+        for batch_index, batch in enumerate(history):
+            if batch.keys() != first_batch.keys():
+                raise ValueError(f"batch {batch_index} has different profile names from batch 0")
+            for name, batch_item in batch.items():
+                first_batch_item = first_batch[name]
+                energy = batch_item.dynamic_energy__fJ
+                duration = batch_item.working_duration__ns
+                if (energy is None) != (first_batch_item.dynamic_energy__fJ is None):
+                    raise ValueError(f"dynamic_energy__fJ for {name!r} mixes None and values at batch {batch_index}")
+                if (duration is None) != (first_batch_item.working_duration__ns is None):
+                    raise ValueError(f"working_duration__ns for {name!r} mixes None and values at batch {batch_index}")
+                if energy is not None and duration is not None and energy.shape != duration.shape:
+                    raise ValueError(
+                        f"energy and timing for {name!r} have different sample shapes at batch {batch_index}"
+                    )
+
+        # --- 3: concatenate and fill the submitted fields ---
+
+        for name in first_batch:
+            energies = [energy for batch in history if (energy := batch[name].dynamic_energy__fJ) is not None]
+            durations = [duration for batch in history if (duration := batch[name].working_duration__ns) is not None]
+
+            all_energy = None
+            if energies:
+                all_energy = energies[0] if len(energies) == 1 else torch.cat(energies, dim=self._concat_dim)
+
+            all_duration = None
+            if durations:
+                all_duration = durations[0] if len(durations) == 1 else torch.cat(durations, dim=self._concat_dim)
+
+            profile_item = data.get(name)
+            if profile_item is None:
+                profile_item = ProfileItem(
+                    area__um2=None,
+                    leakage__uW=None,
+                    dynamic_energy__fJ=None,
+                    working_duration__ns=None,
+                )
+                data[name] = profile_item
+            profile_item.dynamic_energy__fJ = all_energy
+            profile_item.working_duration__ns = all_duration
+        return data
+
+    def collect_static_data(self, model: nn.Module) -> None:
+        """Name the model and snapshot local area and leakage totals.
+
+        Call after physical-state setup and outside collection. Names are
+        relative to `model`, including ordinary PyTorch containers. The model
+        is not retained. History is unchanged and must correspond to the same
+        hardware state and names.
+
+        Raises:
+            ValueError: A NeuroX module is bound at multiple model paths.
+        """
+        stamp_names(model)
+        self._static_data = {
+            module.qualified_name: _StaticItem(area__um2=module.area__um2, leakage__uW=module.leakage__uW)
+            for _, module in neurox_profile_modules(model)
+        }
+
+    def submit_dynamic_energy(
+        self,
+        *,
+        name: str,
+        dynamic_energy__fJ: Tensor,
+        channel: str | None = None,
+    ) -> None:
+        """Buffer energy already reduced to the emitter's observation axes.
 
         Args:
-            qualified_name: The emitter's stamped hierarchical name.
-            dynamic_energy__fJ: Dynamic energy as the emitter billed it.
-                Shape: `[*caller_leading, ...]`.
-            channel: Virtual submodule to bill under, or `None`.
+            name: Emitter's full stamped module path; empty for the named root.
+            dynamic_energy__fJ: Contributions for corresponding basic operations.
+                No additional axes are reduced by the profiler.
+                Shape: `[*measurement]`.
+            channel: Optional billing segment under the emitter; a matching
+                real child receives the contribution in its existing row.
+
+        Raises:
+            ValueError: The supplied channel is empty or contains a dot.
         """
-        rank = self._leading_rank
-        energy = dynamic_energy__fJ.detach()
-        ndim = energy.ndim
-        reduced = tuple(range(rank, ndim))
-        # Shape: [*caller_leading, ...] -> [*caller_leading]
-        if len(reduced) == ndim:
-            energy = energy.sum()
-        elif reduced:
-            energy = energy.sum(dim=reduced)
-        return _Record(
-            qualified_name=qualified_name,
-            dynamic_energy__fJ=energy,
-            channel=channel,
-        )
+        if channel is not None and (not channel or "." in channel):
+            raise ValueError(f"channel {channel!r} must name one nonempty virtual segment")
+        self._submit_record(_EnergyRecord(name=name, channel=channel, dynamic_energy__fJ=dynamic_energy__fJ.detach()))
+
+    def submit_latency(self, *, name: str, latency__ns: Tensor) -> None:
+        """Buffer detached basic-operation durations with their sample layout.
+
+        Each position matches one retained energy position. Expanded views are
+        supported; no axes are reduced or inferred. Repeated submissions from
+        one unit fail at context exit.
+
+        Args:
+            name: Emitter's full stamped module path; empty for the named root.
+            latency__ns: Finite, nonnegative floating-point durations. Their
+                device must match the corresponding energy before reporting.
+                Shape: `[*measurement]`.
+        """
+        self._submit_record(_LatencyRecord(name=name, latency__ns=latency__ns.detach()))
+
+    # === Tools for subclass and internal use ===
+
+    def _merge_records(self, records: Sequence[_EnergyRecord | _LatencyRecord]) -> Sequence[_History]:
+        items: _History = {}
+
+        # --- Combine submitted names with channels; merge this context's submissions ---
+
+        for record in records:
+            name = record.name
+            if isinstance(record, _EnergyRecord) and record.channel is not None:
+                channel = record.channel
+                name = f"{name}.{channel}" if name else channel
+            item = items.get(name)
+            if item is None:
+                item = _DynamicItem()
+                items[name] = item
+            if isinstance(record, _LatencyRecord):
+                if item.working_duration__ns is not None:
+                    raise ValueError(f"unit {name!r} submitted its working duration more than once in one batch")
+                item.working_duration__ns = record.latency__ns
+            else:
+                energy = record.dynamic_energy__fJ
+                previous = item.dynamic_energy__fJ
+                if self.on_repeat == "sum" and previous is not None:
+                    if previous.shape != energy.shape:
+                        raise ValueError(f"cannot sum different measurement shapes for {name!r}")
+                    energy = previous + energy.to(previous.device)
+                item.dynamic_energy__fJ = energy
+
+        return [items]
+
+    def _sync_history(self, records: Sequence[_History]) -> Sequence[_History]:
+        if self._sync_device is None:
+            return records
+        for items in records:
+            for item in items.values():
+                if item.dynamic_energy__fJ is not None:
+                    item.dynamic_energy__fJ = item.dynamic_energy__fJ.to(self._sync_device)
+                if item.working_duration__ns is not None:
+                    item.working_duration__ns = item.working_duration__ns.to(self._sync_device)
+        return records

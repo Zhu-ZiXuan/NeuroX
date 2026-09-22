@@ -113,18 +113,26 @@ def conv2d_unit_from_file(
     config_files: Sequence[Path],
     policy_files: Sequence[Path],
     w_logical_shape: tuple[int, ...],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+    dilation: tuple[int, int],
+    groups: int,
     dtype: torch.dtype,
     config_section: str | None = None,
     policy_section: str | None = None,
     to_ideal: bool = False,
 ) -> Conv2dUnit:
-    """Load a config-policy pair and construct its registered conv2d implementation."""
+    """Load hardware config and policy, then bind the supplied convolution geometry."""
     config = Conv2dUnitConfig.from_file(*config_files, section=config_section)
     policy = Conv2dUnitPolicy.from_file(*policy_files, section=policy_section)
     module = Conv2dUnit.from_config(
         config=config,
         policy=policy,
         w_logical_shape=w_logical_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
         dtype=dtype,
     )
     return module.to_ideal() if to_ideal else module

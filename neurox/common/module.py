@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Self, dataclass_transform, final
 
 import torch
 import torch.nn as nn
 from torch import Tensor
-
-from neurox.api.profiler import Profiler
 
 from .base_only_mixin import BaseOnlyMixin
 from .dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin, map_single_tensor_fields
@@ -97,17 +96,17 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_o
 
     @final
     def expand(self, shape: tuple[int, ...]) -> Self:
-        """Apply ``t.expand(shape)`` on each tensor field."""
+        """Apply `t.expand(shape)` to each tensor field."""
         return map_single_tensor_fields(lambda t: t.expand(shape), self)
 
     @final
     def flatten_axes(self, start_dim: int, end_dim: int) -> Self:
-        """Apply ``t.flatten(start_dim, end_dim)`` on each tensor field."""
+        """Apply `t.flatten(start_dim, end_dim)` to each tensor field."""
         return map_single_tensor_fields(lambda t: t.flatten(start_dim, end_dim), self)
 
     @final
     def index_select(self, dim: int, index: Tensor) -> Self:
-        """Apply ``t.index_select(dim, index)`` on each tensor field."""
+        """Apply `t.index_select(dim, index)` to each tensor field."""
         return map_single_tensor_fields(lambda t: t.index_select(dim, index), self)
 
 
@@ -138,9 +137,9 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     read `T__K` at their lifecycle or execution point. Temperature updates
     visit this node before its NeuroX descendants, including plain containers.
 
-    Stamp names after assembling the tree and before profiling. Re-stamping
-    updates the subtree names; rebuilding from configuration requires a new
-    fabrication and programming lifecycle.
+    Profiling stamps names on the assembled tree. Re-stamping updates subtree
+    names; rebuilding from configuration requires a new fabrication and
+    programming lifecycle.
 
     A family inherits either `ProfileModule` or `NonProfileModule`; its
     implementations retain that accounting identity, including ideal models.
@@ -201,6 +200,7 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
             child.set_temperature(T__K)
 
     @final
+    @torch.no_grad()
     def stamp_names(self, *, qualified_name: str = "") -> None:
         """Stamp this module and its NeuroX subtree with hierarchical names."""
         self.__qualified_name = qualified_name
@@ -256,7 +256,7 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
 
     @final
     def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
-        nn.Module.register_buffer(self, name, tensor, persistent=False)
+        self.register_buffer(name, tensor, persistent=False)
 
 
 class ProfileModule(ModuleBase, ABC, base_only=True):
@@ -265,21 +265,60 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
     Families implement both per-instance static properties, either from
     configuration or from their own physical model. The public properties
     scale them by `inst_count` and exclude independently profiled children.
-    Operations submit only the dynamic energy this module owns; collection
-    does not change electrical behavior. No dynamic event is required for an
-    operation with no modeled switching cost.
+    Operations submit dynamic-energy contributions under their own path or a
+    named child. Implementations account for each physical contribution once;
+    collection does not change electrical behavior. No dynamic event is required
+    for an operation with no modeled switching cost.
+
+    Profiling retains the first `_profile_leading_rank` observation axes and
+    sums contributions within each basic operation. The model owner configures
+    this prefix so each retained element describes one basic operation of the
+    owning unit. The rank starts at zero; batched operations require an explicit
+    subtree setting before collection.
     """
 
+    def __init__(
+        self,
+        *,
+        config: ConfigBase,
+        policy: PolicyBase,
+        inst_shape: tuple[int, ...],
+    ) -> None:
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+        self._profile_leading_rank = 0
+
     # === Public API ===
+
+    @final
+    def set_profile_leading_rank(self, leading_rank: int) -> None:
+        """Set retained observation axes on this module and its profiled descendants.
+
+        Call after assembling the model, before profiling or compiled execution.
+        Keep the setting fixed throughout one measurement. Subtree updates
+        overwrite earlier settings; newly attached children keep their own
+        setting until the next update. Plain containers and non-profile modules
+        pass the update through without acquiring profiling state.
+
+        The model owner preserves all independent basic-operation positions in
+        this prefix. A unit's children retain the same positions while summing
+        that operation's internal contributions; axis scheduling is not inferred.
+        """
+        if leading_rank < 0:
+            raise ValueError("profile leading rank must be non-negative")
+        self._profile_leading_rank = leading_rank
+        for _, child in neurox_profile_children(self):
+            child.set_profile_leading_rank(leading_rank)
 
     @property
     @final
     def area__um2(self) -> float:
+        """Local area of all instances, excluding independently profiled children."""
         return self._area_per_inst__um2 * self.inst_count
 
     @property
     @final
     def leakage__uW(self) -> float:
+        """Local leakage of all instances, excluding independently profiled children."""
         return self._leakage_per_inst__uW * self.inst_count
 
     # === For subclass to implement or override ===
@@ -287,53 +326,81 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
     @property
     @abstractmethod
     def _area_per_inst__um2(self) -> float:
+        """Local area of one instance, excluding all child hardware."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def _leakage_per_inst__uW(self) -> float:
+        """Local leakage of one powered instance, excluding child hardware."""
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
 
     @final
     def _is_profiler_active(self) -> bool:
+        from neurox.api.profiler import Profiler
+
         return Profiler.active()
 
     @final
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
-        """Submit this call's local dynamic energy to the active profiler.
+        """Submit this call's dynamic-energy contribution to the active profiler.
 
         Outside a profiling context nothing is submitted. Compute billed
         energy under `torch.no_grad()` or an equivalent guard.
 
         Preserve the caller's leading axes at their full extents; reassemble
-        chunked results before submitting them. The profiler retains those
-        axes and sums all trailing axes, so include each billed physical
-        instance and access exactly once. Constant energy may be expanded
-        from a scalar without materializing the billed layout.
+        chunked results before submitting them. This module retains its configured
+        observation prefix and sums trailing axes before submission, so include
+        each billed physical instance and access exactly once. Constant energy
+        may be expanded from a scalar without materializing the billed layout.
 
         Args:
             dynamic_energy__fJ: Energy over the caller's full leading extents
                 and billed trailing axes. Expanded views are supported;
                 singleton dimensions do not request implicit broadcasting.
                 Shape: `[*caller_leading, ...]`.
-            channel: Optional virtual submodule to bill under.
-
-        Raises:
-            RuntimeError: The emitter carries no name stamp while a profiler
-                is collecting.
+            channel: Optional billing segment; a matching child shares the
+                same measurement item.
         """
-        ledger = Profiler.current()
-        if ledger is None:
+        from neurox.api.profiler import Profiler
+
+        profiler = Profiler.current()
+        if profiler is None:
             return
-        Profiler.submit(
-            ledger.lay_out(
-                qualified_name=self.qualified_name,
-                dynamic_energy__fJ=dynamic_energy__fJ,
-                channel=channel,
-            )
+
+        rank = self._profile_leading_rank
+        if rank > dynamic_energy__fJ.ndim:
+            raise ValueError("profile leading rank exceeds the submitted tensor rank")
+        if rank < dynamic_energy__fJ.ndim:
+            # Shape: [*observation, *work] -> [*observation]
+            dynamic_energy__fJ = dynamic_energy__fJ.sum(dim=tuple(range(rank, dynamic_energy__fJ.ndim)))
+
+        profiler.submit_dynamic_energy(
+            name=self.qualified_name,
+            dynamic_energy__fJ=dynamic_energy__fJ,
+            channel=channel,
         )
+
+    @final
+    def _record_latency(self, latency__ns: Tensor) -> None:
+        """Submit already computed durations with the retained sample layout.
+
+        Outside a profiling context nothing is submitted. No axes are reduced;
+        a constant basic-operation duration may be expanded over sample positions.
+
+        Args:
+            latency__ns: Durations aligned with the module's energy positions.
+                Shape: `[*measurement]`.
+        """
+        from neurox.api.profiler import Profiler
+
+        profiler = Profiler.current()
+        if profiler is None:
+            return
+
+        profiler.submit_latency(name=self.qualified_name, latency__ns=latency__ns)
 
 
 class NonProfileModule(ModuleBase, base_only=True):
@@ -345,46 +412,104 @@ class NonProfileModule(ModuleBase, base_only=True):
     """
 
 
-def neurox_roots(model: nn.Module) -> list[ModuleBase]:
-    """Collect the outermost NeuroX modules `model` holds.
-
-    The walk stops descending at the first `ModuleBase` it meets, so a root
-    covers its own NeuroX children instead of listing them beside it. A plain
-    container may hold several roots. Roots are deduplicated by identity and
-    retain their first-appearance order.
-
-    Returns:
-        The outermost NeuroX modules.
-    """
-    if isinstance(model, ModuleBase):
-        return [model]
-    return [module for _, module in neurox_children(model)]
-
-
-def neurox_children(
-    module: nn.Module,
-) -> list[tuple[str, ModuleBase]]:
-    """Collect the nearest NeuroX descendants.
+def neurox_children(module: nn.Module) -> Iterator[tuple[str, ModuleBase]]:
+    """Yield the nearest NeuroX descendants.
 
     Plain module containers are traversed; descent stops at each NeuroX module.
     Repeated references are deduplicated by identity, retaining the first path
     in registered-child order.
 
-    Returns:
+    Yields:
         Pairs of relative registered paths and NeuroX modules.
     """
-    children: list[tuple[str, ModuleBase]] = []
     seen: set[ModuleBase] = set()
     for name, child in module.named_children():
         if isinstance(child, ModuleBase):
-            candidates = [(name, child)]
+            candidates = iter(((name, child),))
         else:
-            candidates = [
+            candidates = (
                 (f"{name}.{relative_name}", descendant) for relative_name, descendant in neurox_children(child)
-            ]
+            )
         for relative_name, descendant in candidates:
             if descendant in seen:
                 continue
             seen.add(descendant)
-            children.append((relative_name, descendant))
-    return children
+            yield relative_name, descendant
+
+
+def neurox_roots(model: nn.Module) -> Iterator[tuple[str, ModuleBase]]:
+    """Yield the outermost NeuroX modules with their paths from `model`.
+
+    Plain containers are traversed; descent stops at each NeuroX module.
+    Repeated references retain their first path in registered-child order.
+
+    Yields:
+        Relative paths and outermost NeuroX modules; the path is empty when
+        `model` itself is a NeuroX module.
+    """
+    if isinstance(model, ModuleBase):
+        yield "", model
+        return
+    yield from neurox_children(model)
+
+
+def neurox_named_modules(model: nn.Module) -> Iterator[tuple[str, ModuleBase]]:
+    """Visit every NeuroX node with its path from `model`, including the root.
+
+    Plain containers are traversed. Repeated bindings appear at every path so
+    ownership checks can detect them before a caller assigns physical costs.
+
+    Yields:
+        Relative paths and NeuroX modules in tree traversal order.
+    """
+    for name, module in model.named_modules(remove_duplicate=False):
+        if isinstance(module, ModuleBase):
+            yield name, module
+
+
+def neurox_profile_children(module: nn.Module) -> Iterator[tuple[str, ProfileModule]]:
+    """Yield the nearest profile descendants, excluding the supplied module.
+
+    Plain containers and non-profile modules are traversed; descent stops at
+    each profile module. Repeated references retain their first relative path
+    in registered-child order.
+
+    Yields:
+        Pairs of relative registered paths and profile modules.
+    """
+    seen: set[ProfileModule] = set()
+    for name, child in module.named_children():
+        if isinstance(child, ProfileModule):
+            candidates = iter(((name, child),))
+        else:
+            candidates = (
+                (f"{name}.{relative_name}", descendant) for relative_name, descendant in neurox_profile_children(child)
+            )
+        for relative_name, descendant in candidates:
+            if descendant in seen:
+                continue
+            seen.add(descendant)
+            yield relative_name, descendant
+
+
+def neurox_profile_roots(model: nn.Module) -> Iterator[tuple[str, ProfileModule]]:
+    """Yield the outermost profile modules, crossing non-profile owners.
+
+    A profile root covers its own descendants. Paths remain relative to the
+    supplied model, including ordinary containers and non-profile ancestors.
+    """
+    if isinstance(model, ProfileModule):
+        yield "", model
+        return
+    yield from neurox_profile_children(model)
+
+
+def neurox_profile_modules(model: nn.Module) -> Iterator[tuple[str, ProfileModule]]:
+    """Yield independently profiled modules at every depth of the model tree.
+
+    Yields:
+        Relative paths and physical modules that own local PPA costs.
+    """
+    for name, module in model.named_modules(remove_duplicate=False):
+        if isinstance(module, ProfileModule):
+            yield name, module

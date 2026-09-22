@@ -15,18 +15,7 @@ from torch import Tensor
 from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
-from neurox.primitive.analog.adc_probe import AdcProber, AdcRecord
-
-
-class IadcRecord(AdcRecord):
-    i_in__uA: Tensor
-    """Input magnitude current the call was handed."""
-
-    def input_name(self) -> str:
-        return "i_in__uA"
-
-    def input_value(self) -> Tensor:
-        return self.i_in__uA
+from neurox.primitive.analog.adc_probe import AdcProber
 
 
 class IadcConfig(ConfigBase, base_only=True):
@@ -59,7 +48,6 @@ class IadcPolicy(PolicyBase, base_only=True):
     pass
 
 
-_Record = IadcRecord
 _Config = IadcConfig
 _Policy = IadcPolicy
 
@@ -67,14 +55,9 @@ _Policy = IadcPolicy
 class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Base class for single-ended current ADCs with injected references.
 
-    The base owns the `bits` contract and nothing else about the call. How
-    many reference taps a conversion consumes is the concrete converter's own
-    circuit property, so it is neither declared nor validated at this level; a
-    ladder the leaf cannot use fails inside that leaf.
-
-    A converter is mode-blind: reference selection and mode ranges remain
-    outside it, while `convert` receives only the electrical operating point
-    and the bit width.
+    Callers select and supply reference taps for every conversion. Each
+    implementation defines and validates its tap count independently of the
+    requested resolution; converters receive no mode identifier.
     """
 
     config: _Config
@@ -102,11 +85,7 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> Iadc:
-        """Build the implementation registered for the config-policy pair.
-
-        Returns:
-            Registered current-ADC implementation.
-        """
+        """Build the implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
@@ -118,7 +97,6 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     @property
     @final
     def bits(self) -> int:
-        """Physical output bit width."""
         return self.config.bits
 
     @torch.no_grad()
@@ -132,15 +110,10 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
-        Bit width is ADC-internal: the injected ladder states the converter's
-        own wiring and does not follow the requested resolution.
-
         Args:
             i_in__uA: Non-negative magnitude current.
             i_refs__uA: Reference ladder with the taps on the last axis and the
-                leading dims right-broadcasting against `i_in__uA`. The tap
-                count `n_ref` is the concrete converter's circuit property, not
-                a base-level contract.
+                leading dims right-broadcasting against `i_in__uA`.
                 Shape: `[..., tap]`.
             active_bits: Active conversion resolution in `[1, bits]`.
             enable: Broadcastable conversion enables; disabled conversions
@@ -175,16 +148,12 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
                 energy__fJ = energy__fJ.where(enable, 0)
         if energy__fJ is not None:
             self._record_dynamic_energy(energy__fJ)
-        if AdcProber.active():
-            AdcProber.submit(_Record(i_in__uA=i_in__uA))
+        self._record_input(i_in__uA)
         return code
 
     @final
     def unsigned_range(self, active_bits: int) -> tuple[int, int]:
-        """Return `(min_code, max_code)` the ADC can emit at `active_bits`.
-
-        Every current ADC emits the family's full unsigned active-bit range.
-        """
+        """Return the inclusive full unsigned range at `active_bits`."""
         self._check_active_bits(active_bits)
         return 0, (1 << active_bits) - 1
 
@@ -204,7 +173,7 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
 
     @abstractmethod
     def latency__ns(self, *, active_bits: int) -> float:
-        """Duration of one `convert` call at `active_bits` [ns].
+        """Duration of one `convert` call.
 
         Args:
             active_bits: Active conversion resolution in `[1, bits]`.
@@ -235,11 +204,12 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     # === Tools for subclass and internal use ===
 
     @final
-    def _check_active_bits(self, active_bits: int) -> None:
-        """Require an active resolution this converter supports.
+    def _record_input(self, i_in__uA: Tensor) -> None:
+        prober = AdcProber.current()
+        if prober is not None:
+            prober.submit_current(i_in__uA=i_in__uA)
 
-        Raises:
-            ValueError: `active_bits` is outside `[1, bits]`.
-        """
+    @final
+    def _check_active_bits(self, active_bits: int) -> None:
         if not (1 <= active_bits <= self.bits):
             raise ValueError(f"require: active_bits ({active_bits}) in [1, bits ({self.bits})]")

@@ -96,6 +96,16 @@ class CimMacroConfig(ConfigBase, ABC, base_only=True):
 
     @property
     @abstractmethod
+    def supports_signed_weights(self) -> bool:
+        """Return the macro's explicitly declared native signed-weight capability.
+
+        `False` denotes an unsigned weight carrier. This declaration is
+        independent of encoding metadata and value-range inference.
+        """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
     def w_digit_n(self) -> int:
         raise NotImplementedError
 
@@ -141,12 +151,17 @@ _Policy = CimMacroPolicy
 class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
     """Abstract base class for a CIM macro.
 
-    The macro closes the analog domain: analog signals and analog
-    non-idealities live inside it and never cross above it, so what its
-    interface carries is integer codes and physical configuration.
+    The interface carries integer codes and physical configuration; analog
+    signals and non-idealities remain internal.
 
-    Args:
-        inst_shape: Per-instance multiplicity prefix.
+    Logical outputs enumerate all lanes of one scan before the next scan.
+    Programming and output recovery follow this order; concrete implementations
+    map lane/scan positions to their own physical cell layouts.
+
+    The caller supplies valid output counts from the unpadded geometry of the
+    weight block selected for each access, consistently for execution and
+    timing. A valid weight vector counts even when all its values are zero.
+
     """
 
     config: _Config
@@ -192,18 +207,15 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     @property
     @final
     def lane_num(self) -> int:
-        """Parallel readout-circuit groups."""
         return self.config.lane_num
 
     @property
     @final
     def scan_num(self) -> int:
-        """Output positions serialized onto each readout lane."""
         return self.config.scan_num
 
     @property
     def max_active_num(self) -> int:
-        """Maximum number of input positions selected by one conversion."""
         return self.config.max_active_num
 
     @classmethod
@@ -215,11 +227,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> CimMacro:
-        """Build the implementation registered for the config-policy pair.
-
-        Returns:
-            Registered CIM macro implementation.
-        """
+        """Build the implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
         return impl(
             config=config,
@@ -257,10 +265,11 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
                 may be selected per conversion; unselected positions must be
                 zero. Entries must lie in `x_value_range`.
                 Shape: `[..., input]`.
-            effective_output_num: Number of valid leading logical outputs per operation.
-                Its shape must broadcast to the input's instance-aligned leading shape
-                without enlarging it.
-                `None` enables every output. Unselected output codes are zero.
+            effective_output_num: Valid output width of the weight block used
+                by this access, excluding padding and including output slices.
+                Dtype is `torch.int64`; counts match the programmed placement
+                and broadcast to the input's aligned leading shape without enlarging it.
+                `None` assumes every output is valid. Padding output codes are zero.
                 A zero count requires all corresponding input entries to be zero.
                 Shape: `[...]`.
             quantization_mode: Index selecting one reference operating point
@@ -277,6 +286,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         """
         self._check_quantization_mode(quantization_mode)
         self._check_adc_active_bits(adc_active_bits)
+        self._check_effective_output_num(effective_output_num)
         if x.ndim == 0 or x.shape[-1] != self.input_num:
             raise ValueError(
                 f"require: x.shape[-1] ({x.shape[-1] if x.ndim else None}) == input_num ({self.input_num})"
@@ -316,24 +326,32 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
 
     @final
     @torch.no_grad()
-    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: Tensor | None = None) -> float | Tensor:
+    def latency__ns(
+        self,
+        *,
+        adc_active_bits: int | None,
+        effective_output_num: Tensor | None = None,
+    ) -> float | Tensor:
         """Return operation duration from the longest active lane schedule.
 
         Args:
             adc_active_bits: Active ADC resolution; `None` uses the maximum.
-            effective_output_num: Valid leading logical outputs per operation;
-                `None` requests all outputs of every instance.
+            effective_output_num: Valid output width of the selected weight
+                block, matching the count supplied to `vec_mat_mul`. Entries
+                must have dtype `torch.int64` and describe distinct mapped accesses.
+                A scalar tensor applies uniformly. `None` assumes every output is valid.
                 Shape: `[...]`.
 
         Returns:
-            Full-scan duration as a float when the count is `None`; otherwise,
-            durations with the same shape and device as the count tensor.
+            A float for `None`; otherwise a Tensor with the count tensor's
+            shape and device, including zero durations.
         """
         self._check_adc_active_bits(adc_active_bits)
+        self._check_effective_output_num(effective_output_num)
         per_scan__ns = self._latency_per_scan__ns(adc_active_bits=adc_active_bits)
         if effective_output_num is None:
             return self.scan_num * per_scan__ns
-        effective_scan_num = self._get_phase_mask(effective_output_num).sum(dim=-1).amax(dim=-1)
+        effective_scan_num = self._effective_scan_num(effective_output_num)
         return effective_scan_num * per_scan__ns
 
     def rescale_factor(
@@ -352,9 +370,6 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
             adc_active_bits: Active ADC resolution in `[1, adc_bits]`; `None`
                 requests this macro's highest available precision.
 
-        Returns:
-            The selected-resolution rescale factor `r_b`.
-
         Raises:
             ValueError: Resolution is outside `[1, adc_bits]`.
         """
@@ -362,20 +377,20 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         self._check_adc_active_bits(adc_active_bits)
         adc_active_bits = self._resolve_adc_active_bits(adc_active_bits)
         factor = self.config.rescale_factors[quantization_mode]
-        return factor * float(1 << (self.adc_bits - adc_active_bits))
+        return factor * (1 << (self.adc_bits - adc_active_bits))
 
     @final
     def to_ideal(self) -> IdealCimMacro:
         """Return an ideal twin using the calibrated output scales.
 
         The twin inherits this macro's logical geometry, instance multiplicity,
-        value domains, mode scales, quantization scheme, and current temperature.
+        value domains, signed-weight capability, mode scales, quantization scheme,
+        and current temperature.
         """
-        # Local import — the `ideal` module imports from this file, so the
-        # symbols are only safe to resolve at call time.
+        # Resolve the ideal subclass after its base finishes importing.
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
-        config = IdealCimMacroConfig(
+        ideal_config = IdealCimMacroConfig(
             input_num=self.config.input_num,
             lane_num=self.config.lane_num,
             scan_num=self.config.scan_num,
@@ -386,6 +401,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
             w_digit_num=self.config.w_digit_n,
             w_digit_radix=self.config.w_digit_r,
             w_encoding=self.config.w_enc,
+            w_signed=self.config.supports_signed_weights,
             x_digit_num=self.config.x_digit_n,
             x_digit_radix=self.config.x_digit_r,
             x_encoding=self.config.x_enc,
@@ -395,7 +411,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
             adc_bits=self.adc_bits,
         )
         ideal = IdealCimMacro(
-            config=config,
+            config=ideal_config,
             policy=IdealCimMacroPolicy(),
             inst_shape=self.inst_shape,
             dtype=self._dtype,
@@ -429,23 +445,6 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         raise NotImplementedError
 
     @abstractmethod
-    def _phase_mask_from_effective_output_num(self, effective_output_num: Tensor) -> Tensor:
-        """Map a valid logical-output prefix to the programmed readout layout.
-
-        The mapping agrees with weight programming and output ordering. Each
-        lane uses a contiguous prefix of scan positions.
-
-        Args:
-            effective_output_num: Integer counts in `[0, output_num]`.
-                Shape: `[...]`.
-
-        Returns:
-            Boolean activity of each lane in each scan.
-            Shape: `[..., lane, scan]`.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def program(self, w: Tensor) -> None:
         """Program the macro from a logical weight matrix.
 
@@ -473,10 +472,10 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
                 Shape: `[..., input]`.
             leading_shape: Complete caller and instance shape after broadcasting
                 the input's leading shape with `inst_shape`.
-            phase_mask: Broadcastable lane/scan activity; `None` enables every phase.
-                Applies to drive commands
-                and skipped circuit events, never to solved currents or their energy.
-                Shape: `[..., lane, scan]`.
+            phase_mask: Broadcastable scan/lane activity; `None` enables every
+                phase. Gates drive commands and circuit events, not solved
+                currents or their energy.
+                Shape: `[..., scan, lane]`.
 
         Returns:
             Codes ordered along the logical output axis used by `program`.
@@ -488,12 +487,30 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     # === Tools for subclass and internal use ===
 
     @final
+    def _effective_scan_num(self, effective_output_num: Tensor) -> Tensor:
+        return (effective_output_num + self.lane_num - 1) // self.lane_num
+
+    @final
     def _get_phase_mask(self, effective_output_num: Tensor) -> Tensor:
-        if effective_output_num.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
-            raise TypeError("effective_output_num must contain integers")
-        counts = effective_output_num.to(torch.int64)
-        torch_assert_async(((counts >= 0) & (counts <= self.output_num)).all(), "invalid effective_output_num")
-        return self._phase_mask_from_effective_output_num(counts)
+        lanes = torch.arange(self.lane_num, device=effective_output_num.device)
+        scans = torch.arange(self.scan_num, device=effective_output_num.device)
+        whole_scans = effective_output_num // self.lane_num
+        remaining_outputs = effective_output_num % self.lane_num
+        # Shape: [...] -> [..., lane]
+        lane_counts = whole_scans.unsqueeze(-1) + (lanes < remaining_outputs.unsqueeze(-1))
+        # Shape: [scan, lane=1] < [..., scan=1, lane] -> [..., scan, lane]
+        return scans.unsqueeze(-1) < lane_counts.unsqueeze(-2)
+
+    @final
+    def _check_effective_output_num(self, effective_output_num: Tensor | None) -> None:
+        if effective_output_num is None:
+            return
+        if effective_output_num.dtype != torch.int64:
+            raise TypeError("effective_output_num tensor must have dtype torch.int64")
+        torch_assert_async(
+            ((effective_output_num >= 0) & (effective_output_num <= self.output_num)).all(),
+            "invalid effective_output_num",
+        )
 
     @final
     def _check_quantization_mode(self, quantization_mode: int) -> None:

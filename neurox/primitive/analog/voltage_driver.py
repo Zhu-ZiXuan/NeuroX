@@ -166,23 +166,16 @@ class VoltageDriver(ProfileModule):
     ) -> _Snap:
         """Sample the driver's static state and per-call noise at `shape`.
 
-        The reference and the fabricated static buffer both expand onto
-        `shape`, and the thermal draw takes a fresh sample per position of it.
-        The zero-load output combines the nominal reference with the enabled
-        static offset and thermal noise.
-
-        Sampling only: no energy is billed here, because the drive is billed
-        at the converged port state a snapshot cannot see.
-
-        `shape` also fixes the noise extent: the thermal draw covers exactly
-        the positions it spans, so a shape short of the real access count
-        shares one sample across accesses that are physically distinct.
+        The zero-load output combines the nominal reference with enabled static
+        offset and thermal noise. Sampling bills no energy; `drive` bills at
+        the converged port state.
 
         Args:
             v_ref__V: Nominal reference voltage before driver offset and noise,
                 broadcastable to `shape`.
-            shape: Full per-call shape to expand the reference and the
-                fabricated offset onto and to draw the thermal noise at.
+            shape: Full per-call layout for expanded reference and offset,
+                with a fresh thermal draw per position. Include every distinct
+                access to avoid sharing its noise sample.
 
         Returns:
             Per-call snap of the fabricated state.
@@ -190,8 +183,6 @@ class VoltageDriver(ProfileModule):
         v_ref__V = v_ref__V.expand(shape)
         v_perturb__V = self._offset__V.expand(shape) if self.policy.offset else self._nominal_offset__V.expand(shape)
         v_perturb__V = apply_gaussian(v_perturb__V, self.config.thermal_sigma__V, enabled=self.policy.thermal)
-        # The slope is one number for every position, and the expand is the
-        # stride-0 view that says so without storing it.
         return _Snap(
             v_open__V=v_ref__V + v_perturb__V,
             r_out__MOhm=self._r_out__MOhm.expand(shape),
@@ -222,8 +213,6 @@ class VoltageDriver(ProfileModule):
         """Solve the Thevenin driver's port voltage at the present port current.
 
         Args:
-            i_port__uA: Port current.
-            snap: Sampled clamp state the solve reads.
             v_port_init__V: Optional initial port voltage for a warm start.
                 Accepted and ignored — this driver is closed-form.
 

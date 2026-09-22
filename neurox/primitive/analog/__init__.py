@@ -1,5 +1,5 @@
 from . import current_adc, current_dac, diff_voltage_adc, voltage_dac
-from .adc_probe import AdcProber, AdcRecord
+from .adc_probe import AdcProber, AdcRecord, DiffVadcRecord, IadcRecord
 from .current_mux import Imux, ImuxConfig, ImuxPolicy
 from .reference import Reference, ReferenceConfig, ReferencePolicy
 from .switch_cap import SwitchCap, SwitchCapConfig, SwitchCapPolicy
@@ -20,6 +20,8 @@ __all__ = [
     "voltage_dac",
     "AdcProber",
     "AdcRecord",
+    "DiffVadcRecord",
+    "IadcRecord",
     "Imux",
     "ImuxConfig",
     "ImuxPolicy",

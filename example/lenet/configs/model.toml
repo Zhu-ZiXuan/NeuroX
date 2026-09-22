@@ -1,0 +1,3 @@
+[evaluation]
+enabled = false
+reason = "The lenet example uses FP32 weights and activations; CIM evaluation is disabled until an explicit quantized model is provided."

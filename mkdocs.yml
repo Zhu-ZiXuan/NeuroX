@@ -71,13 +71,7 @@ nav:
   - Architecture:
     - Unit:
       - Family: reference/architecture/unit/family.md
-      - CIM:
-        - Matrix mapping:
-          - Family: reference/architecture/mapping/family.md
-          - Input activation: reference/architecture/mapping/input_activation.md
-          - Placement: reference/architecture/mapping/placement.md
-          - Weight slicing: reference/architecture/mapping/weight_slice.md
-          - Input slicing: reference/architecture/mapping/x_slice.md
+      - CIM: reference/architecture/unit/cim.md
       - Conv2d mapping: reference/architecture/unit/conv2d.md
   - Primitive:
     - Analog:
@@ -103,12 +97,7 @@ nav:
       - MOSFET: reference/primitive/device/mosfet.md
       - RRAM: reference/primitive/device/rram.md
       - Selector: reference/primitive/device/selector.md
-    - Digital:
-      - Accumulator: reference/primitive/digital/accumulator.md
-      - Adder: reference/primitive/digital/adder.md
-      - Serial accumulator: reference/primitive/digital/serial_accumulator.md
-      - Shift adder: reference/primitive/digital/shift_adder.md
-      - Subtractor: reference/primitive/digital/subtractor.md
+    - Digital: reference/primitive/digital.md
     - Macro:
       - CIM:
         - Family: reference/primitive/macro/cim/family.md

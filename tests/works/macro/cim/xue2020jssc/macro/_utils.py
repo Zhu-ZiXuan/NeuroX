@@ -248,8 +248,8 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
 
     with AdcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_active_bits=TINY_ADC_BITS)
-    # Shape: [magnitude, lane, scan]
-    i_sub = probe.records[-1].input_value()
+    # Shape: [magnitude, scan, lane]
+    i_sub = probe.result[-1].input_value()
     return [float(v) for v in i_sub[:, 0, 0].cpu()]
 
 

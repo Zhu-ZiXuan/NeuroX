@@ -33,13 +33,9 @@ def create_mnist_dataloader(
     Args:
         dataset_dir: Root directory holding `MNIST/raw/`, or the directory the
             corpus is downloaded into.
-        batch_size: Samples per batch; the trailing batch may be short.
         device: Runtime device, consulted only to decide `pin_memory`.
         split: `"train"` selects the training split, anything else the test
             split, which serves as validation here.
-        shuffle: Reshuffles the split on every epoch.
-        download: Fetches the corpus on first use when it is absent.
-        indices: Subset indices for sharded evaluation.
 
     Returns:
         DataLoader yielding `(images, targets)` pairs.

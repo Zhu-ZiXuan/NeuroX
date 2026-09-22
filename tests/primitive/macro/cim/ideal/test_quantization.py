@@ -34,6 +34,7 @@ def _make_macro(
             w_digit_num=1,
             w_digit_radix=2,
             w_encoding=Encoding.TRUE_FORM if w_value_range[0] < 0 else Encoding.UNSIGNED,
+            w_signed=w_value_range[0] < 0,
             x_digit_num=1,
             x_digit_radix=2,
             x_encoding=Encoding.COMPLEMENT if x_value_range[0] < 0 else Encoding.UNSIGNED,

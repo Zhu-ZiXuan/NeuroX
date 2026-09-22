@@ -121,7 +121,8 @@ def _solve(
     bl_ref__V = torch.full((*leading_shape, 1, _COL_NUM), bl_ref__V, dtype=_DTYPE)
     sl_ref__V = torch.full((*leading_shape, 1, _COL_NUM), sl_ref__V, dtype=_DTYPE)
     stamp_names(array)
-    with Profiler(leading_rank=len(leading_shape) - len(wl_phase_dims)) as profiler, torch.no_grad():
+    array.set_profile_leading_rank(len(leading_shape) - len(wl_phase_dims))
+    with Profiler(concat_dim=0) as profiler, torch.no_grad():
         dcop = array.solve_dc(
             v_wl__V=v_wl__V.unsqueeze(array.col_dim),
             leading_shape=leading_shape,
@@ -129,11 +130,8 @@ def _solve(
             bl_driver_snap=bl_driver.snapshot(v_ref__V=bl_ref__V, shape=bl_ref__V.shape),
             sl_driver_snap=sl_driver.snapshot(v_ref__V=sl_ref__V, shape=sl_ref__V.shape),
         )
-    energy_records = [
-        record.dynamic_energy__fJ for record in profiler.records if record.qualified_name == array.qualified_name
-    ]
-    assert energy_records, "the operation must emit array energy before comparing accounting"
-    energy__fJ = torch.stack(energy_records).sum(dim=0)
+    energy__fJ = profiler.result[array.qualified_name].dynamic_energy__fJ
+    assert energy__fJ is not None
     return energy__fJ, dcop.i_bl_port__uA
 
 
