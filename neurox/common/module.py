@@ -194,12 +194,12 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
 
     @final
     @torch.no_grad()
-    def stamp_names(self, *, qualified_name: str = "") -> None:
+    def stamp_names(self, qualified_name: str = "") -> None:
         """Stamp hierarchical names on the assembled subtree, replacing prior names."""
         self.__qualified_name = qualified_name
         for relative_name, child in neurox_children(self):
             child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
-            child.stamp_names(qualified_name=child_name)
+            child.stamp_names(child_name)
 
     @final
     @torch.no_grad()
@@ -378,9 +378,7 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
             # Shape: [*observation, *work] -> [*observation]
             dynamic_energy__fJ = dynamic_energy__fJ.sum(dim=tuple(range(rank, dynamic_energy__fJ.ndim)))
 
-        profiler.submit_dynamic_energy(
-            source=self._profile_identity, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel
-        )
+        profiler.submit_dynamic_energy(dynamic_energy__fJ, source=self._profile_identity, channel=channel)
 
     @final
     def _record_latency(self, latency__ns: Tensor) -> None:
@@ -399,7 +397,7 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
         if profiler is None:
             return
 
-        profiler.submit_latency(source=self._profile_identity, latency__ns=latency__ns)
+        profiler.submit_latency(latency__ns, source=self._profile_identity)
 
 
 class NonProfileModule(ModuleBase, base_only=True):

@@ -171,14 +171,10 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         self._x_digit_num = config.x_digit_n
         self._x_digit_radix = config.x_digit_r
         self._w_transcoder = Transcoder.from_encoding(
-            encoding=config.w_enc,
-            radix=self._w_digit_radix,
-            digit_count=self._w_digit_num,
+            config.w_enc, radix=self._w_digit_radix, digit_count=self._w_digit_num
         )
         self._x_transcoder = Transcoder.from_encoding(
-            encoding=config.x_enc,
-            radix=self._x_digit_radix,
-            digit_count=self._x_digit_num,
+            config.x_enc, radix=self._x_digit_radix, digit_count=self._x_digit_num
         )
         self._dtype = dtype
 

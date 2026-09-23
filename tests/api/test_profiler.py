@@ -19,12 +19,12 @@ def test_named_contributions_merge_only_within_their_context(on_repeat, first_fa
     profiler = Profiler(concat_dim=0, on_repeat=on_repeat)
     profiler.collect_static_data(model)
     with profiler:
-        profiler.submit_dynamic_energy(name="leaf", dynamic_energy__fJ=energy, channel="read")
-        profiler.submit_dynamic_energy(name="leaf", dynamic_energy__fJ=2 * energy, channel="read")
-        profiler.submit_dynamic_energy(name="leaf", dynamic_energy__fJ=energy, channel="idle")
+        profiler.submit_dynamic_energy(energy, name="leaf", channel="read")
+        profiler.submit_dynamic_energy(2 * energy, name="leaf", channel="read")
+        profiler.submit_dynamic_energy(energy, name="leaf", channel="idle")
     with profiler:
-        profiler.submit_dynamic_energy(name="leaf", dynamic_energy__fJ=3 * energy, channel="read")
-        profiler.submit_dynamic_energy(name="leaf", dynamic_energy__fJ=energy, channel="idle")
+        profiler.submit_dynamic_energy(3 * energy, name="leaf", channel="read")
+        profiler.submit_dynamic_energy(energy, name="leaf", channel="idle")
 
     result = profiler.result
     assert set(result) == {"leaf", "leaf.read", "leaf.idle"}
@@ -42,11 +42,11 @@ def test_compiled_scalar_submissions_merge_with_singletons_and_concatenate_conte
 
     @torch.compile(dynamic=False, fullgraph=True)
     def submit(energy, duration):
-        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=energy)
+        profiler.submit_dynamic_energy(energy, name="unit")
         # Normalization must precede merging, so a scalar and a one-position
         # vector contribute to the same observation without a shape mismatch.
-        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=2 * energy.reshape(1))
-        profiler.submit_latency(name="unit", latency__ns=duration)
+        profiler.submit_dynamic_energy(2 * energy.reshape(1), name="unit")
+        profiler.submit_latency(duration, name="unit")
 
     for index, shape in enumerate(((), (1,))):
         energy = torch.full(shape, float(index + 1), device=device, requires_grad=True)
@@ -89,8 +89,8 @@ def test_named_fields_keep_independent_layouts_across_contexts() -> None:
     second_duration = torch.tensor(5.0, dtype=torch.float64).expand(1, 1)
     for energy, duration in ((first_energy, first_duration), (second_energy, second_duration)):
         with profiler:
-            profiler.submit_dynamic_energy(name="unit", channel="read", dynamic_energy__fJ=energy)
-            profiler.submit_latency(name="unit", latency__ns=duration)
+            profiler.submit_dynamic_energy(energy, name="unit", channel="read")
+            profiler.submit_latency(duration, name="unit")
 
     result = profiler.result
     torch.testing.assert_close(
@@ -118,9 +118,9 @@ def test_compiled_mixed_device_submissions_are_synchronized_for_reporting(
         constant = torch.full((x.shape[0],), 3.0, dtype=torch.float32)
         dynamic = x.square().sum(dim=-1)
         duration = torch.full((x.shape[0],), 2.0, dtype=torch.float64)
-        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=constant)
-        profiler.submit_dynamic_energy(name="unit", dynamic_energy__fJ=dynamic)
-        profiler.submit_latency(name="unit", latency__ns=duration)
+        profiler.submit_dynamic_energy(constant, name="unit")
+        profiler.submit_dynamic_energy(dynamic, name="unit")
+        profiler.submit_latency(duration, name="unit")
         return constant, dynamic, duration
 
     expected_parts = []

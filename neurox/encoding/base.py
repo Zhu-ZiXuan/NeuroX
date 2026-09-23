@@ -46,7 +46,7 @@ class Transcoder(ABC):
     # === Public API ===
 
     @staticmethod
-    def from_encoding(*, encoding: Encoding, radix: int, digit_count: int) -> Transcoder:
+    def from_encoding(encoding: Encoding, *, radix: int, digit_count: int) -> Transcoder:
         """Construct the implementation selected by `encoding`."""
         from .canonical import CanonicalTranscoder
         from .complement import ComplementTranscoder

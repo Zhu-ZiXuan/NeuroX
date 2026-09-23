@@ -44,8 +44,7 @@ def profile_vmm(
         macro.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         duration__ns = macro.latency__ns(adc_active_bits=adc_active_bits)
         profiler.submit_latency(
-            name=macro.qualified_name,
-            latency__ns=x.new_tensor(duration__ns, dtype=torch.float64).expand(x.shape[:-1]),
+            x.new_tensor(duration__ns, dtype=torch.float64).expand(x.shape[:-1]), name=macro.qualified_name
         )
 
 

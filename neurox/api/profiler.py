@@ -240,9 +240,9 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
     @RecorderBase.submission
     def submit_dynamic_energy(
         self,
+        dynamic_energy__fJ: Tensor,
         *,
         name: str | None = None,
-        dynamic_energy__fJ: Tensor,
         channel: str | None = None,
         source: Tensor | None = None,
     ) -> None:
@@ -254,11 +254,11 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         names at runtime.
 
         Args:
-            name: Emitter's full stamped module path; empty for the named root.
-                Supply exactly one of `name` and `source`.
             dynamic_energy__fJ: Contributions for corresponding basic operations.
                 No additional axes are reduced. A scalar gains one sample axis.
                 Shape: `[*measurement]`.
+            name: Emitter's full stamped module path; empty for the named root.
+                Supply exactly one of `name` and `source`.
             channel: Optional billing segment under the emitter; a matching
                 real child receives the contribution in its existing row.
             source: CPU identity from `register_source`, resolved at runtime.
@@ -280,7 +280,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         )
 
     @RecorderBase.submission
-    def submit_latency(self, *, name: str | None = None, latency__ns: Tensor, source: Tensor | None = None) -> None:
+    def submit_latency(self, latency__ns: Tensor, *, name: str | None = None, source: Tensor | None = None) -> None:
         """Buffer detached copies of basic-operation durations with their sample layout.
 
         Each position matches one retained energy position. Expanded views are
@@ -288,11 +288,11 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         submissions from one unit fail at context exit.
 
         Args:
-            name: Emitter's full stamped module path; empty for the named root.
-                Supply exactly one of `name` and `source`.
             latency__ns: Finite, nonnegative floating-point durations, exported
                 to CPU and ready for aggregation at context exit.
                 Shape: `[*measurement]`.
+            name: Emitter's full stamped module path; empty for the named root.
+                Supply exactly one of `name` and `source`.
             source: CPU identity from `register_source`, resolved at runtime.
         """
         if latency__ns.ndim == 0:

@@ -71,4 +71,4 @@ def stamp_names(model: nn.Module) -> None:
     """
     check_unique_binding(model)
     for qualified_name, root in neurox_roots(model):
-        root.stamp_names(qualified_name=qualified_name)
+        root.stamp_names(qualified_name)

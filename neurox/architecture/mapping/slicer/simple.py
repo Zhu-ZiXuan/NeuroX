@@ -57,11 +57,7 @@ class SimpleSlicer(Slicer):
                 assert_never(encoding)
 
         self._slice_num = slice_num
-        self._transcoder = Transcoder.from_encoding(
-            encoding=encoding,
-            radix=radix,
-            digit_count=slice_num,
-        )
+        self._transcoder = Transcoder.from_encoding(encoding, radix=radix, digit_count=slice_num)
         self._slice_radix = radix
 
     @property
