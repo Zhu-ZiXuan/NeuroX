@@ -163,7 +163,7 @@ class Ye2023JsscCimMacro(CimMacro):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(
             config=config,

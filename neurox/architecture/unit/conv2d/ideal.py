@@ -46,7 +46,7 @@ class IdealConv2dUnit(Conv2dUnit):
         padding: tuple[int, int],
         dilation: tuple[int, int],
         groups: int,
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(
             config=config,
@@ -75,7 +75,7 @@ class IdealConv2dUnit(Conv2dUnit):
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         return 1.0
 
@@ -83,7 +83,7 @@ class IdealConv2dUnit(Conv2dUnit):
         self,
         input_shape: tuple[int, ...],
         *,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         """Zero — one image's ideal convolution has no modeled latency.
 

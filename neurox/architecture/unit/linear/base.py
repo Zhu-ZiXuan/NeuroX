@@ -57,7 +57,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         if len(w_logical_shape) != 2:
             raise ValueError(f"linear w_logical_shape must have 2 axes; got {w_logical_shape}")
@@ -74,7 +74,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> LinearUnit:
         """Construct the linear implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
@@ -112,7 +112,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         input: Tensor,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 

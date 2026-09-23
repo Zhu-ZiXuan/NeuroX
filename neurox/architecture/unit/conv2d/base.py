@@ -72,7 +72,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         padding: tuple[int, int],
         dilation: tuple[int, int],
         groups: int,
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         if groups < 1:
             raise ValueError(f"groups must be positive; got {groups}")
@@ -109,7 +109,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         padding: tuple[int, int],
         dilation: tuple[int, int],
         groups: int,
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> Conv2dUnit:
         """Construct the conv2d implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
@@ -161,7 +161,7 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         input: Tensor,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 

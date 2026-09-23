@@ -46,7 +46,7 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
         padding: tuple[int, int],
         dilation: tuple[int, int],
         groups: int,
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         Conv2dUnit.__init__(
             self,
@@ -75,7 +75,7 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
                     f"require: x_value_range ({(x_lo, x_hi)}) covers 0 — convolution padding injects x = 0"
                 )
 
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None) -> float:
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None = None) -> float:
         if len(input_shape) < 3 or input_shape[-3] != self._w_logical_shape[1] * self.groups:
             raise ValueError("latency__ns expects [..., input_channel, height, width]")
         if any(size < 0 for size in input_shape):

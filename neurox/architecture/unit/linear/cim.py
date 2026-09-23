@@ -35,7 +35,7 @@ class LinearCimUnit(LinearUnit, CimUnit):
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         LinearUnit.__init__(
             self,
@@ -68,7 +68,7 @@ class LinearCimUnit(LinearUnit, CimUnit):
             output = output + self._int_bias
         return output
 
-    def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None) -> float:
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None = None) -> float:
         if not input_shape or input_shape[-1] != self.tiler.matrix_input_num or any(size < 0 for size in input_shape):
             raise ValueError("latency__ns expects [..., input_num] with nonnegative extents")
         local__ns = self._vmm_local_latency__ns(adc_active_bits=adc_active_bits)

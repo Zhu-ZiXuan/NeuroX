@@ -163,7 +163,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._w_digit_num = config.w_digit_n
@@ -215,7 +215,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> CimMacro:
         """Build the implementation registered for the config-policy pair."""
         impl = cls._lookup_impl(config=config, policy=policy)
@@ -244,7 +244,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         x: Tensor,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
         effective_output_num: Tensor | None = None,
     ) -> Tensor:
         """Run one conversion per word-line plane.
@@ -309,17 +309,17 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         return output
 
     @overload
-    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: int | None = None) -> float: ...
+    def latency__ns(self, *, adc_active_bits: int | None = None, effective_output_num: int | None = None) -> float: ...
 
     @overload
-    def latency__ns(self, *, adc_active_bits: int | None, effective_output_num: Tensor) -> Tensor: ...
+    def latency__ns(self, *, adc_active_bits: int | None = None, effective_output_num: Tensor) -> Tensor: ...
 
     @final
     @torch.no_grad()
     def latency__ns(
         self,
         *,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
         effective_output_num: int | Tensor | None = None,
     ) -> float | Tensor:
         """Return operation duration from the longest active lane schedule.
@@ -353,7 +353,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         """Return the MAC units represented by one output code.
 

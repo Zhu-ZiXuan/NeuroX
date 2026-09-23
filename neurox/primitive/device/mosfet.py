@@ -127,7 +127,7 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
         W__um: float,
         L__um: float,
     ) -> None:

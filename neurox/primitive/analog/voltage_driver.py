@@ -121,7 +121,7 @@ class VoltageDriver(ProfileModule):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
@@ -205,7 +205,7 @@ class VoltageDriver(ProfileModule):
         i_port__uA: Tensor,
         *,
         snap: _Snap,
-        v_port_init__V: Tensor | None,
+        v_port_init__V: Tensor | None = None,
     ) -> _Dcop:
         """Solve the Thevenin driver's port voltage at the present port current.
 

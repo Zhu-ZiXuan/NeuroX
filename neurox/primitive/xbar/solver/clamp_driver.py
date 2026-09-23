@@ -49,7 +49,7 @@ class ClampDriver[SnapT: ClampSnap, DcopT: ClampDcop](Protocol):
         i_port__uA: Tensor,
         *,
         snap: SnapT,
-        v_port_init__V: Tensor | None,
+        v_port_init__V: Tensor | None = None,
     ) -> DcopT:
         """Solve the driver's DC state through its port.
 

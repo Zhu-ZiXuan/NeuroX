@@ -277,7 +277,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype)
 

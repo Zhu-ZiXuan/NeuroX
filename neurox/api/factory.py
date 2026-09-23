@@ -8,6 +8,8 @@ pair and constructs the module tree.
 
 The returned tree retains its constructor state. Device placement, training
 mode, fabrication, programming, and naming belong to the caller.
+
+Use float32 for routine electrical computation and float64 when higher precision is needed.
 """
 
 from __future__ import annotations
@@ -69,7 +71,7 @@ def cim_macro_from_file(
     config_files: Sequence[Path],
     policy_files: Sequence[Path],
     inst_shape: tuple[int, ...],
-    dtype: torch.dtype,
+    dtype: torch.dtype = torch.float32,
     config_section: str | None = None,
     policy_section: str | None = None,
     to_ideal: bool = False,
@@ -91,7 +93,7 @@ def linear_unit_from_file(
     config_files: Sequence[Path],
     policy_files: Sequence[Path],
     w_logical_shape: tuple[int, ...],
-    dtype: torch.dtype,
+    dtype: torch.dtype = torch.float32,
     config_section: str | None = None,
     policy_section: str | None = None,
     to_ideal: bool = False,
@@ -117,7 +119,7 @@ def conv2d_unit_from_file(
     padding: tuple[int, int],
     dilation: tuple[int, int],
     groups: int,
-    dtype: torch.dtype,
+    dtype: torch.dtype = torch.float32,
     config_section: str | None = None,
     policy_section: str | None = None,
     to_ideal: bool = False,

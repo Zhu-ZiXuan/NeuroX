@@ -88,7 +88,7 @@ class UnitBase(ProfileModule, ABC, base_only=True):
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float | Tensor:
         """Return the ideal-unit codes represented by one output code.
 
@@ -104,7 +104,7 @@ class UnitBase(ProfileModule, ABC, base_only=True):
         self,
         input_shape: tuple[int, ...],
         *,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         """Duration of one basic operation, shared by all caller batch positions.
 

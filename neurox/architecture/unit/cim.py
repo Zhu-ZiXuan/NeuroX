@@ -144,7 +144,7 @@ class CimUnit(UnitBase, ABC, base_only=True):
         matrix_input_num: int,
         matrix_output_num: int,
         merge: bool,
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
         group_num: int = 1,
     ) -> None:
         config = self.config
@@ -283,7 +283,7 @@ class CimUnit(UnitBase, ABC, base_only=True):
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         return self.cim_macro.rescale_factor(quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
 

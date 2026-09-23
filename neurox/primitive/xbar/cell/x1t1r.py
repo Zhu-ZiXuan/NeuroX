@@ -56,7 +56,7 @@ class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Polic
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
@@ -69,7 +69,7 @@ class XbarCell1t1r[SnapT: _Snap](NonProfileModule, RegistryMixin[_Config, _Polic
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> XbarCell1t1r[Any]:
         """Build the 1T1R cell registered for the config-policy pair.
 

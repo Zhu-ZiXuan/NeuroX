@@ -94,7 +94,7 @@ class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[
         vdd__V: float,
         bl_driver: ClampDriver[BLSnapT, ClampDcop],
         sl_driver: ClampDriver[SLSnapT, ClampDcop],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         if len(t2_multipliers) != col_num:
             raise ValueError(f"require: len(t2_multipliers) ({len(t2_multipliers)}) == col_num ({col_num})")

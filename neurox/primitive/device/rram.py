@@ -130,7 +130,7 @@ class Rram(NonProfileModule):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
         g_max__uS: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)

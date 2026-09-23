@@ -157,7 +157,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
         vdd__V: float,
         bl_driver: ClampDriver[BLSnapT, ClampDcop],
         sl_driver: ClampDriver[SLSnapT, ClampDcop],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._row_num = row_num

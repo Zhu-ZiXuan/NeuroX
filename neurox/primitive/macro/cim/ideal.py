@@ -124,7 +124,7 @@ class IdealCimMacro(CimMacro):
         config: _Config,
         policy: _Policy,
         inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(
             config=config,
@@ -161,7 +161,7 @@ class IdealCimMacro(CimMacro):
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         if adc_active_bits is None:
             self._check_quantization_mode(quantization_mode)

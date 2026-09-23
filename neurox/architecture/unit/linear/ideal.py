@@ -42,7 +42,7 @@ class IdealLinearUnit(LinearUnit):
         config: _Config,
         policy: _Policy,
         w_logical_shape: tuple[int, ...],
-        dtype: torch.dtype,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__(
             config=config,
@@ -67,7 +67,7 @@ class IdealLinearUnit(LinearUnit):
         self,
         *,
         quantization_mode: int,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         return 1.0
 
@@ -75,7 +75,7 @@ class IdealLinearUnit(LinearUnit):
         self,
         input_shape: tuple[int, ...],
         *,
-        adc_active_bits: int | None,
+        adc_active_bits: int | None = None,
     ) -> float:
         return 0.0
 

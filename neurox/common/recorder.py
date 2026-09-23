@@ -74,10 +74,11 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
     def __getstate__(self) -> dict[str, Any]:
         if self.current() is self:
             raise RuntimeError("copy or serialize a recorder outside its collection context")
-        state = self.__dict__.copy()
-        state.pop("_export_streams")
-        state.pop("_pending_export_devices")
-        return state
+        return {
+            name: value
+            for name, value in self.__dict__.items()
+            if name not in ("_identity", "_export_streams", "_pending_export_devices")
+        }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
@@ -108,8 +109,8 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         during fake execution. It may read recorder state and construct records.
         """
         method_signature = signature(method, eval_str=True)
-        parameters = list(method_signature.parameters.values())
-        owner_name = parameters.pop(0).name
+        parameters = list(method_signature.parameters.values())[1:]
+        submission_signature = method_signature.replace(parameters=parameters)
         if any(
             parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY) for parameter in parameters
         ):
@@ -146,8 +147,7 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         def submit(self: OwnerT, /, *args: P.args, **kwargs: P.kwargs) -> None:
             # Capture an opaque call; eager execution uses the same method body.
             if torch.compiler.is_compiling():
-                bound = method_signature.bind(self, *args, **kwargs)
-                arguments = {name: value for name, value in bound.arguments.items() if name != owner_name}
+                arguments = submission_signature.bind(*args, **kwargs).arguments
                 operation(self._identity, **arguments)
             else:
                 method(self, *args, **kwargs)
@@ -160,7 +160,6 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         if family_root.__active_recorder is not None:  # noqa: SLF001
             raise RuntimeError(f"only one {family_root.__name__} may be active at a time")
         family_root.__active_recorder = self  # noqa: SLF001
-        self._current_records = []
         return self
 
     @final
@@ -175,10 +174,8 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         records = self._current_records
         self._current_records = []
         self._wait_for_exports()
-        if exc_type is not None:
-            return
-        history_records = self._merge_records(records)
-        self._history_records.extend(history_records)
+        if exc_type is None:
+            self._history_records.extend(self._merge_records(records))
 
     @property
     @abstractmethod
@@ -242,10 +239,10 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         """
         if self.current() is not self:
             raise RuntimeError("tensors can only be exported by the active recorder")
-        tensor = tensor.detach().clone()
         if not tensor.is_cuda:
-            return tensor.cpu()
+            return tensor.detach().to(device="cpu", copy=True)
 
+        tensor = tensor.detach().clone()
         source_device = tensor.device
         transfer = self._export_streams.get(source_device)
         if transfer is None:

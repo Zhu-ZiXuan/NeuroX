@@ -23,7 +23,7 @@ class Slicer(ABC):
     def __init__(
         self,
         *,
-        recovery_circuit: RadixSummator | RadixAccumulator | None,
+        recovery_circuit: RadixSummator | RadixAccumulator | None = None,
     ) -> None:
         self.recovery_circuit = recovery_circuit
 
