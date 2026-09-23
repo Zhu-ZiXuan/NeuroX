@@ -140,7 +140,14 @@ def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
     body_fn: Callable[[InputsT], OutputsT],
 ) -> OutputsT:
     def evaluate_chunk(flat_indices: Tensor) -> OutputsT:
-        coords = tuple(torch.unravel_index(flat_indices, leading_shape))
+        # Keep static shape metadata out of captured device tensors inside
+        # nested GPU graphs. Scalar arithmetic needs no lifted shape constants.
+        remaining = flat_indices
+        reversed_coords = []
+        for extent in reversed(leading_shape):
+            reversed_coords.append(remaining % extent)
+            remaining = remaining // extent
+        coords = tuple(reversed(reversed_coords))
         chunk_operands = _slice_operands(
             operands,
             coords=coords,

@@ -34,7 +34,7 @@ _Policy = Conv2dUnitPolicy
 
 
 class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True):
-    """Interface for an integer `torch.nn.functional.conv2d` replacement.
+    """Interface for integer 2-D convolution with preserved leading axes.
 
     Construction initializes the common unit and retains logical kernel shape,
     dtype, and convolution geometry for `to_ideal`. Initialize any additional
@@ -165,36 +165,45 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     ) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 
-        A 3-D `[C_in, H, W]` input is treated as `B = 1` and returns a 3-D
-        output, exactly as `torch.nn.functional.conv2d`.
+        Leading axes enumerate independent images that share the programmed
+        kernels. They are preserved in the output; `[C_in, H, W]` has no leading
+        axes and returns `[C_out, H_out, W_out]`.
+
+        Profiling requires `set_profile_leading_rank(input.ndim - 3)` on the
+        assembled unit before execution. Every leading position retains its
+        own energy and complete-image duration; an unbatched image uses rank zero.
 
         Args:
             input: Integer activation values.
-                Shape: `[B, C_in, H, W]`.
+                Shape: `[*leading, C_in, H, W]`.
             quantization_mode: Index selecting the runtime quantization window.
             adc_active_bits: Active ADC resolution; `None` requests the
                 unit's highest available precision.
 
         Returns:
             Integer pre-requantize output tensor.
-            Shape: `[B, C_out, H_out, W_out]`.
+            Shape: `[*leading, C_out, H_out, W_out]`.
 
         Raises:
-            ValueError: `input` is neither `[B, C_in, H, W]` nor its unbatched
-                `[C_in, H, W]` form, its channel count does not match the
-                grouped weights, or the configured geometry yields an empty output map.
+            ValueError: The input has fewer than three axes, its channel count
+                does not match the grouped weights, the configured geometry
+                yields an empty output map, or profiling is active with a
+                configured rank different from the input-leading rank.
         """
-        if input.ndim not in (3, 4):
-            raise ValueError(f"conv2d() expects input [C_in, H, W] or [B, C_in, H, W]; got ndim {input.ndim}")
+        if input.ndim < 3:
+            raise ValueError(f"conv2d() expects input [..., C_in, H, W]; got ndim {input.ndim}")
         input_channels = self._w_logical_shape[1] * self.groups
         if input.shape[-3] != input_channels:
             raise ValueError(f"conv2d() expects {input_channels} input channels; got {input.shape[-3]}")
+        # Profiler presence and tensor rank are fixed while tracing each variant.
+        profiling = self._is_profiler_active()
+        if profiling:
+            self._check_profile_leading_rank(input.ndim - 3)
         output = self._conv2d_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
-        if self._is_profiler_active():
+        if profiling:
             latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
-            sample_shape = (input.shape[0],) if input.ndim == 4 else (1,)
             latency = torch.tensor(latency__ns, dtype=torch.float64)
-            self._record_latency(latency.expand(sample_shape[: self._profile_leading_rank]))
+            self._record_latency(latency.expand(input.shape[:-3]))
         return output
 
     # === For subclass to implement or override ===
@@ -227,10 +236,11 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         d_h, d_w = self.dilation
         x = F.pad(input, (p_w, p_w, p_h, p_h)) if p_h or p_w else input
         # Strided views preserve integer values without index tensors or indirect gathers.
-        # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, W_out, dilated_kh, dilated_kw]
-        x = x.unfold(2, (kh - 1) * d_h + 1, s_h).unfold(3, (kw - 1) * d_w + 1, s_w)
-        # Shape: [B, C_in, H_out, W_out, kh, kw] -> [B, H_out, W_out, C_in, kh, kw]
-        return x[..., ::d_h, ::d_w].permute(0, 2, 3, 1, 4, 5)
+        # Appending the height taps leaves the original width at axis -2.
+        # Shape: [..., C_in, Hp, Wp] -> [..., C_in, H_out, W_out, dilated_kh, dilated_kw]
+        x = x.unfold(-2, (kh - 1) * d_h + 1, s_h).unfold(-2, (kw - 1) * d_w + 1, s_w)
+        # Shape: [..., C_in, H_out, W_out, kh, kw] -> [..., H_out, W_out, C_in, kh, kw]
+        return x[..., ::d_h, ::d_w].movedim(-5, -3)
 
     @final
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:

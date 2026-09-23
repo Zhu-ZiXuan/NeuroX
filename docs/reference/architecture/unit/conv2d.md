@@ -4,7 +4,7 @@ Convolution lowers to one independent matrix multiplication per channel group, w
 
 ## Governing laws
 
-The input is $[B, C_{\mathrm{in}}, H, W]$ and the output is $[B, C_{\mathrm{out}}, H_{\mathrm{out}}, W_{\mathrm{out}}]$. A 3-D $[C_{\mathrm{in}}, H, W]$ input is read as $B=1$ and returns a 3-D output. For kernel $(k_h, k_w)$, stride $(s_h, s_w)$, padding $(p_h, p_w)$, and dilation $(d_h, d_w)$,
+The input is $[\ldots, C_{\mathrm{in}}, H, W]$ and the output is $[\ldots, C_{\mathrm{out}}, H_{\mathrm{out}}, W_{\mathrm{out}}]$. The leading axes enumerate independent images and are preserved in order. A 3-D $[C_{\mathrm{in}}, H, W]$ input contains one image with no leading axes and returns a 3-D output. Every image reuses the same programmed kernels. For kernel $(k_h, k_w)$, stride $(s_h, s_w)$, padding $(p_h, p_w)$, and dilation $(d_h, d_w)$,
 
 $$H_{\mathrm{out}} =
 \left\lfloor
@@ -28,15 +28,15 @@ The resulting $[G,N,K]$ tensor contains exactly one copy of every weight.
 
 $$X\left[g\frac{C_{\mathrm{in}}}{G}+c_i,\ h_os_h-p_h+i d_h,\ w_os_w-p_w+j d_w\right],$$
 
-with out-of-bounds positions replaced by zero. Flattening each group's window in the same order gives a $[B,M,G,K]$ input tensor.
+with out-of-bounds positions replaced by zero. Flattening each group's window in the same order gives a $[\ldots,M,G,K]$ input tensor, retaining the image-leading axes.
 
 **Execution and fold.**
 
-$$Y_{\mathrm{matrix}}[:,:,g,:]=X_{\mathrm{windows}}[:,:,g,:]W_{\mathrm{matrix}}[g,:,:]^\mathsf{T}$$
+$$Y_{\mathrm{matrix}}[\ldots,:,g,:]=X_{\mathrm{windows}}[\ldots,:,g,:]W_{\mathrm{matrix}}[g,:,:]^\mathsf{T}$$
 
-produces $[B,M,G,N]$. Group outputs are concatenated into $C_{\mathrm{out}}$ channels without summation. The window axis is restored to $[H_{\mathrm{out}},W_{\mathrm{out}}]$, the output-channel axis is moved to the front, and the integer bias is added once per output element.
+produces $[\ldots,M,G,N]$. Group outputs are concatenated into $C_{\mathrm{out}}$ channels without summation. The window axis is restored to $[H_{\mathrm{out}},W_{\mathrm{out}}]$, the output-channel axis is placed immediately before those spatial axes, and the integer bias is added once per output element.
 
-The $M$ windows reuse the programmed weight through the [CIM input pipeline](cim.md#input-pipeline). Local work overlaps its predecessor's global processing, with startup and drain counted once per image. Batch size does not change one image's duration.
+The $M$ windows reuse the programmed weight through the [CIM input pipeline](cim.md#input-pipeline). Local work overlaps its predecessor's global processing, with startup and drain counted once per image. The number and extents of image-leading axes change neither hardware population nor one image's duration.
 
 Groups own independent macros and local and global recovery circuits and execute in parallel. Area, leakage and dynamic energy sum across groups; image latency is the maximum group latency. Equal group geometry and a common configuration give identical schedules, so group count does not multiply the per-group duration. Unit-local peripheral costs retain their whole-unit meaning.
 
@@ -50,7 +50,6 @@ Window gather, weight flattening, output folding, and bias addition are exact in
 
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
-| $B$ | batch size | — | runtime input axis |
 | $C_{\mathrm{in}}, C_{\mathrm{out}}$ | total input / output channels | — | `w_logical_shape`, `groups` |
 | $G$ | independently mapped convolution groups | — | `groups` |
 | $k_h, k_w$ | kernel extent | — | `w_logical_shape` |

@@ -68,18 +68,31 @@ def test_bias_is_per_output_and_reprogramming_can_clear_it(
     actual = unit.linear(x, quantization_mode=0, adc_active_bits=None)
     torch.testing.assert_close(actual, expected + bias)
 
-    unit.program(weight)
-    actual = unit.linear(x, quantization_mode=0, adc_active_bits=None)
-    torch.testing.assert_close(actual, expected)
-
     one_vector__ns = unit.latency__ns((7,), adc_active_bits=None)
     assert one_vector__ns > 0.0
     assert unit.latency__ns(x.shape, adc_active_bits=None) == one_vector__ns
 
+    unit.set_profile_leading_rank(len(batch) + 1)
+    rejected = Profiler(concat_dim=0)
+    rejected.collect_static_data(unit)
+    # Catch inside the context so any premature child submissions remain visible.
+    # Eager execution exposes the ValueError without Dynamo's tracing wrapper.
+    with (
+        torch.compiler.set_stance("force_eager"),
+        rejected,
+        pytest.raises(ValueError, match="profile_leading_rank"),
+    ):
+        unit.linear(x, quantization_mode=0, adc_active_bits=None)
+    assert all(
+        item.dynamic_energy__fJ is None and item.working_duration__ns is None for item in rejected.result.values()
+    )
+
+    unit.program(weight)
     unit.set_profile_leading_rank(len(batch))
-    profiler = Profiler(concat_dim=0, sync_device=device)
+    profiler = Profiler(concat_dim=0)
     profiler.collect_static_data(unit)
     with profiler:
-        unit.linear(x, quantization_mode=0, adc_active_bits=None)
+        actual = unit.linear(x, quantization_mode=0, adc_active_bits=None)
+    torch.testing.assert_close(actual, expected)
     timing = profiler.result[""].working_duration__ns
-    torch.testing.assert_close(timing, torch.full(batch, one_vector__ns, dtype=torch.float64, device=device))
+    torch.testing.assert_close(timing, torch.full(batch or (1,), one_vector__ns, dtype=torch.float64, device="cpu"))

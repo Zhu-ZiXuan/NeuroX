@@ -110,17 +110,15 @@ class IdealConv2dUnit(Conv2dUnit):
         quantization_mode: int,
         adc_active_bits: int | None,
     ) -> Tensor:
-        unbatched = input.ndim == 3
-        x = input.unsqueeze(0) if unbatched else input
-        self._conv2d_out_hw(x.shape[-2], x.shape[-1])
+        self._conv2d_out_hw(input.shape[-2], input.shape[-1])
         # CUDA convolution backends do not support int64. Keep the reduction on device.
-        windows = self._conv2d_windows(x.long())
-        # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, H_out, W_out, group, K]
+        windows = self._conv2d_windows(input.long())
+        # Shape: [..., H_out, W_out, C_in, kh, kw] -> [..., H_out, W_out, group, K]
         windows = windows.unflatten(-3, (self.groups, self._w_logical_shape[1])).flatten(-3)
         # Shape: [C_out, C_in/group, kh, kw] -> [group, C_out/group, K]
         weight = self._weight.flatten(1).unflatten(0, (self.groups, self._w_logical_shape[0] // self.groups))
-        # Shape: [B, H_out, W_out, group, C_out/group, K] -> [B, C_out, H_out, W_out]
-        output: Tensor = (windows.unsqueeze(-2) * weight).sum(dim=-1, dtype=torch.int64).flatten(-2).movedim(-1, 1)
+        # Shape: [..., H_out, W_out, group, C_out/group, K] -> [..., C_out, H_out, W_out]
+        output: Tensor = (windows.unsqueeze(-2) * weight).sum(dim=-1, dtype=torch.int64).flatten(-2).movedim(-1, -3)
         if self._int_bias is not None:
             output = output + self._int_bias.view(-1, 1, 1)
-        return output.squeeze(0) if unbatched else output
+        return output

@@ -76,8 +76,8 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
                 )
 
     def latency__ns(self, input_shape: tuple[int, ...], *, adc_active_bits: int | None) -> float:
-        if len(input_shape) not in (3, 4) or input_shape[-3] != self._w_logical_shape[1] * self.groups:
-            raise ValueError("latency__ns expects [input_channel, height, width] or its batched form")
+        if len(input_shape) < 3 or input_shape[-3] != self._w_logical_shape[1] * self.groups:
+            raise ValueError("latency__ns expects [..., input_channel, height, width]")
         if any(size < 0 for size in input_shape):
             raise ValueError("input_shape extents must be nonnegative")
         h_out, w_out = self._conv2d_out_hw(*input_shape[-2:])
@@ -99,20 +99,14 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
     def _conv2d_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
-        unbatched = input.ndim == 3
-        # Shape: [C_in, H, W] -> [B=1, C_in, H, W]
-        x = input.unsqueeze(0) if unbatched else input
-        out_hw = self._conv2d_out_hw(x.shape[-2], x.shape[-1])
-        planes = self._conv2d_planes(x)
+        out_hw = self._conv2d_out_hw(input.shape[-2], input.shape[-1])
+        planes = self._conv2d_planes(input)
         y = self._vmm(planes, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
         if int_bias is not None:
             # Shape: [C_out] -> [C_out, H_out=1, W_out=1]
             y = y + int_bias.view(-1, 1, 1)
-        if unbatched:
-            # Shape: [B=1, C_out, H_out, W_out] -> [C_out, H_out, W_out]
-            y = y.squeeze(0)
         return y
 
     def _conv2d_planes(self, input: Tensor) -> Tensor:
@@ -120,28 +114,28 @@ class Conv2dCimUnit(Conv2dUnit, CimUnit):
 
         Returns:
             Flattened input vectors for each convolution window and group.
-            Shape: `[B, M, group, K]`.
+            Shape: `[*leading, M, group, K]`.
         """
         x = self._conv2d_windows(input)
-        # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, H_out, W_out, groups*K]
+        # Shape: [..., H_out, W_out, C_in, kh, kw] -> [..., H_out, W_out, groups*K]
         x = x.flatten(start_dim=-3)
-        # Shape: [B, H_out, W_out, group*K] -> [B, H_out, W_out, group, K]
+        # Shape: [..., H_out, W_out, group*K] -> [..., H_out, W_out, group, K]
         grouped: Tensor = x.unflatten(-1, (self.groups, self.tiler.matrix_input_num))
-        # Shape: [B, H_out, W_out, ...] -> [B, M, ...]
-        return grouped.flatten(start_dim=1, end_dim=2)
+        # Shape: [..., H_out, W_out, group, K] -> [..., M, group, K]
+        return grouped.flatten(start_dim=-4, end_dim=-3)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
         """Restore serial windows to the convolution output layout.
 
         Returns:
             Folded output map.
-            Shape: `[B, C_out, H_out, W_out]`.
+            Shape: `[*leading, C_out, H_out, W_out]`.
         """
         h_out, w_out = out_hw
-        # Shape: [B, M, group, output] -> [B, M, C_out]
+        # Shape: [..., M, group, output] -> [..., M, C_out]
         output = output.flatten(-2)
-        # Shape: [B, M, C_out] -> [B, H_out, W_out, C_out]
+        # Shape: [..., M, C_out] -> [..., H_out, W_out, C_out]
         y = output.unflatten(-2, (h_out, w_out))
-        # Shape: [B, H_out, W_out, C_out] -> [B, C_out, H_out, W_out]
+        # Shape: [..., H_out, W_out, C_out] -> [..., C_out, H_out, W_out]
         folded: Tensor = y.movedim(-1, -3)
         return folded

@@ -33,7 +33,13 @@ _Config = UnitConfig
 
 
 class UnitBase(ProfileModule, ABC, base_only=True):
-    """Single-instance integer operators with value-domain and execution metadata."""
+    """Single-instance integer operators with value-domain and execution metadata.
+
+    Before profiling, bind the assembled subtree's profile leading rank to the
+    number of independent operation axes in its input. Public operator entries
+    check this rank before executing their children. Numerical execution never
+    changes the configured rank; aggregation across operations belongs to callers.
+    """
 
     config: _Config
 
@@ -119,3 +125,13 @@ class UnitBase(ProfileModule, ABC, base_only=True):
                 unit's highest available precision.
         """
         raise NotImplementedError
+
+    # === Tools for subclass and internal use ===
+
+    @final
+    def _check_profile_leading_rank(self, expected_rank: int) -> None:
+        if self._profile_leading_rank != expected_rank:
+            raise ValueError(
+                f"profiling requires profile_leading_rank={expected_rank}; got {self._profile_leading_rank}. "
+                "Call set_profile_leading_rank() on the assembled unit before profiling."
+            )

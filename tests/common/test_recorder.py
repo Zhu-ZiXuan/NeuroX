@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 
 import pytest
 import torch
@@ -11,12 +12,10 @@ from torch import Tensor
 from neurox.common.recorder import RecorderBase
 from neurox.primitive.analog import AdcProber
 
-_ELSEWHERE = torch.device("meta")
-
 
 class _FamilyA(RecorderBase[Tensor, Tensor, Sequence[Tensor]]):
-    def __init__(self, *, sync_device: torch.device | None = None) -> None:
-        super().__init__(sync_device=sync_device)
+    def __init__(self) -> None:
+        super().__init__()
         self.events: list[str] = []
 
     @property
@@ -25,26 +24,16 @@ class _FamilyA(RecorderBase[Tensor, Tensor, Sequence[Tensor]]):
 
     @RecorderBase.submission
     def submit(self, record: Tensor) -> None:
-        self._submit_record(record.detach().clone())
+        self._submit_record(self._export_tensor(record))
 
     def _merge_records(self, records: Sequence[Tensor]) -> Sequence[Tensor]:
         assert self.current() is None
         self.events.append("merge")
         return records
 
-    def _sync_history(self, records: Sequence[Tensor]) -> Sequence[Tensor]:
-        self.events.append("sync")
-        return [record.to(self._sync_device) for record in records] if self._sync_device is not None else records
-
 
 class _DerivedA(_FamilyA):
     pass
-
-
-def _run_failing_batch(recorder: _FamilyA) -> None:
-    with recorder:
-        recorder.submit(torch.tensor(1.0))
-        raise RuntimeError("failed batch")
 
 
 def test_derived_recorders_share_their_family_slot_without_interfering_with_other_families() -> None:
@@ -61,6 +50,7 @@ def test_derived_recorders_share_their_family_slot_without_interfering_with_othe
     assert not _FamilyA.active()
     assert not AdcProber.active()
     assert [record.item() for record in a.result] == [1.0, 3.0]
+    assert not a.result[0].requires_grad
     assert [record.input_value().item() for record in b.result] == [2.0]
 
 
@@ -81,57 +71,78 @@ def test_rejected_nested_entry_preserves_the_active_batch(outer: type[_FamilyA],
     assert [record.item() for record in recorder.result] == [1.0, 2.0]
 
 
-def test_execution_failure_discards_the_batch_without_merging_or_syncing() -> None:
-    recorder = _FamilyA(sync_device=_ELSEWHERE)
+def test_execution_failure_discards_exports_and_allows_reuse(device: torch.device) -> None:
+    recorder = _FamilyA()
+    # Exercise cleanup while a CUDA export may still be in flight.
+    first = torch.arange(65536, dtype=torch.float32, device=device)
+
+    def fail_batch() -> None:
+        with recorder:
+            recorder.submit(first)
+            raise RuntimeError("failed batch")
+
     with pytest.raises(RuntimeError, match="failed batch"):
-        _run_failing_batch(recorder)
+        fail_batch()
     assert not _FamilyA.active()
     assert recorder.events == []
+    assert not recorder.result
 
     with recorder:
         pass
     assert not recorder.result
-    assert recorder.events == ["merge", "sync"]
+    assert recorder.events == ["merge"]
 
-
-def test_records_are_merged_before_device_synchronization() -> None:
-    recorder = _FamilyA(sync_device=_ELSEWHERE)
     with recorder:
-        recorder.submit(torch.tensor(1.0))
-    assert recorder.events == ["merge", "sync"]
-    assert recorder.result[0].device == _ELSEWHERE
+        recorder.submit(first + 1)
+    torch.testing.assert_close(recorder.result, [torch.arange(65536, dtype=torch.float32) + 1])
 
 
-def test_merging_failure_releases_the_family_and_skips_sync() -> None:
+def test_merging_failure_releases_the_family_without_retaining_history() -> None:
     class _Rejecting(_FamilyA):
         def _merge_records(self, records: Sequence[Tensor]) -> Sequence[Tensor]:
             raise ValueError("merging failed")
 
-    recorder = _Rejecting(sync_device=_ELSEWHERE)
+    recorder = _Rejecting()
     with pytest.raises(ValueError, match="merging failed"), recorder:
         recorder.submit(torch.tensor(1.0))
     assert not _FamilyA.active()
     assert recorder.events == []
+    assert not recorder.result
 
     with _FamilyA() as fresh:
         fresh.submit(torch.tensor(2.0))
     assert [record.item() for record in fresh.result] == [2.0]
 
 
-def test_compiled_submissions_keep_order_across_contexts() -> None:
+def test_compiled_snapshots_are_ready_in_order_across_contexts_and_copying(device: torch.device) -> None:
+    class _ReadOnMerge(_FamilyA):
+        def _merge_records(self, records: Sequence[Tensor]) -> Sequence[Tensor]:
+            # The first permitted CPU read must see complete snapshots.
+            torch.testing.assert_close(records, expected_batch)
+            return super()._merge_records(records)
+
     @torch.compile(dynamic=False, fullgraph=True)
     def emit(value):
         recorder = _FamilyA.current()
         if recorder is not None:
             recorder.submit(value)
+        value.add_(1000)
 
-    recorder = _FamilyA()
+    recorder = _ReadOnMerge()
     expected = []
-    for count in (12, 3):
+    for offset, count in ((0, 12), (100, 3)):
+        expected_batch = [
+            (torch.arange(12, dtype=torch.float64).reshape(3, 4) + offset + i).T for i in reversed(range(count))
+        ]
         with recorder:
-            for i in reversed(range(count)):
-                value = torch.full((2,), float(i))
-                expected.append(value)
-                emit(value)
+            for value in expected_batch:
+                emit(value.to(device).clone())
+        expected.extend(expected_batch)
+        torch.testing.assert_close(recorder.result, expected)
 
-    torch.testing.assert_close(torch.stack(recorder.result), torch.stack(expected))
+    copied = deepcopy(recorder)
+    expected_batch = [torch.full_like(expected[0], 7.0)]
+    with copied:
+        emit(expected_batch[0].to(device).clone())
+    torch.testing.assert_close(recorder.result, expected)
+    torch.testing.assert_close(copied.result, expected + expected_batch)

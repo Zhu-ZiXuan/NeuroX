@@ -8,7 +8,7 @@ from neurox.primitive.analog import AdcProber
 
 
 def test_compiled_submissions_preserve_inputs_after_callers_modify_them(device) -> None:
-    prober = AdcProber(sync_device=device)
+    prober = AdcProber()
 
     @torch.compile(dynamic=False, fullgraph=True)
     def submit(current, positive, negative):
@@ -25,5 +25,6 @@ def test_compiled_submissions_preserve_inputs_after_callers_modify_them(device) 
     current_record, voltage_record = prober.result
     retained = (current_record.i_in__uA, voltage_record.v_pos__V, voltage_record.v_neg__V)
     for actual, original in zip(retained, expected.unbind(), strict=True):
+        assert actual.device.type == "cpu"
         assert not actual.requires_grad
-        torch.testing.assert_close(actual, original)
+        torch.testing.assert_close(actual, original.cpu())

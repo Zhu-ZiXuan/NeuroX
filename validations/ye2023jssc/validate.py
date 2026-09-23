@@ -330,9 +330,7 @@ def validate(args: ValidationArgs) -> None:
     macro.set_profile_leading_rank(2)
     data = _ANCHORS["data"]
     input_sparsities = tuple(float(value) for value in data["input_sparsity"])
-    profilers = {
-        input_sparsity: Profiler(concat_dim=0, sync_device=torch.device("cpu")) for input_sparsity in input_sparsities
-    }
+    profilers = {input_sparsity: Profiler(concat_dim=0) for input_sparsity in input_sparsities}
     for profiler in profilers.values():
         profiler.collect_static_data(macro)
 

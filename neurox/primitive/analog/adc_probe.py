@@ -94,26 +94,27 @@ class AdcProber(RecorderBase[AdcRecord, AdcRecord, list[AdcRecord]]):
         Raises:
             RuntimeError: This instance is not the active ADC prober.
         """
-        self._submit_record(IadcRecord(i_in__uA=i_in__uA.detach().clone()))
+        self._submit_record(IadcRecord(i_in__uA=self._export_tensor(i_in__uA)))
 
     @RecorderBase.submission
     def submit_diff_voltage(self, *, v_pos__V: Tensor, v_neg__V: Tensor) -> None:
         """Collect both voltage inputs separately, preserving their shapes.
 
-        Both tensors are detached and copied on their original devices. Their
-        difference is computed only when a consumer calls `input_value`.
+        Both tensors retain separate snapshots on CPU.
+        Their difference is computed only when a consumer calls `input_value`
+        after collection.
 
         Raises:
             RuntimeError: This instance is not the active ADC prober.
         """
-        self._submit_record(DiffVadcRecord(v_pos__V=v_pos__V.detach().clone(), v_neg__V=v_neg__V.detach().clone()))
+        self._submit_record(
+            DiffVadcRecord(
+                v_pos__V=self._export_tensor(v_pos__V),
+                v_neg__V=self._export_tensor(v_neg__V),
+            )
+        )
 
     # === Tools for subclass and internal use ===
 
     def _merge_records(self, records: Sequence[AdcRecord]) -> Sequence[AdcRecord]:
         return records
-
-    def _sync_history(self, records: Sequence[AdcRecord]) -> Sequence[AdcRecord]:
-        if self._sync_device is None:
-            return records
-        return [record.to(self._sync_device) for record in records]

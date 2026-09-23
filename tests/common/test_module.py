@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -109,7 +110,10 @@ def test_temperature_updates_current_children_in_order_without_changing_other_su
     assert sibling.T__K == 350.0
 
 
-def test_profile_rank_crosses_containers_and_non_profile_nodes_with_subtree_overrides() -> None:
+@pytest.mark.parametrize(("parent_rank", "sibling_rank"), [(2, 1), (3, 0)])
+def test_profile_rank_crosses_containers_and_non_profile_nodes_with_subtree_overrides(
+    parent_rank: int, sibling_rank: int
+) -> None:
     child = _ProfileNode()
     parent = _ProfileNode()
     parent.bridge = _Node("bridge", [], nn.Sequential(child))
@@ -117,19 +121,21 @@ def test_profile_rank_crosses_containers_and_non_profile_nodes_with_subtree_over
     model = nn.ModuleDict({"parent": parent, "sibling": sibling})
     energy = torch.arange(30.0).reshape(2, 3, 5)
 
-    set_profile_leading_rank(model, 1)
-    parent.set_profile_leading_rank(2)
+    set_profile_leading_rank(model, sibling_rank)
+    parent.set_profile_leading_rank(parent_rank)
     profiler = Profiler(concat_dim=0)
     profiler.collect_static_data(model)
     with profiler:
         parent.emit(energy)
         child.emit(energy)
         sibling.emit(energy)
-    torch.testing.assert_close(profiler.result["parent"].dynamic_energy__fJ, energy.sum(dim=2), check_dtype=False)
+    parent_energy = energy if parent_rank == 3 else energy.sum(dim=2)
+    sibling_energy = energy.sum(dim=(1, 2)) if sibling_rank else energy.sum().reshape(1)
+    torch.testing.assert_close(profiler.result["parent"].dynamic_energy__fJ, parent_energy, check_dtype=False)
     torch.testing.assert_close(
-        profiler.result[child.qualified_name].dynamic_energy__fJ, energy.sum(dim=2), check_dtype=False
+        profiler.result[child.qualified_name].dynamic_energy__fJ, parent_energy, check_dtype=False
     )
-    torch.testing.assert_close(profiler.result["sibling"].dynamic_energy__fJ, energy.sum(dim=(1, 2)), check_dtype=False)
+    torch.testing.assert_close(profiler.result["sibling"].dynamic_energy__fJ, sibling_energy, check_dtype=False)
 
     late = _ProfileNode()
     parent.bridge.children_.append(late)

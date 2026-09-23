@@ -4,7 +4,7 @@
 
 A unit realizes one integer tensor operator over its accepted weight and activation ranges, returning the result before requantization. Requantization to an activation grid lies outside the model.
 
-Mapping restores every representation axis it introduces. Linear input-leading axes remain unchanged; convolution windows return to the output spatial layout. An integer bias is added after substrate aggregation and introduces no execution cycle or dynamic-energy event.
+Mapping restores every representation axis it introduces. Linear and convolution input-leading axes remain unchanged; convolution windows return to the output spatial layout. Each leading position denotes one basic operation with its own energy and duration. An integer bias is added after substrate aggregation and introduces no execution cycle or dynamic-energy event.
 
 ## Governing laws
 

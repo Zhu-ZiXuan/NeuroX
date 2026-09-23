@@ -116,9 +116,13 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     ) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 
+        Profiling requires `set_profile_leading_rank(input.ndim - 1)` on the
+        assembled unit before execution. Every leading position retains its
+        own energy and one-vector duration; an unbatched vector uses rank zero.
+
         Args:
             input: Integer activation values.
-                Shape: `[..., K]`.
+                Shape: `[*leading, K]`.
             quantization_mode: Index selecting the runtime quantization window.
             adc_active_bits: Active ADC resolution; `None` requests the
                 unit's highest available precision.
@@ -126,13 +130,24 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         Returns:
             Integer pre-requantize output tensor. Leading dimensions are
             preserved, exactly as `torch.nn.functional.linear`.
-            Shape: `[..., N]`.
+            Shape: `[*leading, N]`.
+
+        Raises:
+            ValueError: The input has no feature axis, its feature width does
+                not match the programmed matrix, or profiling is active with
+                a configured rank different from the input-leading rank.
         """
+        if input.ndim < 1 or input.shape[-1] != self._w_logical_shape[-1]:
+            raise ValueError(f"linear() expects input [..., {self._w_logical_shape[-1]}]; got {tuple(input.shape)}")
+        # Profiler presence and tensor rank are fixed while tracing each variant.
+        profiling = self._is_profiler_active()
+        if profiling:
+            self._check_profile_leading_rank(input.ndim - 1)
         output = self._linear_impl(input, quantization_mode=quantization_mode, adc_active_bits=adc_active_bits)
-        if self._is_profiler_active():
+        if profiling:
             latency__ns = self.latency__ns(input.shape, adc_active_bits=adc_active_bits)
             latency = torch.tensor(latency__ns, dtype=torch.float64)
-            self._record_latency(latency.expand(input.shape[: self._profile_leading_rank]))
+            self._record_latency(latency.expand(input.shape[:-1]))
         return output
 
     # === For subclass to implement or override ===

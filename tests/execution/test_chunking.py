@@ -91,6 +91,48 @@ def test_chunked_execution_preserves_dense_and_broadcast_inputs(device: torch.de
     torch.testing.assert_close(result.partial, partial * 2)
 
 
+def test_compiled_chunked_gathers_follow_each_leading_shape(device: torch.device) -> None:
+    def body(current: _Operands) -> _Result:
+        return _Result(
+            values=current.values * 3,
+            leaf=_ResultLeaf(doubled=current.values.unsqueeze(-1).unsqueeze(-1) * 7 + current.leaf.grid),
+            absent=None,
+        )
+
+    @torch.compile(fullgraph=True, dynamic=False)
+    def evaluate(values: Tensor, grid: Tensor) -> _Result:
+        return run_chunked(
+            expected_chunk_size=3,
+            leading_shape=tuple(values.shape),
+            device=values.device,
+            operands=_Operands(values=values, leaf=_Leaf(grid=grid), label="kept"),
+            output_template=_output_template(device=values.device),
+            body_fn=body,
+        )
+
+    # Ten positions yield two mapped groups, each with two chunks: 3, 3, 2, 2.
+    # Reverse the axes before revisiting a shape with new data in the same process.
+    for sample_index, (row_num, col_num) in enumerate(((2, 5), (5, 2), (2, 5))):
+        rows = torch.arange(row_num, device=device).reshape(row_num, 1)
+        columns = torch.arange(col_num, device=device).reshape(1, col_num)
+        tail = torch.arange(3, device=device).reshape(1, 1, 1, 3)
+        shift = 1000 * sample_index
+        values = 10 * rows + columns + shift
+        grid = (100 * rows.unsqueeze(-1).unsqueeze(-1) + tail).expand(row_num, col_num, 2, 3)
+
+        result = evaluate(values, grid)
+
+        # The oracle uses axis coordinates directly, without chunking or gathers.
+        expected_values = 30 * rows + 3 * columns + 3 * shift
+        expected_grid = (170 * rows + 7 * columns + 7 * shift).unsqueeze(-1).unsqueeze(-1) + tail
+        expected_grid = expected_grid.expand(row_num, col_num, 2, 3)
+        assert result.values.shape == (row_num, col_num)
+        assert result.leaf.doubled.shape == (row_num, col_num, 2, 3)
+        assert result.values.device == result.leaf.doubled.device == values.device
+        torch.testing.assert_close(result.values, expected_values, rtol=0, atol=0)
+        torch.testing.assert_close(result.leaf.doubled, expected_grid, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize(
     ("leading_shape", "expected_chunk_size", "flat_size"),
     [

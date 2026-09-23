@@ -49,7 +49,7 @@ class _StaticItem:
 @dataclass(eq=False, kw_only=True)
 class _DynamicItem:
     dynamic_energy__fJ: Tensor | None = None
-    """One context's combined contributions, preserving the submitted layout;
+    """One context's combined contributions, preserving the observation layout;
     `None` when this name received no energy submission.
     Shape: `[*measurement]`."""
     working_duration__ns: Tensor | None = None
@@ -88,17 +88,22 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
     context, aggregating its phases and numerical chunks before submission;
     distinct operator positions own distinct units.
 
+    Scalar energy and duration submissions represent one observation and gain
+    a length-one sample axis before export. Existing observation axes remain
+    unchanged. Even a single context therefore exports scalars with shape `[1]`.
+
+    Completed energy and duration tensors always reside on CPU, independently
+    of the model's device and PyTorch's default device. Snapshots are exported
+    when submitted and ready before context-exit aggregation. CUDA-to-CPU
+    exports use a separate stream.
+
     Args:
         concat_dim: Fixed export concatenation axis for all names and tensor
-            fields. Other axes must match across contexts; no axes are reduced
-            or inserted.
+            fields after scalar normalization. Other axes must match across
+            contexts; concatenation does not reduce or insert axes.
         on_repeat: `"sum"` adds same-name energy contributions elementwise,
             requiring equal shapes; `"replace"` retains the last contribution.
             This policy does not combine independent unit calls or sum time.
-        sync_device: Destination for completed energy and duration tensors.
-            `None` selects the default device at construction. Submissions stay
-            on their original devices until context exit; all completed fields
-            share this destination before reporting.
 
     Raises:
         ValueError: Context-exit validation finds incompatible summed shapes or
@@ -110,9 +115,8 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         *,
         concat_dim: int,
         on_repeat: Literal["sum", "replace"] = "sum",
-        sync_device: torch.device | None = None,
     ) -> None:
-        super().__init__(sync_device=torch.get_default_device() if sync_device is None else sync_device)
+        super().__init__()
         self._concat_dim = concat_dim
         self._on_repeat = on_repeat
         self._static_data: dict[str, _StaticItem] = {}
@@ -151,8 +155,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         Raises:
             ValueError: Contexts disagree on names or field presence, or energy
                 and timing submitted under the same name have different layouts.
-            RuntimeError: Tensor layouts cannot be concatenated. Multiple
-                scalar observations require an explicit retained sample axis.
+            RuntimeError: Tensor layouts cannot be concatenated.
         """
         history = self._history_records
 
@@ -245,15 +248,16 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
     ) -> None:
         """Buffer energy already reduced to the emitter's observation axes.
 
-        Retain a detached copy without changing dtype or device. Device
-        synchronization occurs at context exit. Names passed explicitly here
-        specialize compiled callers; module emission resolves names at runtime.
+        Retain a detached copy without changing dtype, exported to CPU.
+        CPU exports from CUDA become readable at context exit. Names passed
+        explicitly here specialize compiled callers; module emission resolves
+        names at runtime.
 
         Args:
             name: Emitter's full stamped module path; empty for the named root.
                 Supply exactly one of `name` and `source`.
             dynamic_energy__fJ: Contributions for corresponding basic operations.
-                No additional axes are reduced by the profiler.
+                No additional axes are reduced. A scalar gains one sample axis.
                 Shape: `[*measurement]`.
             channel: Optional billing segment under the emitter; a matching
                 real child receives the contribution in its existing row.
@@ -265,11 +269,13 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         """
         if channel is not None and (not channel or "." in channel):
             raise ValueError(f"channel {channel!r} must name one nonempty virtual segment")
+        if dynamic_energy__fJ.ndim == 0:
+            dynamic_energy__fJ = dynamic_energy__fJ.unsqueeze(0)
         self._submit_record(
             _EnergyRecord(
                 name=self._resolve_name(name, source),
                 channel=channel,
-                dynamic_energy__fJ=dynamic_energy__fJ.detach().clone(),
+                dynamic_energy__fJ=self._export_tensor(dynamic_energy__fJ),
             )
         )
 
@@ -278,21 +284,23 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         """Buffer detached copies of basic-operation durations with their sample layout.
 
         Each position matches one retained energy position. Expanded views are
-        supported; no axes are reduced or inferred. Repeated submissions from
-        one unit fail at context exit.
+        supported; no axes are reduced. Scalars gain one sample axis. Repeated
+        submissions from one unit fail at context exit.
 
         Args:
             name: Emitter's full stamped module path; empty for the named root.
                 Supply exactly one of `name` and `source`.
-            latency__ns: Finite, nonnegative floating-point durations, retained
-                on their original device until context exit.
+            latency__ns: Finite, nonnegative floating-point durations, exported
+                to CPU and ready for aggregation at context exit.
                 Shape: `[*measurement]`.
             source: CPU identity from `register_source`, resolved at runtime.
         """
+        if latency__ns.ndim == 0:
+            latency__ns = latency__ns.unsqueeze(0)
         self._submit_record(
             _LatencyRecord(
                 name=self._resolve_name(name, source),
-                latency__ns=latency__ns.detach().clone(),
+                latency__ns=self._export_tensor(latency__ns),
             )
         )
 
@@ -330,18 +338,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
                 if self.on_repeat == "sum" and previous is not None:
                     if previous.shape != energy.shape:
                         raise ValueError(f"cannot sum different measurement shapes for {name!r}")
-                    energy = previous + energy.to(previous.device)
+                    energy = previous + energy
                 item.dynamic_energy__fJ = energy
 
         return [items]
-
-    def _sync_history(self, records: Sequence[_History]) -> Sequence[_History]:
-        if self._sync_device is None:
-            return records
-        for items in records:
-            for item in items.values():
-                if item.dynamic_energy__fJ is not None:
-                    item.dynamic_energy__fJ = item.dynamic_energy__fJ.to(self._sync_device)
-                if item.working_duration__ns is not None:
-                    item.working_duration__ns = item.working_duration__ns.to(self._sync_device)
-        return records

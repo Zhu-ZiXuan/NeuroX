@@ -108,38 +108,6 @@ def _build_unit(
     return unit
 
 
-def _conv2d_int64_oracle(
-    x: torch.Tensor,
-    weight: torch.Tensor,
-    *,
-    stride: tuple[int, int],
-    padding: tuple[int, int],
-    dilation: tuple[int, int],
-) -> torch.Tensor:
-    """Explicit window-dot-product reference independent of the unit."""
-    s_h, s_w = stride
-    p_h, p_w = padding
-    d_h, d_w = dilation
-    c_out, _, kh, kw = weight.shape
-    x64 = F.pad(x.long(), (p_w, p_w, p_h, p_h))
-    w64 = weight.long()
-    h_p, w_p = x64.shape[-2:]
-    h_out = (h_p - d_h * (kh - 1) - 1) // s_h + 1
-    w_out = (w_p - d_w * (kw - 1) - 1) // s_w + 1
-    out = torch.zeros((*x.shape[:-3], c_out, h_out, w_out), dtype=torch.int64)
-    for i in range(h_out):
-        for j in range(w_out):
-            patch = x64[
-                ...,
-                :,
-                i * s_h : i * s_h + d_h * (kh - 1) + 1 : d_h,
-                j * s_w : j * s_w + d_w * (kw - 1) + 1 : d_w,
-            ]
-            # Shape: [..., C_out=1, C_in, kh, kw] * [C_out, C_in, kh, kw] -> [..., C_out]
-            out[..., :, i, j] = (patch.unsqueeze(-4) * w64).sum(dim=(-3, -2, -1))
-    return out
-
-
 @pytest.mark.parametrize(
     ("input_num", "output_num", "w_shape", "x_shape", "stride", "padding", "dilation", "with_bias"),
     [
@@ -173,11 +141,8 @@ def test_conv2d_cim_matches_integer_oracle(
     bias = torch.arange(w_shape[0], dtype=torch.int32) - 1 if with_bias else None
     unit.program(weight, bias=bias)
     actual = unit.conv2d(x, quantization_mode=0, adc_active_bits=None)
-    expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
-    if bias is not None:
-        expected = expected + bias.long().view(-1, 1, 1)
-    assert actual.shape == expected.shape
-    assert torch.equal(actual.long(), expected)
+    expected = F.conv2d(x.long(), weight.long(), bias.long() if bias is not None else None, stride, padding, dilation)
+    torch.testing.assert_close(actual, expected)
 
 
 @pytest.mark.parametrize(
@@ -198,6 +163,7 @@ def test_image_latency_preserves_window_pipeline_without_combining_samples(
     assert unit.latency__ns((1, 3, 3), adc_active_bits=None) == one_window__ns
     assert unit.latency__ns((1, 5, 5), adc_active_bits=None) == nine_windows__ns
     assert unit.latency__ns((7, 1, 5, 5), adc_active_bits=None) == nine_windows__ns
+    assert unit.latency__ns((2, 3, 1, 5, 5), adc_active_bits=None) == nine_windows__ns
 
     unit.program(torch.ones((8, 1, 3, 3), dtype=torch.int32))
     unit.set_profile_leading_rank(1)
@@ -216,19 +182,19 @@ def test_image_latency_preserves_window_pipeline_without_combining_samples(
 
 
 @pytest.mark.parametrize(
-    ("groups", "w_shape", "batched", "merge", "differential", "slices", "input_num", "stride", "padding", "dilation"),
+    ("groups", "w_shape", "leading", "merge", "differential", "slices", "input_num", "stride", "padding", "dilation"),
     [
-        (2, (6, 2, 2, 3), True, False, False, 1, 8, (1, 1), (0, 1), (1, 1)),
-        (3, (9, 2, 1, 1), False, True, True, 2, 8, (2, 1), (0, 0), (1, 1)),
-        (4, (4, 1, 3, 3), True, False, True, 2, 8, (1, 2), (1, 1), (1, 1)),
-        (4, (8, 1, 3, 3), False, True, True, 3, 18, (1, 1), (2, 2), (2, 2)),
-        (1, (5, 3, 1, 1), True, True, False, 1, 8, (1, 1), (0, 0), (1, 1)),
+        (2, (6, 2, 2, 3), (2, 3), False, False, 1, 8, (1, 1), (0, 1), (1, 1)),
+        (3, (9, 2, 1, 1), (), True, True, 2, 8, (2, 1), (0, 0), (1, 1)),
+        (4, (4, 1, 3, 3), (2,), False, True, 2, 8, (1, 2), (1, 1), (1, 1)),
+        (4, (8, 1, 3, 3), (2, 1, 3), True, True, 3, 18, (1, 1), (2, 2), (2, 2)),
+        (1, (5, 3, 1, 1), (2,), True, False, 1, 8, (1, 1), (0, 0), (1, 1)),
     ],
 )
 def test_grouped_and_depthwise_convolution_match_torch_and_ideal(
     groups: int,
     w_shape: tuple[int, int, int, int],
-    batched: bool,
+    leading: tuple[int, ...],
     merge: bool,
     differential: bool,
     slices: int,
@@ -271,18 +237,68 @@ def test_grouped_and_depthwise_convolution_match_torch_and_ideal(
     ).to(device)
     generator = torch.Generator().manual_seed(831)
     weight = torch.randint(unit.w_value_range[0], unit.w_value_range[1] + 1, w_shape, generator=generator)
-    x = torch.randint(0, unit.x_value_range[1] + 1, (2, w_shape[1] * groups, 6, 7), generator=generator)
-    x = x if batched else x[0]
+    # Striding the width checks that preserving leading axes does not require
+    # a contiguous input. Only the independent oracle flattens image positions.
+    x_storage = torch.randint(0, unit.x_value_range[1] + 1, (*leading, w_shape[1] * groups, 6, 14), generator=generator)
+    x = x_storage[..., ::2]
     bias = torch.arange(w_shape[0], dtype=torch.int64) - w_shape[0] // 2
-    expected = F.conv2d(x, weight, bias, stride=stride, padding=padding, dilation=dilation, groups=groups).to(device)
-    weight, x, bias = weight.to(device), x.to(device), bias.to(device)
+    flat_expected = F.conv2d(
+        x.reshape(-1, *x.shape[-3:]), weight, bias, stride=stride, padding=padding, dilation=dilation, groups=groups
+    ).to(device)
+    expected = flat_expected.reshape(*leading, *flat_expected.shape[-3:])
+    weight = weight.to(device)
+    x = x_storage.to(device)[..., ::2]
+    bias = bias.to(device)
     unit.program(weight, bias=bias)
-    torch.testing.assert_close(unit.conv2d(x, quantization_mode=0, adc_active_bits=None), expected)
-
     ideal = unit.to_ideal()
-    assert ideal.groups == groups
     ideal.program(weight, bias=bias)
-    torch.testing.assert_close(ideal.conv2d(x, quantization_mode=0, adc_active_bits=None), expected)
+
+    unit.set_profile_leading_rank(1)
+    flat_profiler = Profiler(concat_dim=0)
+    flat_profiler.collect_static_data(unit)
+    with flat_profiler:
+        unit.conv2d(x.reshape(-1, *x.shape[-3:]), quantization_mode=0, adc_active_bits=None)
+    flat_profile = flat_profiler.result
+
+    observation_shape = leading or (1,)
+    for current in (unit, ideal):
+        current.set_profile_leading_rank(len(leading))
+        profiler = Profiler(concat_dim=0)
+        profiler.collect_static_data(current)
+        with profiler:
+            actual = current.conv2d(x, quantization_mode=0, adc_active_bits=None)
+        torch.testing.assert_close(actual, expected)
+        duration = current.latency__ns(tuple(x.shape), adc_active_bits=None)
+        torch.testing.assert_close(
+            profiler.result[""].working_duration__ns,
+            torch.full(observation_shape, duration, dtype=torch.float64, device="cpu"),
+        )
+        if current is unit:
+            profile = profiler.result
+            for name, reference in flat_profile.items():
+                if reference.dynamic_energy__fJ is not None:
+                    torch.testing.assert_close(
+                        profile[name].dynamic_energy__fJ, reference.dynamic_energy__fJ.reshape(observation_shape)
+                    )
+
+
+def test_invalid_profile_layout_is_rejected_before_child_submissions() -> None:
+    unit = _build_unit(_unit_config(), w_logical_shape=(2, 1, 2, 2))
+    unit.program(torch.ones((2, 1, 2, 2), dtype=torch.int32))
+    unit.set_profile_leading_rank(0)
+    profiler = Profiler(concat_dim=0)
+    profiler.collect_static_data(unit)
+    # Catch inside the context so premature child submissions remain visible.
+    # Eager execution exposes the ValueError without Dynamo's tracing wrapper.
+    with (
+        torch.compiler.set_stance("force_eager"),
+        profiler,
+        pytest.raises(ValueError, match="profile_leading_rank"),
+    ):
+        unit.conv2d(torch.ones((2, 3, 1, 3, 3), dtype=torch.int32), quantization_mode=0, adc_active_bits=None)
+    assert all(
+        item.dynamic_energy__fJ is None and item.working_duration__ns is None for item in profiler.result.values()
+    )
 
 
 def test_parallel_groups_replicate_circuit_costs_without_multiplying_latency(

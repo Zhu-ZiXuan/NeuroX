@@ -55,6 +55,9 @@ class PyTreeDataClassMixin:
 
 
 def _is_dataclass_instance(obj: object) -> TypeGuard[DataclassInstance]:
+    # Optional trace fields resolve before Dynamo's dataclass introspection.
+    if obj is None:
+        return False
     return not isinstance(obj, type) and dataclasses.is_dataclass(obj)
 
 

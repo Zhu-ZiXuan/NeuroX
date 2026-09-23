@@ -18,13 +18,13 @@ Numerical iterations used to find an access's operating behavior do not represen
 
 Each retained observation describes one basic operation: one vector for a linear unit or one image for a convolution unit. Modules aggregate the operation's internal work before submission, including physical multiplicity and temporal reuse exactly once. Numerical batching preserves the independent operation positions.
 
-The model owner fixes the observation layout after assembling the hardware and before collection. Different subtrees may retain different granularities; combining their entries elementwise requires an explicit common layout. Applications retain experiment labels and repeat sizes for subsequent analysis.
+The model owner fixes the observation layout after assembling the hardware and before collection. Units retain every input-leading basic-operation position; applications aggregate batch, token and timestep axes afterwards. Different operators may expose different observation layouts; combining their entries elementwise requires an explicit common layout. Applications retain experiment labels and repeat sizes for subsequent analysis.
 
 Static costs are captured after physical setup and counted once across collection contexts. One context covers one model batch and collects dynamic energy and completed operation durations. Measurement preserves electrical behavior and physical sampling without introducing modeled circuit activity.
 
-Collection preserves each name and its observation axes. It retains directly submitted timing and leaves missing data unknown. Reporting derives static energy from the completed observations; applications own grouping, statistical reduction, layout conversion, and presentation.
+Collection preserves each name and its observation axes. An operation with no input-leading axes produces scalar energy and duration; submission gives each scalar a length-one sample axis so successive contexts can concatenate observations. This storage axis changes neither the operator's input layout nor its configured profile rank. Collection retains directly submitted timing and leaves missing data unknown. Reporting derives static energy from the completed observations; applications own grouping, statistical reduction, layout conversion, and presentation.
 
-Collection preserves submitted observations on their original devices, then combines and synchronizes energy and duration at context exit. Reporting consumes the completed observations. Configuration-derived costs use the default device; value-dependent costs are computed alongside their inputs.
+Collection preserves submitted observations as independent snapshots and exports them to CPU. GPU-to-CPU exports can overlap subsequent computation; context exit waits for them before combining energy and duration. Reporting consumes the completed CPU observations. Configuration-derived costs use the default device; value-dependent costs are computed alongside their inputs.
 
 Each component determines its energy precision. Collection and reporting preserve it, with ordinary tensor type promotion during aggregation.
 

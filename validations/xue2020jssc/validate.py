@@ -439,7 +439,7 @@ def validate(args: ValidationArgs) -> None:
         raise TypeError(f"validation config built {type(macro).__name__}, expected Xue2020JsscCimMacro")
     # Each retained input/weight position is one physical macro's full VMM.
     macro.set_profile_leading_rank(2)
-    profiler = Profiler(concat_dim=0, sync_device=torch.device("cpu"))
+    profiler = Profiler(concat_dim=0)
     profiler.collect_static_data(macro)
     data = anchors["data"]
     w_lo, w_hi = data["weight_range"]

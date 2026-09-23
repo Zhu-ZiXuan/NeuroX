@@ -64,7 +64,7 @@ def _run_paired(
     inst_rank = len(physical.inst_shape)
     prefix_shape = x.shape[: -(inst_rank + 1)] if inst_rank else x.shape[:-1]
     x = x.expand(*prefix_shape, *physical.inst_shape, x.shape[-1])
-    with AdcProber(sync_device=torch.device("cpu")) as prober, torch.no_grad():
+    with AdcProber() as prober, torch.no_grad():
         physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=None)
     with torch.no_grad():
         ideal_value = ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_active_bits=None)
