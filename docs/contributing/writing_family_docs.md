@@ -1,58 +1,7 @@
 # Writing family documents
 
-## Scope
+A family Reference page describes science shared by its members: governing laws, conventions, symbols, assumptions, and literature. Create `family.md` only when this shared material is substantial. Software extension contracts belong in the family base's docstring.
 
-A family document states once the physics and mathematics that every member of a component family obeys, so its members cite it instead of repeating it. It is optional.
+Organize around the shared model. Useful sections include shared conventions, governing laws, symbols, validity, and references; omit sections without content. Members link to the shared definitions and explain their own additions.
 
-A family document holds:
-
-- the family-wide conventions every member obeys — polarity, signed-code convention, floor and quantization semantics
-- the governing laws shared across the family, such as a common rescale relation
-- the shared symbol table members reference in place of their own
-- family-level assumptions and the range over which the shared conventions hold
-- family-level literature
-
-A family document owns science only.
-
-## Document template
-
-A family document uses the sections below in order. The document file is `family.md`, titled `<Family> family`; see [naming_conventions](../conventions/naming_conventions.md). The template omits Physical model, Numerical method, Parameters, and Validation, because a family fixes no concrete model, method, or parameter and runs no validation of its own. Only Shared conventions is required; an optional lead paragraph under the H1 stands in for a Summary, and an on-demand section with nothing to say is omitted outright rather than kept as an N/A heading.
-
-```markdown
-# <Family> family
-
-## Shared conventions
-
-## Governing laws
-
-## Symbols
-
-## Assumptions, scope & validity
-
-## References
-```
-
-## Filling each section
-
-- Lead paragraph (optional): what the family is and the shared science it factors out, as science; keep it only when it synthesizes more than the title states, and never hard-link a concrete member. Do not add a `## Summary` heading.
-- `Shared conventions` (required): the family-wide science every member obeys — polarity, signed-code convention, floor and quantization semantics — stated as science, not as a software contract or a does-not-own boundary.
-- `Governing laws` (on-demand): the laws shared across the family, such as a common rescale relation, at coarse math; omit the section when there are none.
-- `Symbols` (on-demand): the shared four-column table (Symbol, Meaning, Unit, Code field) members reference instead of repeating, with meanings from [notation_conventions](../conventions/notation_conventions.md); omit when the family shares no symbols.
-- `Assumptions, scope & validity` (on-demand): the family-level assumptions and the range over which the shared conventions hold; omit when none are family-wide.
-- `References` (on-demand): the family-level literature; leave a `TODO` when it is applicable but unwritten, and omit the section when there is none.
-
-Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/primitive/nonideality.md).
-
-## Content rules
-
-### Stay at the family layer
-
-A family document states shared science, never a software contract and never one member's specifics. An interface obligation or an ownership boundary belongs to the code that enforces it, and a single topology's transfer characteristic belongs to that member's document.
-
-Do not name a concrete member anywhere in the body, including as an example, counterexample, current default, or deferred alternative. The site navigation is the sole member inventory.
-
-**Bad:** "The member does not source or store its reference taps; the owning module injects them each call."
-
-**Good:** "Every member digitizes against an externally supplied reference, so the code edges follow that reference rather than the converter."
-
-The bad version states an ownership contract, which is base-document material; the good version states the shared physical convention.
+A family page should remain valid when an implementation is added or removed. Implementation comparisons and selection advice belong in a guide or API overview. Use the [model-document guidance](writing_module_docs.md) for equations, parameter provenance, and evidence.

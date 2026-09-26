@@ -29,6 +29,23 @@ def tool_run(
     `run.json` records execution status and elapsed time; completion means the
     command returned normally, while scientific acceptance remains a task
     result. Failures retain completed artifacts and propagate after logging.
+
+    The yielded `RunOutput` names a new timestamped child of `output_dir`.
+    Parameters are serialized for provenance, with unsupported JSON values
+    represented as strings. The context installs console and file logging for
+    its lifetime and restores logging afterwards. An exception is recorded and
+    re-raised; callers decide which completed artifacts are scientifically
+    usable.
+
+    Args:
+        name: Nonempty single-component task name for the run directory.
+        output_dir: Parent directory in which a timestamped run directory is
+            created.
+        log_level: Logging level name for the console and run log.
+        parameters: Invocation metadata to record in the run artifact.
+
+    Yields:
+        The artifact namespace for the newly allocated run directory.
     """
     output = RunOutput.create(output_dir, name=name)
     with run_logging(output.path("run.log"), level=log_level):

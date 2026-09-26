@@ -1,6 +1,6 @@
 # Physics
 
-The physical axioms beneath every model: the canonical physical constants, thermal energy and voltage, and the supply-draw laws for conduction and capacitance. Constant values and units follow [notation conventions](../../conventions/notation_conventions.md#physical-constants). Each subsystem applies the laws to the branches and nodes it owns.
+The physical axioms beneath every model: the canonical physical constants, thermal energy and voltage, and the supply-draw laws for conduction and capacitance. Units follow [notation conventions](../../conventions/notation_conventions.md). Each subsystem applies the laws to the branches and nodes it owns.
 
 ## Thermal energy and voltage
 
@@ -77,4 +77,15 @@ Each circuit node states the total capacitance to ground seen at that node, incl
 - Billing is quasi-static: each excursion is assumed to complete within its access, so the displacement and not the waveform shape sets the cost.
 - Rest levels are ideal declared levels, so the displacement an access bills is independent of the conduction that access carries.
 - Stored and dissipated energy are not separated; the whole supply draw is charged to the access that caused it.
-- Conduction windows and capacitive excursions are billed separately; their ownership and time bases follow [energy accounting](../../conventions/notation_conventions.md#energy-accounting-basis).
+- Conduction windows and capacitive excursions are billed separately; their ownership and time bases follow [PPA accounting](../../system_design/ppa_accounting.md).
+
+## Physical constants
+
+The canonical constants live in one place so device and analog modules pull them from a single source. The elementary charge $q$ and Boltzmann constant $k_B$ are exact by SI definition (zero uncertainty); the vacuum permittivity $\varepsilon_0$ is a measured / derived quantity carrying a relative uncertainty of $\sim 1.6 \times 10^{-10}$, listed at its CODATA-2018 value. The thermal voltage $V_T = k_B T / q$ is derived from the first two constants at the given temperature.
+
+| Quantity | Symbol | Code | Value | Unit | [Source](../../conventions/module_parameter.md) |
+| --- | --- | --- | --- | --- | --- |
+| elementary charge | $q$ | `ELEM_CHARGE__fC` | $1.602176634 \times 10^{-4}$ | fC | Constant |
+| Boltzmann constant | $k_B$ | `K_BOLTZMANN__fJ_per_K` | $1.380649 \times 10^{-8}$ | fJ/K | Constant |
+| vacuum permittivity | $\varepsilon_0$ | `EPS_0__fF_per_um` | $8.8541878128 \times 10^{-3}$ | fF/um | CODATA-2018 |
+| thermal voltage | $V_T$ | `thermal_voltage__V(T__K)` | $k_B T / q$ | V | Constant-derived |

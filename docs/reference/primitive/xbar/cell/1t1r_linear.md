@@ -34,15 +34,13 @@ The Linear cell is deterministic: it samples no device noise and carries no mism
 
 In addition to the [shared family parameters](1t1r.md):
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `g_cell_off_table__uS` | per-state branch chord conductance at WL off | uS | length = weight-state count ($\ge 1$); entries finite, $\ge 0$ | Calibrated (linearization) |
 | `g_cell_on_table__uS` | per-state branch chord conductance at WL on | uS | length = `g_cell_off_table__uS` length; entries finite, $\ge 0$ | Calibrated (linearization) |
 | `vx_ratio_off_table` | per-state BL-side drop fraction at WL off | — | length = `g_cell_off_table__uS` length; entries finite, in $[0, 1]$ | Calibrated (linearization) |
 | `vx_ratio_on_table` | per-state BL-side drop fraction at WL on | — | length = `g_cell_off_table__uS` length; entries finite, in $[0, 1]$ | Calibrated (linearization) |
 | `v_wl_on_threshold__V` | analog WL level above which the access slot is on | V | — | Calibrated (linearization) |
-
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md). A config file selects this model with `_neurox_class = "XbarCell1t1rLinearConfig"` in the cell table and its policy file with `XbarCell1t1rLinearPolicy`; the `_neurox_class` directive and the file-level schema are specified in [configuration](../../../../api/configuration.md).
 
 ## Energy model
 
@@ -68,8 +66,4 @@ In addition to the [shared family symbols](1t1r.md):
 
 ## Validation
 
-TODO: add validation evidence for closed-form branch checks and agreement with the extraction source at the operating point.
-
-## References
-
-TODO.
+[Cell linearization](../../../../guides/calibration/solver_tolerances.md) extracts tables at declared operating points. Agreement there does not validate extrapolation across bias conditions.

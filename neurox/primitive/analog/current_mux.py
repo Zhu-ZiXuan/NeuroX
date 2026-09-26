@@ -37,7 +37,20 @@ _Policy = ImuxPolicy
 
 
 class Imux(NonProfileModule):
-    """Ideal N:1 time-share current mux — identity·gain transport."""
+    """Apply an ideal current transport gain to already selected input currents.
+
+    `transport` is elementwise and preserves layout. The caller selects channels
+    and schedules their reuse; `mux_ratio` records the intended multiplexing
+    geometry but performs no indexing or time loop. This implementation needs no
+    fabrication or programming and reports no independent PPA or latency.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Retained argument; transport uses normal tensor type promotion.
+    """
 
     config: _Config
     policy: _Policy

@@ -51,7 +51,7 @@ Temporal reuse counts static costs once and bills every enabled update.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | $w$ | signed output width | bit | $w\geq1$ | Design |
 | $E_{\mathrm{op}}$ | energy per enabled evaluation | fJ | $E_{\mathrm{op}}\geq0$ | Design |
@@ -82,4 +82,4 @@ Changing frequency alone supplies no area or leakage scaling law. A slower clock
 
 ## Validation
 
-TODO: physical characterization of the supplied PPA values.
+Physical characterization of the supplied PPA values is not provided here.

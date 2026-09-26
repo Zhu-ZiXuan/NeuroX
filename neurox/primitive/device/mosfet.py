@@ -101,11 +101,28 @@ _Snap = MosfetSnap
 
 
 class Mosfet(NonProfileModule, ABC, base_only=True):
-    """Polarity-parameterized EKV-softplus MOSFET.
+    """Base for a polarity-specific EKV-softplus transistor model.
+
+    Define `polarity` as `+1` or `-1` in the concrete subclass. This base
+    implements fabrication, snapshots, and the transfer law for either sign; it
+    owns no independent PPA. Preserve its fabrication hook when extending device
+    state.
+
+    Place nominal buffers and set temperature before `fabricate`. Fabrication
+    materializes temperature-dependent coefficients and enabled mismatch.
+    Snapshot those coefficients once for an access, then use `solve_dc` at
+    successive terminal voltages without resampling. Re-fabricate to refresh
+    retained coefficients after a temperature or placement change.
 
     Args:
-        W__um: Channel width.
-        L__um: Channel length.
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Floating-point computation dtype that can represent the nominal
+            gain coefficient as a positive normal value.
+        W__um: Positive finite channel width.
+        L__um: Positive finite channel length.
     """
 
     config: _Config
@@ -176,7 +193,26 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
         vs__V: Tensor | float,
         snap: _Snap,
     ) -> _Dcop:
-        """Evaluate `I_ds` and its three node partials at one op point."""
+        """Evaluate current and terminal derivatives for a held snapshot.
+
+        Gate, drain, source, and snapshot tensors broadcast together. Tensor
+        operands must share a device. Returned current is positive from drain to
+        source; the three derivatives are with respect to the named terminals at
+        this operating point. This call reads current temperature for its
+        runtime smoothing scale but does not refresh the snapshot's fabricated
+        coefficients or sample noise.
+
+        Args:
+            vg__V: Gate voltage, broadcastable with the snapshot and other
+                terminals.
+            vd__V: Drain voltage under the same broadcast layout.
+            vs__V: Source voltage under the same broadcast layout.
+            snap: Held transistor parameters from a previous snapshot.
+
+        Returns:
+            An operating-point object containing signed current and its gate,
+            drain, and source derivatives.
+        """
         config = self.config
 
         p = self.polarity
@@ -278,12 +314,26 @@ class Mosfet(NonProfileModule, ABC, base_only=True):
 
 
 class Nmos(Mosfet):
-    """N-channel MOSFET."""
+    """Evaluate an n-channel transistor with fixed channel polarity.
+
+    Supply the corresponding signed threshold and process parameters, device
+    geometry, and physical instance shape. Place and fabricate the device before
+    `snapshot`; pass that snapshot to `solve_dc` with gate, drain, and source
+    voltages. Current and derivatives use the same terminal conventions for both
+    polarities. This device reports electrical behavior without standalone PPA.
+    """
 
     polarity = 1
 
 
 class Pmos(Mosfet):
-    """P-channel MOSFET."""
+    """Evaluate a p-channel transistor with fixed channel polarity.
+
+    Supply the corresponding signed threshold and process parameters, device
+    geometry, and physical instance shape. Place and fabricate the device before
+    `snapshot`; pass that snapshot to `solve_dc` with gate, drain, and source
+    voltages. Current and derivatives use the same terminal conventions for both
+    polarities. This device reports electrical behavior without standalone PPA.
+    """
 
     polarity = -1

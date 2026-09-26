@@ -11,6 +11,9 @@ class InputSlotMerge:
     """Place consecutive output tiles across macro groups, then input slots.
 
     Args:
+        input_per_tile: Positive input capacity of each rectangular tile.
+        output_tile_num: Number of logical output tiles to place.
+        macro_input_num: Physical input capacity of each macro.
         enabled: Whether multiple output tiles may share a macro's input slots.
     """
 

@@ -1,4 +1,9 @@
-"""Convergence-controlled solving and raw observation collection."""
+"""Convergence-controlled solving and raw observation collection.
+
+Equivalent Python control flow blocks are pseudocode. Tensor notation stands
+for the same operation on every tensor in a structured value; tree traversal
+is omitted.
+"""
 
 from __future__ import annotations
 
@@ -31,9 +36,16 @@ __all__ = [
 class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
     """Registered numerical state whose positions report whether they remain active.
 
-    Excluded positions are inactive. Numerical failures raise rather than
-    become inactive. Tensor leaves share a device. Construction raises
-    `TypeError` if `is_active` has a non-boolean dtype.
+    Excluded positions are inactive. Numerical failures raise rather than become
+    inactive. Tensor leaves share a device. Construction raises `TypeError` if
+    `is_active` has a non-boolean dtype.
+
+    Subclass by declaring the tensors needed by the update rule. Keep field
+    structure, shape, dtype, and device fixed across iterations. A body callback
+    returns a new state and preserves inactive positions; this base does not
+    mask updates automatically. `is_active=False` means excluded or converged,
+    never an invalid numerical state. Retain the base validation when adding a
+    `__post_init__` check.
     """
 
     is_active: Tensor
@@ -60,13 +72,19 @@ class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, ba
 class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
     """Registered observation or history with trailing iteration axes.
 
-    A history has the same concrete type as one observation. Each enclosing
-    scan appends one iteration axis to every tensor, including nested histories.
+    A history has the same concrete type as one observation. Each enclosing scan
+    appends one iteration axis to every tensor, including nested histories.
     Floating observations use NaN for unselected or inactive positions and
     unused steps; boolean flags use false and signed integers use `-1` for
     unused steps. Optional fields remain fixed throughout an invocation.
     Construction rejects tensor fields outside these dtype families with
     `TypeError`, including fields in nested dataclasses.
+
+    Declare observation fields on a concrete subclass, using the same structure
+    for one observation and a stacked history. If adding validation through
+    `__post_init__`, call the parent check. Populate unused template values
+    before starting a trace run; the solver checks dtype families but does not
+    choose physical observables or validate their meaning.
     """
 
     def __post_init__(self) -> None:
@@ -129,25 +147,30 @@ def run_solving[StateT: SolvingState, TraceT: SolvingTrace](
     """Solve with optional history collection using a shared evaluation callback.
 
     Args:
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
         body_fn: Returns the next state and one observation; owns numerical
             validation and preservation of inactive positions.
         record_trace: Select history collection with scan or state-only
             iteration with while. Must be a Python boolean. Recording permits
-            unconverged terminal states; state-only solving requires convergence.
+            unconverged terminal states; state-only solving requires
+            convergence.
         default_trace_fn: Called only when recording to construct the unused
             observation required by `run_solving_trace_scan`.
-        max_iter: Positive upper bound on updates and, when recording,
-            history capacity.
+        max_iter: Positive upper bound on updates and, when recording, history
+            capacity.
         trace_mask: Recording selection as defined by `run_solving_trace_scan`;
             ignored when recording is disabled.
 
     Returns:
-        Terminal state and history, or `None` for history when recording is
-        disabled. History tensors gain a trailing iteration axis.
+        A tuple containing:
+            Terminal state and history, or `None` for history when recording is
+            disabled. History tensors gain a trailing iteration axis.
 
     Raises:
         ValueError: `max_iter` is not positive.
-        RuntimeError: The terminal state remains active with `record_trace=False`.
+        RuntimeError: The terminal state remains active with
+            `record_trace=False`.
     """
     if record_trace:
         return run_solving_trace_scan(
@@ -195,14 +218,16 @@ def run_solving_loop[StateT: SolvingState](
     ```
 
     Args:
-        body_fn: Returns the next state; owns numerical updates, preservation
-            of inactive positions, and numerical validation.
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
+        body_fn: Returns the next state; owns numerical updates, preservation of
+            inactive positions, and numerical validation.
         max_iter: Positive upper bound on callback evaluations.
         strict: Require the terminal state to have no active positions.
 
     Returns:
-        Terminal state, including unconverged positions when `strict=False`.
-        An initially inactive state is returned without invoking `body_fn`.
+        Terminal state, including unconverged positions when `strict=False`. An
+        initially inactive state is returned without invoking `body_fn`.
 
     Raises:
         ValueError: `max_iter` is not positive.
@@ -241,8 +266,8 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
     """Collect a fixed-capacity history of convergence observations.
 
     Observations use activity before each update, retaining the final
-    convergence check for each position. Selection affects recording only.
-    Once all positions are inactive, remaining steps use `default_trace`.
+    convergence check for each position. Selection affects recording only. Once
+    all positions are inactive, remaining steps use `default_trace`.
 
     Equivalent Python control flow:
 
@@ -257,7 +282,7 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
             state, trace = body_fn(state)
             for _ in range(trace.ndim - valid.ndim):
                 valid = valid.unsqueeze(-1)
-            trace = torch.where(valid, trace, torch.nan)
+            trace = torch.where(valid, trace, default_trace)
         else:
             trace = default_trace
         observations.append(trace)
@@ -267,6 +292,8 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
     ```
 
     Args:
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
         body_fn: Returns the next state and one raw observation; owns
             preservation of inactive positions and numerical validation.
         default_trace: Observation filled with unused values, matching the
@@ -278,9 +305,10 @@ def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
             `init_state.is_active`, independent of numerical activity.
 
     Returns:
-        Terminal state and history. Each trace tensor gains a final axis of
-        size `max_iter`; existing nested history axes keep their order.
-        Unconverged positions are retained when `strict=False`.
+        A tuple (state, history) containing terminal state and trace history.
+        Each trace tensor gains a final axis of size
+        `max_iter`; existing nested history axes keep their order. Unconverged
+        positions are retained when `strict=False`.
 
     Raises:
         ValueError: `max_iter` is not positive.

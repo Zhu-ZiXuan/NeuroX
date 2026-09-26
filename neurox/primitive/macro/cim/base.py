@@ -152,6 +152,25 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     The caller supplies valid output counts from the unpadded geometry of the
     weight block selected for each access, consistently for execution and
     timing. A valid weight vector counts even when all its values are zero.
+
+    To implement a macro, initialize this base, construct and register owned
+    circuits, and implement `program`, `_vec_mat_mul_impl`, `adc_bits`, and
+    `_latency_per_scan__ns`. The config provides geometry and encoding. Keep the
+    final `vec_mat_mul` wrapper: it checks conversion settings, derives the
+    phase mask, verifies output geometry, and zeros padded logical outputs.
+
+    The execution hook owns circuit access sampling, phase scheduling, recovery,
+    and energy emission. It must preserve one sampled realization throughout a
+    physical access and remain traceable. Do not count numerical iterations or
+    chunks as additional accesses. Standalone callers collect static data and
+    submit any required operation-duration observation separately.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -375,8 +394,18 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         """Return an ideal twin using the calibrated output scales.
 
         The twin inherits this macro's logical geometry, instance multiplicity,
-        value domains, signed-weight capability, mode scales, quantization scheme,
-        and current temperature.
+        value domains, signed-weight capability, mode scales, quantization
+        scheme, and current temperature.
+
+        Only configuration and temperature are transferred. The twin has fresh
+        constructor placement and profiling state and contains no programmed
+        weights or physical child circuits. Place and program it explicitly
+        before executing; its local static costs retain the source macro's
+        configured values.
+
+        Returns:
+            A new unprogrammed ideal macro retaining configuration and
+            temperature.
         """
         # Resolve the ideal subclass after its base finishes importing.
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
@@ -458,19 +487,29 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
     ) -> Tensor:
         """Restore physical readouts to logical output order.
 
+        The base has validated conversion settings and derived `leading_shape`.
+        Broadcast operands to that layout as needed without mutating caller
+        tensors. Respect disabled phases when issuing physical drive events.
+        Submit energy from the actual circuit owners, and return one logical
+        code per output; do not submit another unit-level duration here.
+
         Args:
             x: Input data retaining its original broadcast layout.
                 Shape: `[..., input]`.
             leading_shape: Complete caller and instance shape after broadcasting
                 the input's leading shape with `inst_shape`.
+            quantization_mode: Index of the calibrated reference operating
+                point.
+            adc_active_bits: Optional active converter width; None selects
+                maximum precision.
             phase_mask: Broadcastable scan/lane activity; `None` enables every
                 phase. Gates drive commands and circuit events, not solved
                 currents or their energy.
                 Shape: `[..., scan, lane]`.
 
         Returns:
-            Codes ordered along the logical output axis used by `program`.
-            The base class zero-fills positions beyond the valid logical prefix.
+            Codes ordered along the logical output axis used by `program`. The
+            base class zero-fills positions beyond the valid logical prefix.
             Shape: `[..., output_num]`.
         """
         raise NotImplementedError

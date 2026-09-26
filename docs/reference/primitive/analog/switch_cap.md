@@ -12,10 +12,6 @@ $$V_{\mathrm{out}} = \frac{\sum_k C_k \left(V_k + n_{kT/C,k}\right)}{\sum_k C_k}
 
 with $n_{kT/C,k}$ the per-cap kT/C settling-noise sample on the held input, and each $C_k$ the fabricated per-unit-cell (Pelgrom) mismatched capacitance about its nominal $C_{\mathrm{unit}}\,a_k$.
 
-## Numerical method
-
-N/A — the charge-share average is closed-form; no iteration.
-
 ## Energy model
 
 Sampling charges each cap to its per-cap voltage: charging cap $k$ from ground to $V_k$ deposits $\tfrac{1}{2} C_k V_k^2$. Summed over the bank, this sampled-charge energy is the dominant, signal-dependent term,
@@ -30,7 +26,7 @@ In the consistent unit set $\mathrm{fF}\times\mathrm{V}^2 = \mathrm{fJ}$.
 
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter |
+| [Source](../../../conventions/module_parameter.md) | Physical origin | Statistical model | Parameter |
 | --- | --- | --- | --- |
 | cap mismatch | per-unit-cell area/oxide variation | static per-unit-cell Pelgrom-scaled Gaussian on $C_k$, sampled at fabricate | $\sigma_u$ |
 | sampling thermal noise | per-cap kT/C settling noise | additive zero-mean Gaussian on each held input $V_k$, sigma $\sigma_k = \sqrt{k_B T / C_k}$ per cap | $\sigma_k$ (derived from $T$, $C_k$) |
@@ -39,15 +35,13 @@ Cap mismatch is static — a fixed offset frozen at fabrication; kT/C noise is d
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `c_unit__fF` ($C_{\mathrm{unit}}$) | unit-cell capacitance | fF | $> 0$ | Design |
 | `cap_mismatch_sigma_relative` ($\sigma_u$) | per-unit-cell relative mismatch sigma (Pelgrom) | — | $\geq 0$ | Measured |
 | `cap_weights` ($a_k$) | per-cap weight on $C_{\mathrm{unit}}$, length $N$ | — | $> 0$ | Design |
 | `energy_per_sample_overhead__fJ` ($E_{\mathrm{overhead}}$) | per-sample energy overhead, independent of the sampled voltages | fJ | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -70,17 +64,11 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-Stated assumptions:
-
 - The averaging is an ideal passive charge share over a fixed set of positive-weighted caps.
 - The bank performs no value arithmetic beyond the charge-weighted average; the weights carry no encoding semantics in the model.
 
-TODO (domain author): the validity boundary of the ideal-charge-share assumption (parasitic top-plate capacitance, incomplete settling, charge injection) and the regime where it breaks down.
-
-## Validation
-
-TODO - link validation evidence once written.
+Quantitative limits from parasitic capacitance, incomplete settling, and charge injection are not established here.
 
 ## References
 
-TODO: cite the bottom-plate-sampling charge-share and the Pelgrom mismatch model.
+Citations for the bottom-plate-sampling charge-share and the Pelgrom mismatch model are not documented here.

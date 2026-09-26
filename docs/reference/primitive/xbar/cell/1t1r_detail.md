@@ -32,7 +32,7 @@ The cell introduces no static mismatch of its own; non-idealities enter through 
 
 In addition to the [shared family parameters](1t1r.md):
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `rram_config` | RRAM storage-device configuration | — | — | see [reference/device/rram](../../device/rram.md) |
 | `nmos_config` | access-NMOS configuration | — | — | see [reference/device/mosfet](../../device/mosfet.md) |
@@ -40,8 +40,6 @@ In addition to the [shared family parameters](1t1r.md):
 | `access_nmos_W__um` | access-NMOS width | um | $> 0$ | Design |
 | `access_nmos_L__um` | access-NMOS length | um | $> 0$ | Design |
 | `rram_g_max__uS` | maximum programmable RRAM conductance | uS | $> G_{\mathrm{min}}$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md). A config file selects this model with `_neurox_class = "XbarCell1t1rDetailConfig"` in the cell table and its policy file with `XbarCell1t1rDetailPolicy`; the `_neurox_class` directive and the file-level schema are specified in [configuration](../../../../api/configuration.md).
 
 ## Energy model
 
@@ -67,8 +65,8 @@ In addition to the [shared family symbols](1t1r.md):
 
 ## Validation
 
-TODO: add validation evidence for branch-current and signed-conductance checks, internal-KCL residuals, and finite-difference device derivatives.
+The [electrical checks](../../../../validation/structured_while_solve.md) cover internal KCL and node derivatives. Cell linearization uses converged detailed operating points.
 
 ## References
 
-TODO: cite the RRAM and access-NMOS current models and the series-condensation basis.
+Citations for the RRAM and access-NMOS current models and the series-condensation basis are not documented here.

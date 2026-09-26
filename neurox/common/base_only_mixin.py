@@ -6,10 +6,14 @@ from typing import ClassVar, Self, final
 
 
 class BaseOnlyMixin:
-    """Declare inheritance-only classes with `base_only=True`.
+    """Mark abstract construction roles with `base_only=True` at class definition.
 
-    The restriction applies only to the declaring class; subclasses opt in
-    independently.
+    An opted-in class raises `TypeError` when instantiated. Each descendant
+    chooses independently: omit the keyword for a concrete class, or repeat it
+    for another inheritance-only role. Use `ABC` and abstract methods separately
+    when subclasses must implement an interface; this mixin checks construction
+    permission only. Cooperative `__init_subclass__` overrides must forward
+    class keywords through `super()` so this restriction is initialized.
     """
 
     __base_only: ClassVar[bool] = True

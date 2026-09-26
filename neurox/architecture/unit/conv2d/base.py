@@ -44,15 +44,25 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     `(output_channel, input_channel_per_group, kernel_h, kernel_w)` tuple.
     Output channels must be divisible by `groups`. Runtime inputs have
     `input_channel_per_group * groups` channels. Invalid shapes raise
-    `ValueError`.
-    One basic operation for latency and profiling is one complete image,
-    including its internal window schedule.
+    `ValueError`. One basic operation for latency and profiling is one complete
+    image, including its internal window schedule.
+
+    Subclass authors implement `program` and `_conv2d_impl`, together with the
+    remaining `UnitBase` metadata. Keep the final `conv2d` wrapper: it validates
+    input layout, checks the profile rank, and records operation duration. The
+    implementation hook must include bias and any internal energy accounting,
+    but must not submit a second unit-duration observation. Register the
+    concrete config-policy pair on this family to enable `from_config` dispatch.
 
     Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        w_logical_shape: Complete logical weight shape accepted by `program`.
         stride: Positive output step `(s_h, s_w)`.
         padding: Nonnegative zero-pad extent `(p_h, p_w)` on each side.
         dilation: Positive kernel tap spacing `(d_h, d_w)`.
         groups: Positive number of independent channel groups.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -131,6 +141,15 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
         Preserve value ranges, weight shape, dtype, temperature and unit-local
         static PPA, plus convolution geometry. Weights, bias and child circuits
         are not copied.
+
+        The result starts with a fresh profile layout and constructor device
+        state; place it, configure profiling, and program it explicitly before
+        use. This method does not preserve the source's device placement or
+        measurement state.
+
+        Returns:
+            A new unprogrammed ideal convolution unit retaining the convolution
+            geometry.
         """
         from .ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
 
@@ -212,6 +231,13 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         """Write the unit's static weight state and optional integer bias.
 
+        Implementations replace previously programmed weights and bias, validate
+        logical weight shape, and prepare whatever internal representation
+        execution requires. Program after placement and any required
+        fabrication, outside the compiled operator call. Callers supply integer
+        values within `w_value_range` and must not mutate tensors retained as
+        programmed storage.
+
         Args:
             weight: Integer weight values.
                 Shape: `[C_out, C_in/groups, kh, kw]`.
@@ -223,13 +249,48 @@ class Conv2dUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @abstractmethod
     def _conv2d_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
-        """Compute the convolution output, including the programmed bias."""
+        """Implement the numerical operation behind the final `conv2d` wrapper.
+
+        The wrapper has checked the input rank, feature/channel count, and
+        active profile layout. Preserve the input's leading axes and return the
+        output layout documented by `conv2d`, including any programmed bias.
+        Respect the requested quantization window and active converter width
+        where modeled. Emit internal energy once per physical contribution; the
+        wrapper owns the unit-duration submission. Keep this hook traceable
+        inside the wrapper's full-graph compiled, no-gradient execution.
+
+        Args:
+            input: Integer activation tensor in the public operator input
+                layout.
+            quantization_mode: Reference-window index for the configured macro.
+            adc_active_bits: Optional active converter width; None uses the
+                implementation maximum.
+
+        Returns:
+            Integer output including bias, preserving leading image axes.
+            Shape: `[*leading, C_out, H_out, W_out]`.
+        """
         raise NotImplementedError
 
     # === Tools for subclass and internal use ===
 
     @final
     def _conv2d_windows(self, input: Tensor) -> Tensor:
+        """Return integer-preserving windows for the configured geometry.
+
+        Zero padding is applied before unfolding. The result may share storage
+        and contain overlapping views; use it as read-only input to the
+        implementation. Leading image axes are preserved. Use `_conv2d_out_hw`
+        to validate output extents before requesting windows.
+
+        Args:
+            input: Images with the unit's input-channel count.
+                Shape: `[*leading, C_in, H, W]`.
+
+        Returns:
+            Dilated kernel taps arranged after each output position.
+            Shape: `[*leading, H_out, W_out, C_in, kh, kw]`.
+        """
         kh, kw = self._w_logical_shape[-2:]
         s_h, s_w = self.stride
         p_h, p_w = self.padding

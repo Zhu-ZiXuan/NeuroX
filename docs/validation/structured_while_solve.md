@@ -4,7 +4,7 @@ Validation checks the [parallel BL/SL equations](../reference/primitive/xbar/sol
 
 ## Electrical checks
 
-The focused suite in `tests/primitive/xbar/test_col_bl_col_sl.py` uses linear cell branches with ideal and resistive clamps to compare against an independently assembled dense nodal system. It checks the single-row closed form, reconstructs terminal wire and port residuals from the returned electrical state, and exercises both supported dtypes across wire resistances. These checks distinguish a correct equilibrium from a permissive stopping threshold.
+The focused suite in `tests/primitive/xbar/solver/test_col_bl_col_sl.py` uses linear cell branches with ideal and resistive clamps to compare against an independently assembled dense nodal system. It checks the single-row closed form, reconstructs terminal wire and port residuals from the returned electrical state, and exercises both supported dtypes across wire resistances. These checks distinguish a correct equilibrium from a permissive stopping threshold.
 
 The same suite checks independent column termination, bounded voltage updates, immediate rejection of non-finite branch states, strict rejection when a node solve reaches its cap, and non-strict return of the requested failure trace. Shape cases include one row, one column, and cell-controlled leading axes broadcast over singleton clamp snapshots.
 
@@ -27,7 +27,7 @@ Inspect compilation output and graph structure during development; optimization-
 Run the solver suite on a selected CUDA device to exercise compiled numerical loops:
 
 ```bash
-uv run pytest tests/primitive/xbar/test_col_bl_col_sl.py --device cuda:0
+uv run pytest tests/primitive/xbar/solver/test_col_bl_col_sl.py --device cuda:0
 ```
 
 A performance measurement fixes the physical inputs, geometry, dtype, device, trace request, chunk size, and software environment. Measure cold compilation with independent caches, warm execution with repeated synchronized calls, and peak device allocation separately. Retain workload definitions and environment metadata with the run outputs so measurements can be repeated.

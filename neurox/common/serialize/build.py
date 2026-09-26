@@ -89,9 +89,18 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
     args = get_args(tp)
 
     if origin is typing.Literal:
-        if value not in args:
-            raise ValueError(f"value {value!r} not in Literal{list(args)}")
-        return value
+        matching_type = False
+        for option in args:
+            encoded = option.value if isinstance(option, Enum) else option
+            # Equality alone confuses True with 1 and 1.0 with 1. Enum literals
+            # use their serialized value but reconstruct the declared member.
+            if type(value) is type(encoded):
+                matching_type = True
+                if value == encoded:
+                    return option
+        if not matching_type:
+            raise TypeError(f"{path}: {type(value).__name__} is not a type allowed by Literal{list(args)}")
+        raise ValueError(f"{path}: value {value!r} not in Literal{list(args)}")
 
     # Union alternatives retain annotation order because more than one may accept a value.
     if origin is Union or origin is UnionType:
@@ -205,6 +214,9 @@ def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     Field conversion is followed by normal construction of the selected class,
     including its validation hooks.
 
+    Literal choices match both type and value; booleans do not satisfy integer
+    literals. Enum-valued literals load from their serialized member values.
+
     Returns:
         Instance of `cls`, or of its named subclass.
 
@@ -213,6 +225,8 @@ def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
             within its hierarchy, a key is unknown, a required field is missing,
             or a field value has an incompatible type. Primitive conversion
             permits only widening an `int` to a `float`.
+        ValueError: A literal value is not among its choices or construction
+            rejects a field value.
     """
     return _dataclass_from_config_dict(cls, normalize_config_dict(data))
 

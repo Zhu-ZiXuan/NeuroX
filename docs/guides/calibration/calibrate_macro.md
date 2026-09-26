@@ -1,27 +1,23 @@
-# Macro calibration
+# Macro rescaling
 
-Macro calibration determines the relationship between a physical macro's final output codes and exact integer MAC values. ADC reference or boundary placement is a separate calibration task.
+A macro's `rescale_factors` convert final output codes into integer MAC units at maximum ADC resolution. Each `quantization_mode` selects one reference operating point and its corresponding factor.
 
-## Determine the rescale factors
+Derive the factor analytically when the mapping is exact. Otherwise fit paired physical output codes and exact ideal results through the origin:
 
-Every reference operating point has one corresponding entry in `rescale_factors`. The entry describes how many MAC units one final macro output code represents at the macro's maximum ADC resolution, `adc_bits`. The tuple index is `quantization_mode`.
+$$\mathrm{ideal\ value}pprox\mathrm{macro\ code}	imes\mathrm{rescale\ factor}.$$
 
-When the macro implements an exact integer mapping, derive the factor from that mapping and store it directly. Use `rescale_fit` only when the complete macro transfer makes the relationship empirical. The tool requests each macro's highest available precision, comparing the physical macro's maximum-width output with its ideal twin's exact result; it does not inspect the ADC type or use an ADC probe.
+## Run a fit
+
+Prepare a run file using the `RescaleFitToolConfig` schema in the [rescale API](../../api/tools.md#neurox.tools.calibration.cim_macro.rescale_fit). It names the macro bindings, stimulus distribution, sample counts, batch sizes, and seed. The path below is a user-created run file:
 
 ```bash
-python -m neurox.tools.calibration.cim_macro \
-    --config validations/<paper>/tools/calibrate_macro_rescale.toml \
+uv run python -m neurox.tools.calibration.cim_macro \
+    --config rescale_run.toml \
     --device cuda:0
 ```
 
-Logical weights have shape `[Bw, input_num, output_num]`. Logical inputs have shape `[Bx, 1, input_num]` and are split into legal `max_active_num` planes before both macros run. For every selected mode, the zero-through-origin fit estimates
+`--modes` selects a comma-separated subset. The command writes `rescale.toml`, retaining factors for unselected modes, and per-mode fit plots under `figures/`. Inspect residuals and saturation before adopting the fitted values. ADC reference selection is a separate step and must precede this fit.
 
-$$\mathrm{ideal\ value}\approx\mathrm{macro\ code}\times\mathrm{rescale\ factor}.$$
+## Ideal comparisons
 
-The command emits one complete `rescale_factors = [...]` assignment, preserving entries for modes not selected by `--modes`, and plots the paired maximum-resolution output codes with the fitted line. The assignment is saved as `rescale.toml` in the run directory; per-mode figures live in its `figures/` child. Lower ADC resolutions derive their effective factors from the macro family law.
-
-## Comparing against an idealized macro
-
-`--cim_macro ideal` swaps the configured macro for its `to_ideal()` twin while retaining its calibrated factors and finite integer ADC resolutions. `--cim_macro physical` runs the macro as configured. Passing `adc_active_bits = None` requests the selected macro's highest available precision: maximum-width physical conversion or exact ideal execution. Pass an explicit finite width when both paths must use the same quantization resolution.
-
-A standalone ideal config is another option. It instantiates an ideal macro from hand-authored parameters tied to no fabricated chip and is suitable for flow bring-up rather than hardware validation.
+Use a macro's `to_ideal()` method to construct an arithmetic control and program it with the same weights. `adc_active_bits=None` requests maximum physical precision or exact ideal execution; an explicit width applies finite-resolution quantization. The [macro interface](../../api/components.md#neurox.primitive.macro.cim.CimMacro) defines the conversion and programming contract.

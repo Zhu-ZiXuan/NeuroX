@@ -1,17 +1,17 @@
 # Validation campaigns
 
-Evidence that each model in [Reference](../reference/README.md) is both physically faithful and correctly implemented. Where Reference states *what* is modeled, Validation shows *that the implementation reproduces it* — against closed-form limits, SPICE, silicon measurements, or published results.
+Campaigns compare configured models with stated numerical or physical targets. Interpret agreement together with parameter provenance: matching a calibration target is a consistency check, not independent evidence of physical accuracy.
 
 ## Calibration campaigns
 
-The repository's `validations/` directory holds one calibration campaign per published design point, each under its own `validations/<paper>/`. A campaign anchors a scheme's PPA model to that paper's reported numbers and is the citable evidence for that scheme. Its paper design point lives in the bundled `neurox/presets/works/<paper>.toml` preset, and each per-paper campaign directory carries a fixed file set:
+The repository's `validations/` directory holds one calibration campaign per published design point, each under its own `validations/<paper>/`. A campaign records the comparison against that paper's reported numbers and identifies adopted or fitted values. Its paper design point lives in the bundled `neurox/presets/works/<paper>.toml` preset, and each per-paper campaign directory carries a fixed file set:
 
 - `config.toml` — the campaign binding to the bundled work preset, expressed with `_neurox_use_preset`; paper test-bench conditions that differ from normal evaluation are inline overrides here, while the preset retains the normal evaluation values.
 - `policy.toml` — the policy the campaign runs under (all-off when the scheme models no non-idealities).
 - `anchors.toml` — the paper targets, with reported design facts, simulated results, and silicon measurements distinguished, plus the declared dyn/static and data conventions the calibration assumes.
 - `validate.py` and `tools/` — the campaign itself: build through `config.toml`, draw inputs per the declared data conventions, average the profiler per-op energies and read the static report, convert to per-block power, and gate. Commands use the shared offline run lifecycle for their logs and output directories; the [offline tool API](../api/tools.md) exposes the reusable interfaces.
 
-The campaigns that ship today, one per bundled scheme, run as `make validate_<paper>`. They live outside `docs/`, so this page names their paths instead of linking them:
+Run the bundled campaigns from the repository root with `make validate_xue2020jssc DEVICE=...` or `make validate_ye2023jssc DEVICE=...`:
 
 - `validations/xue2020jssc/` — the SINWP 1T1R CIM sub-array of `neurox.works.macro.cim.xue2020jssc`; `README.md` carries the run instructions and the validation command logs the outcome.
 - `validations/ye2023jssc/` — the WH-2T1R CIM macro of `neurox.works.macro.cim.ye2023jssc`; `README.md` carries the run instructions and timing basis, and the command logs the outcome.
@@ -19,9 +19,9 @@ The campaigns that ship today, one per bundled scheme, run as `make validate_<pa
 Four conventions govern every campaign:
 
 - **The hard gate is the headline total only.** One tight-tolerance gate on the total energy per access (in the scheme's energy basis) is the campaign's pass/fail. The per-block breakdown is reported alongside it but is informational — a share differing from the paper's is explained as an accounting-boundary, node-voltage, or model-fidelity difference, not silently treated as a separate gate.
-- **Adopt versus predict is declared per seat.** A seat copied from a paper result, whether simulated or measured, is *adopted* and fixed; the rest is computed from an explicit circuit model under declared assumptions. Any calibrated remainder and its target are stated in `anchors.toml`; no residual is silently absorbed to close the total.
+- **Adopt versus predict is declared per parameter.** A value copied from a paper result, whether simulated or measured, is *adopted* and fixed; the rest is computed from an explicit circuit model under declared assumptions. Any calibrated remainder and its target are stated in `anchors.toml`; no residual is silently absorbed to close the total.
 - **Workload distributions state their provenance.** An input-statistics quantity the paper does not publish — an activation sparsity `p_zero`, for instance — is marked either as an assumed prior or as a calibration against a named constraint. A calibrated workload point cannot also serve as independent evidence for the total it helps reproduce.
-- **Misses are documented, never tuned away.** A gate miss is recorded in the validation log with its diagnosis and the contingency step taken, following the campaign's declared contingency order. A seat is never silently adjusted to pass, and a suspicious deviation — a clean factor-of-two or factor-of-four — is called out as a suspected unstated model term before any knob is moved.
+- **Misses are documented, never tuned away.** A gate miss is recorded in the validation log with its diagnosis and the contingency step taken, following the campaign's declared contingency order. A parameter is never silently adjusted to pass, and a suspicious deviation — a clean factor-of-two or factor-of-four — is called out as a suspected unstated model term before any knob is moved.
 
 ### Provenance tags
 
@@ -39,7 +39,3 @@ Every key of `neurox/presets/works/<paper>.toml`, every campaign override in `co
 | `[calibrated]` | solved against a stated validation constraint |
 
 These value-level campaign tags are distinct from the module-parameter **Source** classes of [module parameter](../conventions/module_parameter.md), which classify a parameter of a documented model rather than a value of a shipped config artifact.
-
-## TODO
-
-Per-subsystem validation notes cross-linked from each Reference document's *Validation* section, solver verification (converged-residual, per-cell finite-difference device-derivative, and dtype-aware chunking agreement checks), and cross-tool / cross-simulator comparison.

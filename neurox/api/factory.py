@@ -35,7 +35,26 @@ def iadc_from_file(
     config_section: str | None = None,
     policy_section: str | None = None,
 ) -> Iadc:
-    """Load and validate a file pair, then construct its registered current ADC."""
+    """Construct a current ADC from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
     config = IadcConfig.from_file(*config_files, section=config_section)
     policy = IadcPolicy.from_file(*policy_files, section=policy_section)
     return Iadc.from_config(
@@ -55,7 +74,26 @@ def diff_vadc_from_file(
     config_section: str | None = None,
     policy_section: str | None = None,
 ) -> DiffVadc:
-    """Load and validate a file pair, then construct its registered differential voltage ADC."""
+    """Construct a differential voltage ADC from configuration files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
     config = DiffVadcConfig.from_file(*config_files, section=config_section)
     policy = DiffVadcPolicy.from_file(*policy_files, section=policy_section)
     return DiffVadc.from_config(
@@ -76,7 +114,28 @@ def cim_macro_from_file(
     policy_section: str | None = None,
     to_ideal: bool = False,
 ) -> CimMacro:
-    """Load and validate a file pair, then construct its registered CIM macro."""
+    """Construct a CIM macro from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
     config = CimMacroConfig.from_file(*config_files, section=config_section)
     policy = CimMacroPolicy.from_file(*policy_files, section=policy_section)
     module = CimMacro.from_config(
@@ -98,7 +157,27 @@ def linear_unit_from_file(
     policy_section: str | None = None,
     to_ideal: bool = False,
 ) -> LinearUnit:
-    """Load a config-policy pair and construct its registered linear implementation."""
+    """Construct a linear unit from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        w_logical_shape: Complete logical weight shape required by `program`.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
     config = LinearUnitConfig.from_file(*config_files, section=config_section)
     policy = LinearUnitPolicy.from_file(*policy_files, section=policy_section)
     module = LinearUnit.from_config(
@@ -124,7 +203,31 @@ def conv2d_unit_from_file(
     policy_section: str | None = None,
     to_ideal: bool = False,
 ) -> Conv2dUnit:
-    """Load hardware config and policy, then bind the supplied convolution geometry."""
+    """Construct a convolution unit from configuration files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        w_logical_shape: Complete logical weight shape required by `program`.
+        stride: Positive spatial step `(height, width)`.
+        padding: Nonnegative zero padding on each spatial side.
+        dilation: Positive kernel spacing `(height, width)`.
+        groups: Independent channel groups; output channels must divide evenly.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
     config = Conv2dUnitConfig.from_file(*config_files, section=config_section)
     policy = Conv2dUnitPolicy.from_file(*policy_files, section=policy_section)
     module = Conv2dUnit.from_config(

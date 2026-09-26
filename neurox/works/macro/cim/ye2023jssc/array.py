@@ -69,7 +69,34 @@ _CellDcop = XbarCell1t1rDcop
 
 
 class Ye2023Jssc2t1rArray[BLSnapT: ClampSnap, SLSnapT: ClampSnap](XbarArray1t1r[BLSnapT, SLSnapT]):
-    """WH-2T1R array."""
+    """Solve the configured WH-2T1R grid and report its TBL readout currents.
+
+    Use the inherited placement, fabrication, programming, and held-boundary
+    snapshot lifecycle. `t2_multipliers` supplies one physical width multiplier
+    per column; its length must equal `col_num`. The selected cell's solved
+    internal voltage controls its unit-width T2 current, and this array applies
+    the column multipliers and readout selection.
+
+    Returned operating points extend the ordinary array boundary values with
+    `i_tbl_by_row__uA`. Boundary drivers remain externally owned; the caller
+    must prepare and sample them as required by `XbarArray1t1r.solve_dc`.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        row_num: Number of physical rows in each array instance.
+        col_num: Number of physical columns in each array instance.
+        t2_multipliers: One physical T2 width multiplier per array column.
+        v_tbl__V: Selected TBL voltage used for its capacitive energy
+            calculation.
+        vdd__V: Analog supply used when accounting for physical switching
+            energy.
+        bl_driver: Externally owned BL clamp; its owner prepares and samples it.
+        sl_driver: Externally owned SL clamp; its owner prepares and samples it.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

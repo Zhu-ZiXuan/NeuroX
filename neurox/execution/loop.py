@@ -1,4 +1,9 @@
-"""While loops, scans, and maps over structured states and inputs."""
+"""While loops, scans, and maps over structured states and inputs.
+
+Equivalent Python control flow blocks are pseudocode. Tensor notation stands
+for the same operation on every tensor in a structured value; tree traversal
+is omitted.
+"""
 
 from __future__ import annotations
 
@@ -41,8 +46,12 @@ def run_while_loop[StateT](
     carry tensor metadata must remain unchanged across updates.
 
     Args:
+        init_state: Initial structured state whose tensor metadata is retained
+            across updates.
         cond_fn: Receives the current state and returns a scalar boolean
             condition deciding whether to execute another update.
+        body_fn: Callback mapping the current state to the next state without
+            input mutation.
 
     Returns:
         Terminal state, or `init_state` if the initial condition is false.
@@ -71,8 +80,10 @@ def run_while_loop_with_counter[StateT](
     ```
 
     Args:
-        cond_fn: Receives the zero-based scalar step and current state;
-            decides whether another update runs.
+        init_state: Initial structured state whose tensor metadata is retained
+            across updates.
+        cond_fn: Receives the zero-based scalar step and current state; decides
+            whether another update runs.
         body_fn: Receives the same step and state, returning the next state.
         device: Optional step placement; omission uses the default device.
 
@@ -120,6 +131,8 @@ def run_scan[StateT, InputT, OutputT](
     ```
 
     Args:
+        init_state: Initial structured state whose tensor metadata is retained
+            across updates.
         xs: PyTree sliced along `dim`.
         body_fn: Receives the current state and one input slice; returns the
             next state and one output slice.
@@ -127,13 +140,14 @@ def run_scan[StateT, InputT, OutputT](
             Tensor values and metadata are unused.
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
-        reverse: Visit inputs in reverse order while returning outputs in
-            input order.
+        reverse: Visit inputs in reverse order while returning outputs in input
+            order.
 
     Returns:
-        Terminal state and stacked outputs. Each output leaf gains an
-        iteration axis at the resolved `dim` if that axis exists in the
-        stacked tensor, otherwise at axis zero.
+        A tuple (state, outputs) containing the final state and stacked outputs.
+        Terminal state and stacked outputs. Each output leaf gains an iteration
+        axis at the resolved `dim` if that axis exists in the stacked tensor,
+        otherwise at axis zero.
     """
     return torch_scan(
         body_fn,
@@ -169,14 +183,19 @@ def run_scan_without_output[StateT, InputT](
     ```
 
     Args:
+        init_state: Initial structured state whose tensor metadata is retained
+            across updates.
         xs: PyTree sliced along `dim`.
         body_fn: Receives the current state and one input slice; returns the
             next state.
-        device: Optional empty-output placement; omission uses the default device.
+        device: Optional empty-output placement; omission uses the default
+            device.
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
         reverse: Visit input slices in reverse order.
 
+    Returns:
+        Terminal carry with the same structured layout as init_state.
     """
 
     # Scan requires an output leaf; a zero-length tensor carries no observations.
@@ -219,17 +238,20 @@ def run_scan_without_inputs[StateT, OutputT](
     ```
 
     Args:
+        init_state: Initial structured state whose tensor metadata is retained
+            across updates.
         length: Positive number of callback evaluations.
         body_fn: Receives the current state; returns the next state and one
             output slice.
         output_template: Output PyTree structure, including optional fields.
             Tensor values and metadata are unused.
-        device: Optional placement of the unused iteration indices;
-            omission uses the default device.
+        device: Optional placement of the unused iteration indices; omission
+            uses the default device.
         reverse: Reverse output positions; the state recurrence is unchanged.
 
     Returns:
-        Terminal state and outputs with a new leading axis of size `length`.
+        A tuple containing:
+            Terminal state and outputs with a new leading axis of size `length`.
     """
 
     def scan_body(state: StateT, _input: Tensor) -> tuple[StateT, OutputT]:
@@ -308,7 +330,7 @@ def run_map[InputT, OutputT](
 ) -> OutputT:
     """Evaluate independent leading-axis input slices and stack their outputs.
 
-    Equivalent Python control flow for Tensor inputs and outputs:
+    Equivalent Python control flow:
 
     ```python
     outputs = []

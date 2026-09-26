@@ -41,10 +41,33 @@ EPS_0__fF_per_um: float = 8.8541878128e-3
 
 
 def thermal_fluctuation_energy__fJ(T__K: float) -> float:
+    """Return thermal fluctuation energy at a positive absolute temperature.
+
+    This scalar helper applies the configured-unit Boltzmann constant without
+    validating temperature. Callers must supply a finite, physically valid
+    value.
+
+    Args:
+        T__K: Finite positive absolute temperature.
+
+    Returns:
+        Thermal fluctuation energy as a Python float.
+    """
     return K_BOLTZMANN__fJ_per_K * T__K
 
 
 def thermal_voltage__V(T__K: float) -> float:
+    """Return thermal voltage at a positive absolute temperature.
+
+    The result is a Python scalar. Temperature validation belongs to the caller;
+    this helper performs no device placement, sampling, or state update.
+
+    Args:
+        T__K: Finite positive absolute temperature.
+
+    Returns:
+        Thermal voltage as a Python float.
+    """
     return thermal_fluctuation_energy__fJ(T__K) / ELEM_CHARGE__fC
 
 
@@ -179,11 +202,16 @@ def e_cap__fJ(
 ) -> Tensor | float:
     """Supply energy consumed for a grounded capacitance's voltage change.
 
-    The caller supplies nonnegative capacitance and absolute voltage change,
-    and bills each excursion once. Inputs are used without validation or clamping.
+    The caller supplies nonnegative capacitance and absolute voltage change, and
+    bills each excursion once. Inputs are used without validation or clamping.
 
     Args:
         v_supply__V: Driver supply potential, distinct from the node voltage.
+        c__fF: Nonnegative capacitance, broadcastable with voltage changes.
+        delta_v_abs__V: Nonnegative magnitude of the node voltage change.
+
+    Returns:
+        Supply energy under normal scalar or tensor broadcasting.
     """
     return v_supply__V * c__fF * delta_v_abs__V
 

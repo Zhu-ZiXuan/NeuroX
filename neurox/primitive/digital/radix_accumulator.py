@@ -28,7 +28,24 @@ _Policy = DigitalPolicy
 
 
 class RadixAccumulator(DigitalBase):
-    """One feedback register accumulating every digit on the selected axis."""
+    """One feedback register accumulating every digit on the selected axis.
+
+    Each method call reduces the complete supplied operand sequence from a fresh
+    zero value; no accumulator state persists between calls. Supply an integer
+    dtype wide enough for intermediate arithmetic and the configured wrap
+    constants. The returned value wraps to the configured signed bit width and
+    keeps the input dtype and device. No fabrication or programming is required.
+
+    The caller supplies physical-instance and operation extents in the operands;
+    `inst_shape` scales static cost but does not broadcast extra dynamic
+    operations. The containing unit owns scheduling and elapsed time.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+    """
 
     config: _Config
     policy: _Policy
@@ -52,7 +69,9 @@ class RadixAccumulator(DigitalBase):
         Args:
             x: Integer digits in least-significant-first order along `dim`.
                 Shape: `[..., digit, ...]`.
-            radix: Positional radix of this operation; 1 selects equal-weight accumulation.
+            dim: Operand axis to reduce; negative indices count from the end.
+            radix: Positional radix of this operation; 1 selects equal-weight
+                accumulation.
             enable: Optional arrival enables, broadcastable to `x`.
 
         Returns:

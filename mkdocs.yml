@@ -3,7 +3,17 @@ site_description: A PyTorch-based neuromorphic computing simulation framework, f
 site_author: Zhu-Zixuan
 repo_url: https://github.com/Zhu-Zixuan/NeuroX
 repo_name: Zhu-Zixuan/NeuroX
-edit_uri: edit/main/docs/
+edit_uri: edit/devel/docs/
+
+# Contributor instructions stay in the repository, outside the published site.
+exclude_docs: |
+  /contributing/
+  /conventions/README.md
+  /conventions/organizing_principles.md
+  /conventions/code_style.md
+  /conventions/naming_conventions.md
+  /conventions/markdown_style.md
+  /conventions/prose_style.md
 
 # Under --strict, a dead cross-reference fragment (#anchor) aborts the build, not just a missing file.
 validation:
@@ -20,6 +30,7 @@ theme:
     - navigation.expand
     - toc.integrate
     - content.code.copy
+    - content.action.edit
   palette:
     - scheme: default
       primary: indigo
@@ -39,9 +50,13 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [neurox]
+          paths: [.]
           options:
             docstring_style: google
+            docstring_options:
+              returns_multiple_items: false
+            # Show the constructor signature with the class-owned Args section.
+            merge_init_into_class: true
             members_order: alphabetical
             show_signature: true
             show_signature_annotations: true
@@ -49,112 +64,100 @@ plugins:
             show_root_heading: false
             show_category_heading: true
 
-# Top-level sections follow the reader journey in docs/README.md; within a
-# section, the README comes first and a family precedes its members.
+# Navigation follows reader tasks; source paths retain their topic ownership.
 nav:
 - Home: README.md
 - Get started:
-  - Overview: get_started/README.md
-- Guides:
+  - Quickstart: get_started/README.md
+- Usage guides:
   - Overview: guides/README.md
-  - Algorithm engineer:
-    - Overview: guides/algorithm_engineer/README.md
-    - Workflow: guides/algorithm_engineer/workflow.md
+  - Operator workflow: guides/algorithm_engineer/workflow.md
   - Calibration:
     - Overview: guides/calibration/README.md
     - ADC input characterization: guides/calibration/calibrate_adc.md
-    - Macro calibration: guides/calibration/calibrate_macro.md
-    - Cell linearization and solver contract: guides/calibration/solver_tolerances.md
-    - Tool conventions: guides/calibration/tool_conventions.md
-- Reference:
-  - Overview: reference/README.md
-  - Architecture:
-    - Unit:
-      - Family: reference/architecture/unit/family.md
-      - CIM: reference/architecture/unit/cim.md
-      - Conv2d mapping: reference/architecture/unit/conv2d.md
-  - Primitive:
-    - Analog:
-      - Single-ended current ADC:
-        - Family: reference/primitive/analog/current_adc/family.md
-        - SAR: reference/primitive/analog/current_adc/sar.md
-      - Current DAC:
-        - Family: reference/primitive/analog/current_dac/family.md
-        - General: reference/primitive/analog/current_dac/general.md
-      - Current mux: reference/primitive/analog/current_mux.md
-      - Reference source: reference/primitive/analog/reference.md
-      - Differential voltage ADC:
-        - Family: reference/primitive/analog/diff_voltage_adc/family.md
-        - MCS SAR: reference/primitive/analog/diff_voltage_adc/mcs_sar.md
-      - Switch cap: reference/primitive/analog/switch_cap.md
-      - Unmodeled block: reference/primitive/analog/unmodeled.md
-      - Voltage DAC:
-        - Family: reference/primitive/analog/voltage_dac/family.md
-        - General: reference/primitive/analog/voltage_dac/general.md
-      - Voltage driver: reference/primitive/analog/voltage_driver.md
-      - Voltage mux: reference/primitive/analog/voltage_mux.md
-    - Device:
-      - MOSFET: reference/primitive/device/mosfet.md
-      - RRAM: reference/primitive/device/rram.md
-      - Selector: reference/primitive/device/selector.md
-    - Digital: reference/primitive/digital.md
-    - Macro:
-      - CIM:
-        - Family: reference/primitive/macro/cim/family.md
-        - Ideal: reference/primitive/macro/cim/ideal.md
-    - Nonideality: reference/primitive/nonideality.md
-    - Physics: reference/primitive/physics.md
-    - Xbar:
-      - Array:
-        - Family: reference/primitive/xbar/array/family.md
-        - 1T1R:
-          - Array: reference/primitive/xbar/array/1t1r.md
-      - Cell:
-        - Family: reference/primitive/xbar/cell/family.md
-        - 1T1R:
-          - Family: reference/primitive/xbar/cell/1t1r.md
-          - Detail: reference/primitive/xbar/cell/1t1r_detail.md
-          - Linear: reference/primitive/xbar/cell/1t1r_linear.md
-      - Solver:
-        - Parallel BL/SL: reference/primitive/xbar/solver/col_bl_col_sl.md
-- Validation:
-  - Overview: validation/README.md
-  - Campaigns: validation/campaigns.md
-  - Adaptive solve validation: validation/structured_while_solve.md
-- API:
+    - Macro rescaling: guides/calibration/calibrate_macro.md
+    - Cell linearization: guides/calibration/solver_tolerances.md
+    - Running tools: guides/calibration/tool_conventions.md
+- API reference:
   - Overview: api/README.md
+  - Application API: api/python.md
+  - Compute units: api/units.md
   - Configuration: api/configuration.md
-  - Python: api/python.md
+  - Circuit components: api/components.md
+  - Extension interfaces: api/extensions.md
   - Offline tools: api/tools.md
-- System design:
+- Models and validation:
+  - Scientific models:
+    - Overview: reference/README.md
+    - Shared vocabulary:
+      - Glossary: conventions/glossary.md
+      - Notation and units: conventions/notation_conventions.md
+      - Parameter sources: conventions/module_parameter.md
+    - Architecture:
+      - Unit:
+        - Family: reference/architecture/unit/family.md
+        - CIM: reference/architecture/unit/cim.md
+        - Conv2d mapping: reference/architecture/unit/conv2d.md
+    - Primitive:
+      - Analog:
+        - Single-ended current ADC:
+          - Family: reference/primitive/analog/current_adc/family.md
+          - SAR: reference/primitive/analog/current_adc/sar.md
+        - Current DAC:
+          - Family: reference/primitive/analog/current_dac/family.md
+          - General: reference/primitive/analog/current_dac/general.md
+        - Current mux: reference/primitive/analog/current_mux.md
+        - Reference source: reference/primitive/analog/reference.md
+        - Differential voltage ADC:
+          - Family: reference/primitive/analog/diff_voltage_adc/family.md
+          - MCS SAR: reference/primitive/analog/diff_voltage_adc/mcs_sar.md
+        - Switch cap: reference/primitive/analog/switch_cap.md
+        - Unmodeled block: reference/primitive/analog/unmodeled.md
+        - Voltage DAC:
+          - Family: reference/primitive/analog/voltage_dac/family.md
+          - General: reference/primitive/analog/voltage_dac/general.md
+        - Voltage driver: reference/primitive/analog/voltage_driver.md
+        - Voltage mux: reference/primitive/analog/voltage_mux.md
+      - Device:
+        - MOSFET: reference/primitive/device/mosfet.md
+        - RRAM: reference/primitive/device/rram.md
+        - Selector: reference/primitive/device/selector.md
+      - Digital: reference/primitive/digital.md
+      - Macro:
+        - CIM:
+          - Family: reference/primitive/macro/cim/family.md
+          - Ideal: reference/primitive/macro/cim/ideal.md
+      - Nonideality: reference/primitive/nonideality.md
+      - Physics: reference/primitive/physics.md
+      - Xbar:
+        - Array:
+          - Family: reference/primitive/xbar/array/family.md
+          - 1T1R:
+            - Array: reference/primitive/xbar/array/1t1r.md
+        - Cell:
+          - Family: reference/primitive/xbar/cell/family.md
+          - 1T1R:
+            - Family: reference/primitive/xbar/cell/1t1r.md
+            - Detail: reference/primitive/xbar/cell/1t1r_detail.md
+            - Linear: reference/primitive/xbar/cell/1t1r_linear.md
+        - Solver:
+          - Parallel BL/SL: reference/primitive/xbar/solver/col_bl_col_sl.md
+  - Validation:
+    - Overview: validation/README.md
+    - Campaigns: validation/campaigns.md
+    - Adaptive solve validation: validation/structured_while_solve.md
+- System explanations:
   - Overview: system_design/README.md
   - Construction: system_design/construction.md
   - Physical state: system_design/physical_state.md
   - PPA accounting: system_design/ppa_accounting.md
   - CIM execution: system_design/cim_execution.md
   - Non-ideality composition: system_design/nonideality_kernels.md
-- Conventions:
-  - Overview: conventions/README.md
-  - Code style: conventions/code_style.md
-  - Glossary: conventions/glossary.md
-  - Markdown style: conventions/markdown_style.md
-  - Module parameter: conventions/module_parameter.md
-  - Naming conventions: conventions/naming_conventions.md
-  - Notation conventions: conventions/notation_conventions.md
-  - Organizing principles: conventions/organizing_principles.md
-  - Prose style: conventions/prose_style.md
-- Contributing:
-  - Overview: contributing/README.md
-  - Recipes: contributing/recipes.md
-  - Workflow: contributing/workflow.md
-  - Writing family docs: contributing/writing_family_docs.md
-  - Writing module docs: contributing/writing_module_docs.md
-  - Writing system design: contributing/writing_system_design.md
-  - Writing tests: contributing/writing_tests.md
 - About:
   - Overview: about/README.md
+  - Scope and limitations: about/scope_limitations.md
   - Citation: about/citation.md
-  - Scope limitations: about/scope_limitations.md
+  - Interfaces and versioning: about/versioning.md
 
 markdown_extensions:
   - admonition
@@ -166,9 +169,6 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.arithmatex:
       generic: true
-
-extra_css:
-  - stylesheets/extra.css
 
 # MathJax (pymdownx.arithmatex generic mode needs the script loaded explicitly).
 extra_javascript:

@@ -27,7 +27,29 @@ _Policy = IdealConv2dUnitPolicy
 
 @Conv2dUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealConv2dUnit(Conv2dUnit):
-    """Exact int64 convolution on the programmed device."""
+    """Evaluate integer conv2d operations without circuit quantization.
+
+    Program before calling `conv2d`. Inputs, weights, and bias are converted
+    to int64; supply integer values in the declared ranges and keep intermediates
+    representable. Inputs and programmed state must share a device. Int64 weights
+    and bias may share caller storage; do not mutate them after programming.
+    Reprogram after changing their device.
+
+    Quantization settings do not affect the result. Latency is zero and no
+    dynamic-energy event is emitted; configured local static costs remain visible.
+    Inherited execution methods define layouts and profiling requirements.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        w_logical_shape: Complete logical weight shape accepted by `program`.
+        stride: Positive convolution steps `(height, width)`.
+        padding: Nonnegative zero padding on each spatial side.
+        dilation: Positive kernel-tap spacing `(height, width)`.
+        groups: Number of independent channel groups; output channels must
+            divide evenly.
+        dtype: Construction metadata; arithmetic uses int64.
+    """
 
     config: _Config
     policy: _Policy

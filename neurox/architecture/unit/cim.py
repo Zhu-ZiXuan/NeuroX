@@ -329,6 +329,10 @@ class CimUnit(UnitBase, ABC, base_only=True):
         Args:
             input: Integer vectors in the unit's logical value range.
                 Shape: `[..., group, input]`.
+            quantization_mode: Index of the calibrated reference operating
+                point.
+            adc_active_bits: Optional active converter width; None selects
+                maximum precision.
 
         Returns:
             Reconstructed outputs preserving all leading axes.

@@ -16,8 +16,4 @@ A voltage DAC converts an unsigned integer code $c\in[0,c_{\max}]$ to an output 
 
 Out-of-range codes are undefined and are not clamped.
 
-TODO (domain author): the validity range of the code-to-voltage abstraction (settling, finite output impedance under load) common to the family.
-
-## References
-
-TODO.
+Settling and load-dependent output impedance depend on the concrete converter.

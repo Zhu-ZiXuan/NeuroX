@@ -99,6 +99,24 @@ class McsSarDiffVadc(DiffVadc):
     injected bank is single-tap: the sole tap sets `V_cm = V_ref / 2` and the
     per-bit switching energy.
 
+    Place and fabricate the converter before calling `convert`, even when all
+    non-idealities are disabled. Positive and negative inputs have the same
+    shape and device; `v_refs__V` has exactly one trailing tap and broadcasts
+    over the conversion positions. Fabrication fixes capacitor mismatch and
+    comparator offset. Enabled sampling noise is fresh at each conversion.
+
+    The result is a raw unsigned offset-binary code. Use
+    `zero_offset(active_bits)` when recovering a signed value, and supply the
+    scale appropriate to the chosen reference. Conversion records switching
+    energy when profiling and models a sample cycle followed by one decision
+    cycle per active bit.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config

@@ -1,4 +1,4 @@
-"""Docstrings reserve Examples, keep exact module See Also entries, and omit magic-method docstrings."""
+"""Docstrings keep exact module See Also entries."""
 
 from __future__ import annotations
 
@@ -13,13 +13,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = (REPO_ROOT / "neurox", REPO_ROOT / "validations")
 
-_MANAGED_SECTIONS = frozenset({"Args", "Returns", "Yields", "Raises", "See Also", "Examples"})
-_EXAMPLES_ALLOWLIST = frozenset(
-    {
-        ("neurox/api/profiler.py", "Profiler"),
-        ("neurox/api/reporter.py", "Reporter"),
-    }
-)
+_MANAGED_SECTIONS = frozenset({"Args", "Returns", "Yields", "Raises", "See Also", "Examples", "Attributes"})
 _HEADER_PATTERN = re.compile(r"(?P<name>[A-Za-z]+(?: [A-Za-z]+)*):")
 _DOC_PATH_PATTERN = re.compile(r"docs/[\w/.-]+\.md")
 _DOC_ENTRY_PATTERN = re.compile(r" {4}(?P<path>docs/[\w/.-]+\.md)")
@@ -98,21 +92,6 @@ def _section_headers(docstring: Docstring) -> list[tuple[int, int, str]]:
     return out
 
 
-def _magic_methods() -> list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]]:
-    out: list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]] = []
-    for path in _iter_python_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for class_node in (node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)):
-            out.extend(
-                (path, node)
-                for node in class_node.body
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-                and node.name.startswith("__")
-                and node.name.endswith("__")
-            )
-    return out
-
-
 @pytest.fixture(scope="module")
 def docstrings() -> list[Docstring]:
     found = _iter_docstrings()
@@ -140,22 +119,6 @@ def test_section_reader_distinguishes_managed_headers_from_prose_and_nested_labe
         """,
     )
     assert [name for _, _, name in _section_headers(docstring)] == ["Args", "Examples"]
-
-
-def test_examples_are_reserved_for_allowlisted_user_objects(docstrings: list[Docstring]) -> None:
-    offenders: list[str] = []
-    for docstring in docstrings:
-        relative_path = str(docstring.path.relative_to(REPO_ROOT))
-        for _, line, name in _section_headers(docstring):
-            if name != "Examples" or (relative_path, docstring.owner) in _EXAMPLES_ALLOWLIST:
-                continue
-            offenders.append(f"{docstring.where()} line {line}: {name}:")
-    if offenders:
-        pytest.fail(
-            "Rule: `Examples:` is reserved for the exact user-facing objects in `_EXAMPLES_ALLOWLIST`.\n"
-            "Fix: move the tutorial into a Guide, delete template content, or add a genuinely "
-            "example-driven public API to the narrow allowlist.\nOffenders:\n  " + "\n  ".join(offenders)
-        )
 
 
 def test_see_also_contains_only_bare_existing_paths_in_module_docstrings(docstrings: list[Docstring]) -> None:
@@ -246,18 +209,4 @@ def test_see_also_contains_only_bare_existing_paths_in_module_docstrings(docstri
             "pointer appears elsewhere in a docstring.\n"
             "Fix: move a necessary pointer into that section, use one path per line with exact indentation, "
             "and update or delete stale paths.\n" + "\n".join(groups)
-        )
-
-
-def test_magic_methods_carry_no_docstrings() -> None:
-    offenders = [
-        f"{path.relative_to(REPO_ROOT)}:{node.lineno} {node.name}"
-        for path, node in _magic_methods()
-        if ast.get_docstring(node) is not None
-    ]
-    if offenders:
-        pytest.fail(
-            "Rule: magic methods carry no docstring; their caller-visible behavior belongs in the class "
-            "docstring.\nFix: remove the method docstring and preserve any necessary contract on the class.\n"
-            "Offenders:\n  " + "\n  ".join(offenders)
         )

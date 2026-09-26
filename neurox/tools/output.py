@@ -54,7 +54,20 @@ class RunOutput:
         raise FileExistsError(f"could not allocate a run directory under {parent}")
 
     def path(self, name: str) -> Path:
-        """Prepare the parent of a run-relative artifact and return its path."""
+        """Prepare a run-relative artifact path and its parent directories.
+
+        Nested relative names are allowed. Absolute names and any `..` component
+        raise `ValueError`. The artifact itself is not created; callers write it
+        or use `atomic_output`. An explicit external figure directory is handled
+        by `plot_dir` instead of this method.
+
+        Args:
+            name: Relative artifact path without parent traversal or an absolute
+                root.
+
+        Returns:
+            The artifact path with its parent directories created.
+        """
         relative = Path(name)
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("artifact name must remain inside the run directory")

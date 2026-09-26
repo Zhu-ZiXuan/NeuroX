@@ -38,10 +38,16 @@ class ClampDcop(Protocol):
 class ClampDriver[SnapT: ClampSnap, DcopT: ClampDcop](Protocol):
     """What a boundary clamp exposes to one DC solve.
 
-    The whole structural role is a transfer law the solve evaluates at the
-    port current inside its Newton loop, against an already sampled snap.
-    Sampling that snap and delivering the clamp at the converged state are
-    each properties of the concrete circuit.
+    The whole structural role is a transfer law the solve evaluates at the port
+    current inside its Newton loop, against an already sampled snap. Sampling
+    that snap and delivering the clamp at the converged state are each
+    properties of the concrete circuit.
+
+    Implementers must return local derivatives evaluated at the requested
+    operating point with the same broadcast layout as the returned signal. A
+    solver may invoke this transfer repeatedly on one held snapshot. Keep calls
+    free of new physical sampling, programming, or energy billing; numerical
+    iterations are not additional physical accesses.
     """
 
     def solve_dc(

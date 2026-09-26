@@ -10,28 +10,22 @@ $$I_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,\qquad n \sim \mathcal{N}(0,\ \sig
 
 Here $L$ is the nominal code-to-current LUT and $n$ the output-noise sample.
 
-## Numerical method
-
-N/A — direct table lookup, no iteration.
-
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model |
+| [Source](../../../../conventions/module_parameter.md) | Physical origin | Statistical model |
 | --- | --- | --- |
 | drive thermal | thermal noise on the steered output current | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$, constant across codes |
 
-TODO (domain author): physical derivation and citation for the drive-thermal sigma, and the code-dependent output-noise law of the steered current sources.
+The noise spread is a supplied characterization parameter, constant across codes.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `code_to_signal` ($L$) | LUT entry per integer code | uA | — | Design |
 | `drive_thermal__uA` ($\sigma_{\mathrm{drive}}$) | additive output-noise standard deviation | uA | $\geq 0$ | Measured |
 | `energy_per_op__fJ` | per-conversion dynamic energy | fJ | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -48,12 +42,4 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 - The current is independent of the driven node's voltage; finite output impedance and compliance headroom are excluded.
 - Every instance shares the exact nominal LUT, with no static mismatch or nonlinearity beyond its entries.
 
-TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load), and the unit-source mismatch model with its integral / differential nonlinearity consequence.
-
-## Validation
-
-TODO - link validation evidence once written.
-
-## References
-
-TODO.
+The LUT and constant-noise approximation require characterization over the intended operating range; no measured envelope is specified here.

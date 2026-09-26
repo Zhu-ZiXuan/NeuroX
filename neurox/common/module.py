@@ -30,6 +30,12 @@ class ConfigBase(BaseOnlyMixin, SerializeMixin, ValidateMixin, base_only=True):
     must not apply `@dataclass` or define `__init__` or `__post_init__`; this
     base supplies a frozen, keyword-only dataclass whose construction ends in
     `validate`.
+
+    Extend `validate` for cross-field or physical-domain checks and call the
+    parent implementation first. Direct construction runs those checks but does
+    not coerce values according to annotations; typed loading through
+    `from_dict` or `from_file` also checks field types. Inherited serialization
+    exports config fields, not any module's fabricated or programmed state.
     """
 
     def __init_subclass__(cls, *, base_only: bool = False, **kwargs: object) -> None:
@@ -111,35 +117,36 @@ class SnapBase(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_o
 
 
 class DcopBase(TensorDataClassMixin, BaseOnlyMixin, base_only=True):
-    pass
+    """Immutable operating-point results for electrical solvers.
+
+    Declare result fields with annotations and describe terminal signs, units,
+    and layout beside each field. The inherited dataclass transform supplies a
+    keyword-only constructor and identity equality. Do not decorate descendants
+    with `dataclass` or define their constructor. Tensor storage remains
+    mutable; callers should treat returned operating points as read-only
+    observations.
+    """
 
 
 class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
-    """Base for config- and policy-managed physical modules.
+    """Base for physical modules with configuration and lifecycle hooks.
 
-    Construct the tree, place it on its device, then fabricate and program before
-    execution. Register tensor sources with `_register_nonpersistent_buffer`;
-    they migrate with the module and are excluded from `state_dict`.
+    Inherit exactly one accounting role: `ProfileModule` or `NonProfileModule`.
+    Place registered sources before fabrication and programming. Sources move
+    with the module but are excluded from `state_dict`; ordinary fabricated and
+    programmed tensors require regeneration after placement changes.
 
-    Fabricated and programmed tensors are ordinary attributes, excluded from
-    migration and serialization. Moving the module after materialization requires
-    both lifecycle operations to run again. Per-call snapshots are local results.
+    Fabrication visits each node before its NeuroX descendants, including those
+    inside plain containers. Override `_sample_fabrication_variation` for local
+    state only; programming is dispatched by its owner.
 
-    `fabricate()` invokes `_sample_fabrication_variation()` on this node before
-    its registered NeuroX descendants, including those inside plain containers.
-    Each hook rebuilds only its own state from nominal sources; it does not
-    traverse children. Programming is dispatched explicitly by the owner.
-
-    Temperature starts at `DEFAULT_T__K` without invoking
-    `_on_temperature_changed`. Temperature-dependent computations read `T__K`
-    at their lifecycle or execution point. Updates visit this node before its
-    NeuroX descendants, including those inside plain containers.
-
-    A family and its implementations inherit exactly one accounting identity:
-    `ProfileModule` or `NonProfileModule`. Both share the naming, fabrication,
-    and temperature walks; instances with neither or both are rejected.
+    Temperature starts at `DEFAULT_T__K` without invoking a hook. Updates visit
+    parents before children and call `_on_temperature_changed`; existing physical
+    realizations change only through explicit lifecycle operations.
 
     Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
         inst_shape: Hardware-instance shape. Physical axes encode multiplicity;
             singleton axes may reserve positions for runtime broadcasting.
     """
@@ -195,7 +202,18 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     @final
     @torch.no_grad()
     def stamp_names(self, qualified_name: str = "") -> None:
-        """Stamp hierarchical names on the assembled subtree, replacing prior names."""
+        """Assign paths to this node and its registered NeuroX descendants.
+
+        Use the empty prefix for a standalone root. Child paths follow
+        registered PyTorch module names, including intervening containers.
+        Restamp after changing the tree, before collecting observations. For an
+        assembled model with possible shared bindings, use `neurox.stamp_names`,
+        which checks unique ownership first.
+
+        Args:
+            qualified_name: Root path prefix; the empty string names a
+                standalone root.
+        """
         self.__qualified_name = qualified_name
         for relative_name, child in neurox_children(self):
             child_name = relative_name if not qualified_name else f"{qualified_name}.{relative_name}"
@@ -204,7 +222,15 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     @final
     @torch.no_grad()
     def fabricate(self) -> None:
-        """Resample static manufacturing variation across this module subtree."""
+        """Replace this subtree's static manufacturing realization.
+
+        Place tensor sources and set temperature first. The local fabrication
+        hook runs before child hooks, including children reached through
+        ordinary module containers. This call samples randomness for enabled
+        static non-idealities; it does not program stored values. Program again
+        when stored state depends on the newly fabricated parameters. Call
+        outside compiled numerical work.
+        """
         self._sample_fabrication_variation()
         for _, child in neurox_children(self):
             child.fabricate()
@@ -212,6 +238,7 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
     @property
     @final
     def inst_count(self) -> int:
+        """Physical instance count, the product of `inst_shape` (one for `()`)."""
         return math.prod(self.inst_shape)
 
     @property
@@ -243,12 +270,33 @@ class ModuleBase(BaseOnlyMixin, nn.Module, base_only=True):
         """
 
     def _sample_fabrication_variation(self) -> None:
-        pass
+        """Rebuild this module's own static variation from nominal sources.
+
+        Override when the model has fabricated state. The default does nothing.
+        `fabricate` calls this hook before visiting descendants; do not recurse
+        into children here or assume their new realization is already available.
+        Use the current temperature and the placed sources' device and dtype.
+        Repeated calls replace the local realization. Extend a parent hook with
+        `super()` when the parent also owns fabricated state. Programming is a
+        separate operation.
+        """
 
     # === Tools for subclass and internal use ===
 
     @final
     def _register_nonpersistent_buffer(self, name: str, tensor: Tensor) -> None:
+        """Register a tensor source for placement but not state export.
+
+        Use during construction for nominal tensors needed by later fabrication
+        or execution. PyTorch `.to()` moves the source, while `state_dict()`
+        excludes it. This helper does not move ordinary fabricated or programmed
+        attributes; recreate those states after changing device or computation
+        dtype.
+
+        Args:
+            name: Name under which PyTorch registers the source buffer.
+            tensor: Nominal tensor source that should follow module placement.
+        """
         self.register_buffer(name, tensor, persistent=False)
 
 
@@ -346,6 +394,15 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
 
     @final
     def _is_profiler_active(self) -> bool:
+        """Return whether this operation would submit to an active profiler.
+
+        Use to avoid computing energy-only intermediates outside collection. The
+        branch must not change the operation's numerical outputs or physical
+        state.
+
+        Returns:
+            True if a profiler is currently active; otherwise False.
+        """
         from neurox.api.profiler import Profiler
 
         return Profiler.active()

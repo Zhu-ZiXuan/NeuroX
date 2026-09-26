@@ -12,7 +12,7 @@ Run the record workload with:
 make validate_ye2023jssc DEVICE=cuda:0
 ```
 
-The command creates `ye2023jssc_<UTC timestamp>/` under `log/validation/ye2023jssc/`, containing `run.log`, `run.json`, `profile.pt`, and `power_breakdown.svg`. The profile maps input sparsity to named observations, retaining `[repeat * n_x, macro_instance]` in collection order. Analysis uses `n_x` to recover repeats. `--output-dir` selects another parent directory; `--log-level` controls message-only logging.
+The command creates `ye2023jssc_<UTC timestamp>/` under `log/validation/ye2023jssc/`, containing `run.log`, `run.json`, `profile.pt`, and `power_breakdown.svg`. The profile maps input sparsity to named observations, retaining `[repeat * n_x, macro_instance]` in collection order. Analysis uses `n_x` to recover repeats. For additional options, invoke `uv run python -m validations.ye2023jssc.validate --device cuda:0`; `--output-dir` selects the parent directory and `--log-level` controls verbosity.
 
 `config.toml` selects `neurox/presets/works/ye2023jssc.toml` through `_neurox_use_preset` and overrides RS-CSA timing with the paper's 20 ns-per-phase waveform. The profiler records each VMM's modeled working duration. Reporting uses `scan_num × 85 ns` as the separate powered window, then normalizes static energy and average power to one macro and one access.
 

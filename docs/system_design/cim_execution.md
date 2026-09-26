@@ -1,6 +1,6 @@
 # CIM execution
 
-CIM execution maps a logical operator onto finite hardware, schedules accesses, and assembles results. The operator defines the computation, the engine determines mapping and scheduling, and the macro implements one access.
+CIM execution maps a logical operator onto finite hardware, schedules accesses, and assembles results. The operator defines the computation, the unit composes mapping and scheduling, and the macro implements one access.
 
 ## Mapping responsibilities
 
@@ -24,10 +24,10 @@ Placement and valid output counts derive from the same unpadded geometry, includ
 
 Timing follows [operation-duration ownership](ppa_accounting.md#operation-duration). The unit combines macro durations with its digital work under the [CIM timing model](../reference/architecture/unit/cim.md#timing), including the scan overlap and global recovery pipeline. Numerical batching preserves this physical schedule.
 
-Circuits account for the operations and hardware they own under [PPA accounting](ppa_accounting.md). The task owner composes the unit's basic operations at retained batch, token, and timestep positions and determines any cross-unit overlap.
+Circuits account for the operations and hardware they own. The task owner composes the unit's basic operations at retained batch, token, and timestep positions and determines any cross-unit overlap.
 
 ## One physical access
 
 A macro establishes electrical boundaries, schedules their phases, and owns peripheral sampling. It distinguishes a boundary held across phases from a fresh boundary event. The array evaluates its cells and interconnect under those supplied conditions and returns the terminal currents and voltages required by surrounding circuitry.
 
-Numerical iterations toward the operating point add no physical phases. Shared boundaries follow [physical-state lifetimes](physical_state.md); their establishment and phase-dependent activity contribute under [PPA accounting](ppa_accounting.md), independently of numerical batching.
+Numerical iterations toward the operating point add no physical phases. Shared boundaries follow [physical-state lifetimes](physical_state.md); their establishment and phase-dependent activity contribute energy independently of numerical batching.

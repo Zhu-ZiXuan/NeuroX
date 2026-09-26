@@ -1,20 +1,25 @@
 # NeuroX
 
-NeuroX is a PyTorch-based simulator for RRAM compute-in-memory accelerators. It connects device and circuit models to crossbar arrays, CIM macros, and neural-network operators so that one hardware configuration can be evaluated for functional accuracy and circuit-level PPA.
+NeuroX is a PyTorch-based simulator for RRAM compute-in-memory hardware. It connects device and circuit models to crossbar arrays, CIM macros, and integer linear and convolution operators. Profiling reports modeled power, performance, and area (PPA) quantities alongside numerical outputs.
 
-The supported library surface ends at `neurox.architecture.unit`. Model rewriting, training, and end-to-end evaluation pipelines live under `example/` as application code rather than stable API.
+## Start using the library
 
-## Get started
+From a source checkout, install NeuroX into an activated environment with a compatible PyTorch installation:
 
-Follow [Get started](docs/get_started/README.md) to prepare a supported environment and run a bundled workflow.
+```bash
+python -m pip install .
+```
+
+Follow the [quickstart](docs/get_started/README.md) to program and execute a small integer operator and inspect its profile. It runs on CPU without model checkpoints or datasets. Supported dependency ranges are declared in `pyproject.toml`.
 
 ## Documentation
 
-- [Guides](docs/guides/README.md) — end-to-end workflows grouped by task.
-- [Scientific reference](docs/reference/README.md) — modeled components, equations, assumptions, and limitations.
-- [Validation](docs/validation/README.md) — evidence connecting implementations to published designs.
-- [API](docs/api/README.md) — the supported Python surface and configuration format.
-- [System design](docs/system_design/README.md) — contracts that span components.
-- [Contributing](docs/contributing/README.md) — development and documentation workflow.
+- [Usage guides](docs/guides/README.md) — configuration, execution, profiling, and calibration.
+- [API reference](docs/api/README.md) — application interfaces, component families, and extension contracts generated from source.
+- [Scientific models](docs/reference/README.md) — equations, assumptions, parameter provenance, and validity.
+- [Validation](docs/validation/README.md) — methods and runnable paper-specific campaigns.
+- [System explanations](docs/system_design/README.md) — physical state, execution, and PPA interpretation.
+- [Scope and limitations](docs/about/scope_limitations.md) — what to account for when interpreting results.
+- [Contributing](CONTRIBUTING.md) — prepare a checkout and submit a change.
 
 NeuroX is released under the [MIT License](LICENSE).

@@ -145,7 +145,27 @@ _Policy = Ye2023JsscCimMacroPolicy
 
 @CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Ye2023JsscCimMacro(CimMacro):
-    """WH-2T1R array with RSM disabled and a time-shared RS-CSA readout."""
+    """WH-2T1R array with RSM disabled and a time-shared RS-CSA readout.
+
+    Place and fabricate the macro before programming and execution. Program a
+    logical matrix in `[*inst_shape, input, output]` order, not the transposed
+    physical array layout. The macro accepts its configured unsigned weight and
+    input domains; signed logical decompositions belong to a composing unit.
+
+    `quantization_mode` selects a configured reference and output scale. Readout
+    lanes enumerate logical outputs within each scan. For partial output blocks,
+    pass the same valid prefix to execution and latency calculation. The
+    inactive RSM path is not included as an additional computation. Electrical
+    execution emits owned circuit costs; a standalone profiler caller records
+    duration using `latency__ns` when a timed report is required.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

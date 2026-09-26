@@ -28,10 +28,22 @@ def profile_vmm(
     complete VMM at each sample position. Experimental powered intervals are
     supplied separately to reporting.
 
+    Prepare and program the macro before calling, and stamp its name directly or
+    through `profiler.collect_static_data`. The helper opens and closes its own
+    profiler context, so do not nest it inside an active recorder of that
+    family. It discards numerical outputs and records duration for every
+    input-leading position. Configure observations to retain that same layout.
+    All logical outputs are treated as valid in this helper.
+
     Args:
+        macro: Prepared and programmed macro with a stamped name.
+        profiler: Recorder to open for this batch; its family must not already
+            be active.
         x: Input samples with the macro-instance axes immediately before the
             input axis.
             Shape: `[..., *inst_shape, input]`.
+        quantization_mode: Reference-window index used for this VMM.
+        adc_active_bits: Active converter width for execution and timing.
     """
     if x.ndim == 0 or x.shape[-1] != macro.input_num:
         raise ValueError(f"x must end in input_num ({macro.input_num}); got shape {tuple(x.shape)}")
@@ -51,10 +63,31 @@ def profile_vmm(
 def dynamic_energy_by_round__fJ(
     result: Mapping[str, ProfileItem], *, scan_num: int, n_x: int, groups: Mapping[str, str] | None = None
 ) -> list[dict[str, float]]:
-    """Average VMM samples within each experimental repeat, then convert to scans.
+    """Average VMM energies per repeat and convert to a per-scan basis.
 
     The campaign supplies each repeat's input count `n_x`. Reporter preserves
     every input and weight sample; paper grouping and statistics happen here.
+
+    The first tensor axis concatenates repeats of `n_x` inputs. Each repeat is
+    averaged over all of its tensor positions, then divided by positive
+    `scan_num`. Supply complete equally sized repeats; a final partial split is
+    not rejected. Missing energy fields are skipped. With `groups`, exact names
+    map to the supplied labels and unmatched names accumulate under `other`.
+    This helper synchronizes scalar statistics and is intended for offline
+    analysis.
+
+    Args:
+        result: Completed named profiler observations with the intended hardware
+            scope.
+        scan_num: Positive scans per VMM used to convert energy to a per-scan
+            basis.
+        n_x: Positive number of first-axis input positions per experimental
+            repeat.
+        groups: Optional exact-name to report-label mapping; unmatched names use
+            other.
+
+    Returns:
+        One dictionary of named mean per-scan energies for each repeat.
     """
     reporter = Reporter(result)
     return _rounds(reporter.breakdown("dynamic_energy"), n_x=n_x, divisor=scan_num, groups=groups)
@@ -68,13 +101,48 @@ def static_energy_by_round__fJ(
     powered_duration__ns: Tensor,
     groups: Mapping[str, str] | None = None,
 ) -> list[dict[str, float]]:
-    """Summarize per-macro static costs using the campaign's powered intervals."""
+    """Average leakage energy per repeat and convert to a per-scan basis.
+
+    Supply local area/leakage data already normalized to the intended macro
+    scope. `powered_duration__ns` overrides the root window used by `Reporter`
+    and must match the retained CPU observation layout. Child-specific timing
+    retains its own precedence. Repeat splitting and optional exact-name
+    grouping follow `dynamic_energy_by_round__fJ`; no physical-instance
+    normalization is inferred.
+
+    Args:
+        result: Completed named profiler observations with the intended hardware
+            scope.
+        scan_num: Positive scans per VMM used to convert energy to a per-scan
+            basis.
+        n_x: Positive number of first-axis input positions per repeat.
+        powered_duration__ns: Root powered-window override matching the retained
+            CPU sample layout.
+        groups: Optional exact-name to report-label mapping; unmatched names use
+            other.
+
+    Returns:
+        One dictionary of named mean per-scan static energies for each repeat.
+    """
     reporter = Reporter(result, powered_duration__ns={"": powered_duration__ns})
     return _rounds(reporter.breakdown("static_energy"), n_x=n_x, divisor=scan_num, groups=groups)
 
 
 def area_per_macro__um2(result: Mapping[str, ProfileItem]) -> float:
-    """Sum supplied local areas for one macro instance."""
+    """Sum supplied local areas for one macro instance.
+
+    Normalize local areas to one macro before calling when the input represents
+    multiple macro instances. This function only sums available local fields; it
+    does not infer multiplicity. Unknown areas are omitted, so the total covers
+    known hardware only. No available area data raises `ValueError`.
+
+    Args:
+        result: Named observations whose local areas already represent one
+            macro.
+
+    Returns:
+        Sum of the available local areas in the supplied scope.
+    """
     reporter = Reporter(result)
     values = [area for area in reporter.breakdown("area").values() if area is not None]
     if not values:

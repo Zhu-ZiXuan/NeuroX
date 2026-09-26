@@ -1,16 +1,10 @@
 # Contributing
 
-Entry point for the NeuroX public development rules. These guides apply equally to human contributors and coding agents.
+Start with the repository's [contribution guide](../../CONTRIBUTING.md) to prepare a checkout, run checks, and submit a change. These contributor guides are read from the repository and are not published in the documentation site.
 
-Prepare and verify a source checkout through [workflow](workflow.md). For a change, start from [recipes](recipes.md), which routes the affected code, tests, docstrings, and documents to their authoritative carriers. [Organizing principles](../conventions/organizing_principles.md) defines those carriers and resolves disagreements between them.
-
-## Documents
-
-- [writing_family_docs](writing_family_docs.md) — the shared Reference science a component family obeys
-- [writing_module_docs](writing_module_docs.md) — a single module's Reference document
-- [writing_system_design](writing_system_design.md) — system mechanisms and behavior across components
-- [writing_tests](writing_tests.md) — test ownership, inputs, assertions, and organization
-- [workflow](workflow.md) — branch / PR flow and quality gates
-- [recipes](recipes.md) — task-shape checklists and routing
-
-For writing and coding conventions, start from [conventions](../conventions/README.md). For the scientific specification, start from [reference](../reference/README.md). Mechanical conventions are machine-enforced by `tests/rules/`, whose failure messages cite the governing convention.
+- [Change recipes](recipes.md) — route a change to its code, tests, and documentation.
+- [Writing tests](writing_tests.md) — choose ownership, inputs, and assertions.
+- [Writing family documents](writing_family_docs.md) — document shared scientific models.
+- [Writing model documents](writing_module_docs.md) — document a concrete model's science.
+- [Writing system explanations](writing_system_design.md) — explain cross-component behavior.
+- [Authoring conventions](../conventions/README.md) — code and documentation rules.

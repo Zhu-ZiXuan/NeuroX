@@ -24,7 +24,7 @@ The conversion performs $b$ sequential comparisons. Each step is a closed-form p
 
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter |
+| [Source](../../../../conventions/module_parameter.md) | Physical origin | Statistical model | Parameter |
 | --- | --- | --- | --- |
 | comparator offset | static input-referred threshold offset | static Gaussian threshold shift on the negative reference input, at fabricate | `comparator_offset_sigma__uA` |
 | quantization | intrinsic binary-search resolution | deterministic threshold compare | `i_refs__uA` (per call) |
@@ -33,14 +33,12 @@ The static offset is sampled once at fabricate and held constant across the $b$ 
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `bits` ($b_{\max}$) | physical magnitude output width | — | $> 0$ | Design |
 | `latency_per_bit__ns` | decision latency of one output bit | ns | $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred comparator-offset sigma | uA | $\geq 0$ | Measured |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -55,17 +53,11 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 ## Assumptions, scope & validity
 
-Stated assumptions:
-
 - The input is a single-ended non-negative magnitude.
-- The single SA is time-shared across a set of columns; its fabricated `inst_shape` is the real shared sense-lane count, so functional codes are per-column while `inst_shape` sets only the PPA multiplicity.
+- A shared sense amplifier serves successive columns; hardware cost follows physical amplifier count rather than the number of conversions.
 
-TODO (domain author): the input-range limits implied by the reference-level list.
-
-## Validation
-
-TODO - link validation evidence once written.
+Reference taps define the decision intervals; a measured current operating envelope is not established here.
 
 ## References
 
-TODO: cite the current-mode SAR topology.
+Citations for the current-mode SAR topology are not documented here.

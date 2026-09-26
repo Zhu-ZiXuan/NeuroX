@@ -23,9 +23,15 @@ class Transcoder(ABC):
 
     `encode` and `decode` are mutual inverses throughout the continuous
     `value_range`: `decode(encode(x))` equals `x` exactly for every integer in
-    that range. Encodings may be redundant, but may not leave holes. Outside
-    the range the encoded value may wrap. `decode` is the shared positional
+    that range. Encodings may be redundant, but may not leave holes. Outside the
+    range the encoded value may wrap. `decode` is the shared positional
     reduction and serves every encoding unchanged.
+
+    Subclass authors implement `encode`, `value_range`, and `has_signed_digits`.
+    Emit exactly `digit_count` digits in least-significant-first order so the
+    shared `decode` can recover legal inputs. Keep transforms device-preserving
+    and choose an integer dtype wide enough for all intermediate positional
+    products. These functions do not validate every input value or saturate it.
 
     Args:
         radix: Positional base `r` of the digit representation, `r >= 2`.

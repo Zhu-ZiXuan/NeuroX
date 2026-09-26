@@ -72,7 +72,24 @@ _Policy = VmuxPolicy
 
 
 class Vmux(ProfileModule):
-    """Single-ended N:1 voltage transport with gain, noise, and PPA."""
+    """Transport selected voltages with held gain mismatch and per-call noise.
+
+    Place and fabricate the module before `transport`. Input voltages must
+    broadcast with its instance-shaped gain and use the same device. Repeated
+    calls reuse fabricated gain mismatch and sample fresh enabled output noise.
+    The caller selects channels and schedules multiplexing; this class does not
+    index an input bank or iterate according to `mux_ratio`.
+
+    Profiling bills the configured access energy for every transported element.
+    Timing belongs to the enclosing schedule; no standalone latency is returned.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

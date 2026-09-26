@@ -183,7 +183,29 @@ _Policy = Xue2020JsscCimMacroPolicy
 
 @CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Xue2020JsscCimMacro(CimMacro):
-    """Xue2020 SINWP 1T1R CIM sub-array."""
+    """Xue2020 SINWP 1T1R CIM sub-array.
+
+    Use with a matching `Xue2020JsscCimMacroConfig` and policy. Place and
+    fabricate the assembled tree, then program logical weights in the macro's
+    `(input, output)` orientation, with physical instance axes prepended. The
+    macro expands signed weight digits into its physical polarity columns;
+    callers supply logical integer weights rather than device-state indices.
+
+    Execute via `vec_mat_mul` with inputs in `x_value_range`. The quantization
+    mode selects one configured current-reference ladder and rescale factor.
+    Each ladder contains the full-width ascending decision taps even for reduced
+    ADC precision. Use `effective_output_num` consistently for execution and
+    timing when output ports are padded. Standalone measurement requires
+    separately recording the operation duration; this macro's electrical path
+    emits circuit energy.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

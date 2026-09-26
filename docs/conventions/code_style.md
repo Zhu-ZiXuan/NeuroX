@@ -2,9 +2,7 @@
 
 In-code documentation — docstrings, comments, and shape and type annotations — is this document's main subject, together with a few project-specific coding contracts.
 
-A convention document names only a global public base class, a lifecycle method such a base declares, and a name pattern the conventions themselves prescribe — never the class, field, or axis of a functional family or of a leaf module, since editing one module or one family must never force an edit here.
-
-Several rules below are enforced by the static checks under `tests/rules/`. The rule text here stays the authority; a note marks each rule a check already decides.
+Project-specific checks under `tests/rules/` enforce the rules marked as machine-checked.
 
 ## Baseline references
 
@@ -19,17 +17,23 @@ Follow these public conventions unless a rule here is stricter.
 
 ## Characters and notation
 
-[notation_conventions](notation_conventions.md) is the authority for the non-ASCII whitelist, for where a formula may live, and for the full split by string class.
+Identifiers, configuration keys, paths, and protocol strings use ASCII. Physical units follow [notation and units](notation_conventions.md). Docstrings, comments, and user-visible messages use plain text with the following non-ASCII symbols where needed:
 
-**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. A human-facing string — a log line, a `print`, an exception message — is not effective code and follows the comment whitelist instead.
+| Symbols | Use |
+| --- | --- |
+| —, § | Parenthetical punctuation and section references |
+| ×, ·, ±, ≈, ≤, ≥, ≠ | Arithmetic and relations |
+| →, ←, ↔ | Mappings and flow |
+| α β γ … ω; Γ Δ Θ Λ Ξ Π Σ Φ Ψ Ω | Mathematical variables |
+| ⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁿ, ∂ | Simple powers and derivatives |
 
-A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted formula. Its inline literals use single backticks; reStructuredText roles and double-backtick literals are not written.
+Keep unit names ASCII even when a Greek glyph could denote the unit. Use ASCII subscripts in raw text and single backticks for code names. Multi-term equations and derivations belong in Markdown LaTeX, not in docstrings. A code token embedded in prose retains its code spelling.
 
 ## Interface tiers
 
 Every symbol sits in one of three tiers, and the tier fixes what its docstring owes. The question is who reads the symbol, not where it lives.
 
-- **User API** — what someone using the library calls directly: the network layer objects, the profiling and reporting faces, the configuration entry points. Its docstring states what the signature cannot — the public shape, dtype, and unit contract, the lifecycle precondition a call assumes, a non-obvious side effect, an error the caller must handle — and repeats nothing a parameter name, its type, or its unit suffix already says. The full Google structure is available here.
+- **User API** — what someone using the library calls directly: the compute units, the profiling and reporting interfaces, the configuration entry points. Its docstring states what the signature cannot — the public shape, dtype, and unit contract, the lifecycle precondition a call assumes, a non-obvious side effect, an error the caller must handle — and repeats nothing a parameter name, its type, or its unit suffix already says. The full Google structure is available here.
 - **Extension SPI** — what an author of a new implementation writes against: an abstract base, a Protocol, a mixin, a registry face. Its docstring carries the whole extension contract: the behavior the base injects, the members a subclass supplies, the order hooks run in, the ownership and state requirements no type expresses, and how a breach fails. Its length comes from the real contract, never from a template.
 - **Implementation detail** — everything else, carrying its meaning in its name, its types, its narrow helpers, a line or two of comment, and a focused test. A private function needs no docstring, nor does an obvious delegating property, and nothing explains that a config argument is a config or that a name ending in a temperature suffix is a temperature.
 
@@ -37,14 +41,17 @@ Knowledge no single symbol owns — a contract two components must both honor �
 
 ## Docstrings
 
-- Use Google-style docstrings. The recognized sections are the standard Google set (`Args:`, `Returns:`, `Yields:`, `Raises:`), plus `See Also:` in a module docstring. `Examples:` is reserved for explicitly allowlisted user-facing objects, initially `Profiler` and `Reporter`; other APIs keep examples in Guides or API documentation. No other section is written. Caller contract without a standard section stays in the owning docstring body, scientific material and citations go to Reference, cross-component design to System Design, tutorials to Guides, and template content nowhere. The `Examples:` reservation and `See Also:` structure are machine-checked; ordinary prose is not classified from punctuation alone.
-- A section covers its items selectively: an entry is written only where it adds information beyond the name and type already visible in the signature, so an `Args:` block documenting two parameters out of five is correct rather than incomplete.
+- Follow the Google Python Style Guide for docstring structure: a one-line summary of at most 80 characters, a blank line, explanatory prose, then structured sections. Put general explanation before the sections instead of appending it to an argument or exception list. Use consistent four-space hanging indentation and wrap prose to 80 columns where practical.
+- Keep Ruff `D417` enabled. When an `Args:` section is present, list every parameter except `self` and `cls`, using `*args` and `**kwargs` for variadic names. Keep each entry to a short phrase unless shapes, constraints, or side effects need explanation. Do not repeat type annotations or explain an obvious name at length. A self-explanatory operation may use a one-line docstring.
+- Use `Returns:` for a nontrivial returned value and `Yields:` for the item yielded by a generator or context manager. Describe a tuple as one tuple with identified elements. Omit a return section for `None`. Describe relevant interface errors in `Raises:`.
+- Use `Equivalent Python control flow` blocks when pseudocode explains callback order, state updates, or output assembly more clearly than prose. Tensor notation may stand for identical operations on all tensors in a structured value; do not expand PyTree traversal or require the pseudocode to run against the actual container type. Preserve the relevant control flow and keep detailed argument contracts in their sections.
+- Add `Examples:` only when a concrete use resolves a real ambiguity. Omit examples that merely demonstrate construction, inheritance, attribute access, or elementary arithmetic. Pseudocode is explanatory text, not a runnable example or doctest.
+- Class docstrings describe purpose, invariants, and extension obligations, with constructor parameters in `Args:`. Keep construction documentation in this one location; do not repeat it on `__init__`. Use `Attributes:` for public state needing explanation beyond constructor arguments; properties have their own docstrings. Field-defined data objects may retain adjacent field docstrings as the source for generated attribute descriptions.
 - State a tensor shape where shape is part of the contract. A pure elementwise API omits shape annotations; if its same-shape or broadcasting relation is not obvious, state that relation once in prose. A public tensor container crossing a module boundary follows the same rule field by field.
-- A docstring `Shape:` line is written only as the separate final line of an entry inside an `Args:`, `Returns:`, or `Yields:` section, or as the final line of an attribute docstring, and only where that entry describes a tensor, an optional tensor, or a container whose elements are tensors. Its form is `` Shape: `[..., item]`. `` — an inline code literal closed by a period, occupying its own line. No other position carries the line.
+- A docstring `Shape:` line is written only as the separate final line of an entry inside an `Args:`, `Returns:`, or `Yields:` section, or as the final line of an `Attributes:` entry or an adjacent attribute docstring, and only where that entry describes a tensor, an optional tensor, or a container whose elements are tensors. Its form is `` Shape: `[..., item]`. `` — an inline code literal closed by a period, occupying its own line. No other position carries the line.
 - An override inherits its interface docstring rather than copying it, and a leaf restates no contract it inherits; document only the difference where an override changes contract, shape, side effects, units, or errors.
-- An obligation a class places on a subclass or a host is plain normative prose in the class docstring.
-- An interface docstring states what the method does, not a directive to whoever implements it: the abstract declaration already carries the obligation, and "a subclass must implement this" stops holding once one has.
-- A magic method carries no docstring. State its caller-visible behavior in the class docstring instead. (Machine-checked.)
+- A method docstring states its calling contract and any non-obvious override obligations, including required parent calls and hook ordering. Class-level invariants belong in the class docstring.
+- Document user-facing special methods by their calling contract. Constructor arguments and initialization requirements belong in the class docstring; reserve comments inside `__init__` for local implementation intent.
 - A concrete field-defined `Config`, `Policy`, `Snap`, `Dcop`, or `Record` data class normally carries no class docstring. Its class name states its role, its annotations state its structure, and the attribute docstrings immediately following its fields state each field's meaning, unit, shape, and non-obvious constraint. Retain a class docstring only when the class adds behavior, an aggregate invariant, a lifecycle contract, or an implementer obligation that its name, bases, and individual fields do not express. Ruff's `D101` is therefore disabled globally; the need for a class docstring is a semantic decision, not one a suffix-insensitive presence check can enforce.
 - A module docstring states the file's responsibility. It may add at most one top-level `See Also:` section listing the documents a maintainer of that file needs — typically the Reference page specifying the model it implements, or the [System Design](../system_design/README.md) topic owning a cross-component contract it takes part in — and a file whose knowledge is its own lists nothing. Its non-empty body is a contiguous list with no internal blank line: every entry is indented four spaces and contains one bare path, with no section name, parenthetical, or prose, and every cited path resolves to a file that exists. A class docstring, a function docstring, and an inline comment carry no document pointer at all. Scientific literature is cited in the owning Reference document; a `References:` bibliography is not an alias for this navigation section. (Machine-checked.)
 - A package `__init__.py` docstring is optional: keep one, of one to three sentences, only for a user-facing import boundary, a CLI package whose purpose is not obvious, or a package-level behavior such as import-time registration. A structural or purely re-exporting package has none — its path expresses the structure and `__all__` the public names — and no package docstring carries a member catalog, a design explanation, or a documentation pointer.
@@ -55,7 +62,6 @@ Knowledge no single symbol owns — a contract two components must both honor �
 
 - Use inline comments for local implementation help: non-obvious math, numerical intent, shape, and structural or procedural banners. One to three lines, saying why rather than what.
 - Do not add diagnostic-suppression comments: new `# noqa` and `# type: ignore` comments are forbidden.
-- A contract spanning files has no comment-sized home: it belongs to the owning symbol's docstring, or to a [System Design](../system_design/README.md) topic.
 
 ## Banner comments
 
@@ -79,7 +85,18 @@ Every package with an aggregate import surface curates that face in its `__init_
 
 ## Top-level dependency direction
 
-Top-level source directories carry coarse roles, not a total ordering of every internal package. `api` provides user-facing operations over `common`, `primitive`, and `architecture`, while common emitters depend on its concrete profiler module; `execution` provides structured loops, chunking, and convergence control over `common`; `encoding` defines integer representations and transcoding independently of the other library roles; `primitive` may depend on `common`, `encoding`, and `execution`; `architecture` may depend on `common`, `encoding`, `execution`, and `primitive`; `works` holds concrete design extensions that may combine all core roles; and `tools` is a terminal consumer of the full stack. A role may depend on itself. Core library code never imports `works` or `tools`, and no library role imports `tools`. This ruling deliberately says nothing about a complete ordering among nested device, circuit, macro, mapping, or engine packages: their ownership is expressed by their package boundaries and import faces. (Machine-checked.)
+Each role may import itself and the roles listed below. Package boundaries and public import surfaces still apply within these coarse dependencies. The rules suite enforces this table.
+
+| Role | Other permitted roles |
+| --- | --- |
+| `api` | `architecture`, `common`, `primitive` |
+| `common` | `api` (runtime profiling) |
+| `execution` | `common` |
+| `encoding` | None |
+| `primitive` | `common`, `encoding`, `execution` |
+| `architecture` | `common`, `encoding`, `execution`, `primitive` |
+| `works` | `architecture`, `common`, `encoding`, `execution`, `primitive` |
+| `tools` | All library roles |
 
 ## Class header
 
@@ -195,12 +212,18 @@ At an emission site the shape annotation writes the caller block as a named grou
 - A reusable implementation layer remains generic over every associated type its family is designed to vary, and each concrete leaf binds that tuple once. Do not extract a synthetic shared base solely so one final work-specific implementation can extend an otherwise complete concrete model; that edge may inherit the model and recover an erased subtype under the local-cast rule above. If independent descendants make the variation recurring, promote it into a real generic implementation layer.
 - A registry factory returns its family abstraction: runtime dispatch proves which registered class was selected, but the static type does not pretend to recover that class's complete generic specialization. Keep any erased associated type at this construction boundary. Code that depends on a concrete member's extended interface constructs that member through a typed path instead of casting a registry result; downstream helpers preserve the exact type they receive and never widen it to `Any`.
 
+## Configuration ownership
+
+Process parameters describe the selected technology; design parameters describe a configured implementation; specification fields describe its characterized performance. Keep values on the component that owns their meaning. Geometry chosen by a containing component belongs to that owner's configuration and is passed as constructor context to its child. Per-operation values belong on method arguments. Policy selects modeled effects and numerical execution choices for a run.
+
+The owning class and field docstrings define concrete construction, validation, and lifecycle contracts. Scientific provenance follows [parameter sources](module_parameter.md).
+
 ## Config, policy, and cross-module data classes
 
 - Declare config and policy descendants as ordinary classes inheriting `ConfigBase` or `PolicyBase`.
 - A formal snapshot or DC operating point inherits `SnapBase` or `DcopBase`. Recorder payloads follow their owning interface; tensor payloads may use `TensorDataClassMixin`.
 - A snapshot, DC operating point, or record variable ends in `_snap`, `_dcop`, or `_record`. The value owned by the current class or interface uses the bare `snap`, `dcop`, or `record`; a subordinate value carries its role as the prefix, such as `cell_dcop` or `bl_driver_snap`. Collections use the corresponding plural form, such as `records`.
-- Which config a parameter belongs on follows the variability criterion in [module_parameter §Config layering](module_parameter.md#config-layering).
+- Assign config and policy fields by [configuration ownership](#configuration-ownership).
 - A dataclass field — however the transform is applied — an enum member, a named-tuple field, or a public instance attribute assigned in `__init__` carries its documentation as a string literal immediately below the declaration, written only where the member needs more than its name and type already state.
 - A field partition carries a class-scope banner. Partition names are per-config and free-form.
 - Put config- and policy-domain checks in `validate()`.
@@ -223,18 +246,15 @@ Use a method when the operation takes arguments, performs substantial computatio
 
 ## Subclass vs configuration
 
-A class family splits along structural diversity, not parameter diversity.
+Use a subclass for a different topology, layout, or interface contract. Use configuration fields for coefficients within the same model. Shared families expose documented hooks for recurring implementation differences.
 
-- **Topology delta earns a subclass.** A member that conducts, bills, or is shaped differently from the base — an extra stage, a branch the base does not draw or account — is a subclass. It flips whatever reporting flag it needs on, adds its own config fields and PPA seat, and implements the base's overridable hook.
-- **Coefficient delta stays a config field.** The same topology with different ratios, ranges, or window values is a config field on the shared base, never a subclass. Implementation diversity that a config can hold is coefficient diversity.
-- **A base hook is the escape hatch.** The base carries an overridable hook that returns the neutral value and leaves the base a non-reporter, so a coefficient-only member reuses the base unchanged while a structural subclass overrides the hook and turns its flag on.
-- **A block that only occupies area is a seat, not a subclass.** Two degeneracies collapse below a subclass. Pure linear current combining — scaling, summing, or differencing branch currents — is Kirchhoff's current law, so it is tensor arithmetic in the composing module, not a class at all. A real block whose only footprint is static area and leakage plus a data-independent per-op energy is a static seat: a shared unmodeled-PPA block plus a per-op constant billed by the composite. The seat is a no-noise expedient — a stateful non-ideality, an offset sampled and held or a mismatch drawn per instance, restores the block to a class.
+Keep simple linear signal combinations in the composing operation. Represent a block with only configured area, leakage, and data-independent event costs through the shared lumped-PPA model. A block with its own sampled state or transfer behavior needs an implementation that owns that behavior. Accounting identity follows the selected module base; it is not switched by a reporting flag.
 
 ## Compile safety
 
 Library code is written to be traceable, so a caller's `torch.compile` gets a graph and the library's own compiled leaves trace cleanly. These invariants hold on compiled paths; each entry point's source declares its compilation boundary.
 
-- **No device transfers or accelerator-value reads.** Do not move tensors between devices inside compiled execution or extract accelerator values through `.item()`, `.tolist()`, Python scalar conversion, NumPy, or printing. Capturing an operation does not eliminate its synchronization cost. Static timing uses Python design and layout values. Tensor shape, dtype, and device metadata and a bare `.detach()` require no value transfer.
+- **No device transfers or accelerator-value reads in numerical kernels.** Do not move tensors between devices inside traced numerical execution or extract accelerator values through `.item()`, `.tolist()`, Python scalar conversion, NumPy, or printing. Capturing an operation does not eliminate its synchronization cost. Static timing uses Python design and layout values. Tensor metadata and `.detach()` require no value transfer. Recorder export is an explicit runtime boundary outside the traced numerical kernel.
 - **No Python-state mutation.** No attribute assignment on `self`, no mutation of an externally reachable container, no buffer or parameter registration, and no training-mode toggle on a traced path. Accumulating into a list is legal only inside an eager island.
 - **No branching on tensor values.** A data-dependent branch forces a graph break; express the choice with masking, `torch.where`, or indexing. A branch on the Python type of an argument or on a Python `bool` resolves at trace time and is safe; it, and any unavoidable value-dependent branch, carries an inline comment saying why.
 - **Place tensors by their consumers.** Fixed tensor sources used by electrical computation are registered at construction and migrate before fabrication and programming. Scalar coefficients can remain Python values with an explicit computation dtype. Construct runtime operands on the consuming data's device, without creating an intermediate tensor on another device. Pure structural templates and statistics derived only from configuration and shapes use the default device. A runtime mask determines the device of statistics that depend on its values. Recorders export snapshots to CPU; aggregation and reporting consume completed transfers.
@@ -244,4 +264,4 @@ Select compilation options at the owning numerical entry point; use `fullgraph=T
 
 ## Device placement
 
-The library never selects a device. Every entry point that performs tensor computation requires an explicit `--device`; `"auto"` is not accepted. Which card a run lands on is the caller's decision, made through the environment or an explicit indexed device.
+Numerical APIs use caller-selected tensor and module placement. Command-line tools that execute tensor computations require an explicit `--device`; `"auto"` is not accepted. Diagnostic commands that only inspect files need no compute-device argument.

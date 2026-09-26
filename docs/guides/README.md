@@ -1,11 +1,8 @@
-# Guides
+# Usage guides
 
-How to carry one task through end to end. Pick the goal you arrived with.
+- [Operator workflow](algorithm_engineer/workflow.md) — select, configure, program, execute, and profile a library operator.
+- [Configuration and policy](../api/configuration.md) — load and compose hardware and run settings.
+- [Calibration](calibration/README.md) — characterize converters and prepare circuit parameters.
+- [Validation campaigns](../validation/campaigns.md) — reproduce the checks for bundled designs.
 
-## Run a model on simulated hardware
-
-- [Algorithm engineer](algorithm_engineer/README.md) — train a model, run its conv and linear layers on a configured crossbar, and read the accuracy and PPA of that run.
-
-## Seat a chip config against hardware
-
-- [Calibration](calibration/README.md) — derive the numerical seats a chip config carries: the linearized cell, macro modes, ADC input characterization, and per-mode rescaling. Solver convergence is enforced by the runtime solve contract.
+Start with the [quickstart](../get_started/README.md) for a complete CPU example.

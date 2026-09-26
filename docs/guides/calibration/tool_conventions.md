@@ -1,41 +1,35 @@
-# Calibration tool conventions
+# Running calibration tools
 
-The rules every calibration command shares, so a run you can drive for one tool you can drive for all.
+Run commands from a source checkout. Install plotting dependencies when using tools that produce figures:
 
-## Independent task commands
-
-Each concrete calibration package owns its CLI entry point. Shared configuration loading, logging, and artifact handling are provided by the [offline tool API](../../api/tools.md); the parent calibration package supplies reusable capabilities.
+```bash
+python -m pip install '.[calib]'
+```
 
 ## Configuration and invocation
 
-The run config holds the hardware bindings and workload parameters. Task-specific CLI selectors, such as a mode subset or minimum coverage, are recorded alongside it for each invocation. The shared arguments are:
+Each calibration command accepts a run configuration with hardware bindings and workload settings. Inspect its options with `--help`.
 
-- `--config <run.toml>` — required run configuration.
-- `--device` — required compute device; every task chooses its device explicitly.
-- `--output-dir` — parent directory for independent timestamped runs; `--log-dir` is an alias.
-- `--log-level` — one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+- `--config` selects the run file.
+- `--device` selects the compute device explicitly.
+- `--output-dir` selects the parent directory for timestamped runs; `--log-dir` is an alias.
+- `--log-level` selects logging verbosity.
 
-A task that emits a configuration fragment accepts `--output` for an additional copy. A task that emits figures accepts `--plot-dir` to override its run-local figures directory.
+Commands that emit a configuration fragment accept `--output` for an additional copy. Commands that plot accept `--plot-dir` for an alternative figures directory.
 
-A path read from a run config resolves against that config file's own directory; an absolute path stays absolute. Keep the referenced hardware, policy, and distribution files with the run config when moving an experiment. Workload seeds control stimulus sampling; physical nonideality draws follow the model's separate runtime randomness.
+Paths inside a run file resolve relative to that file. Absolute paths stay absolute. Keep referenced files together when moving an experiment. Stimulus seeds control workload sampling; physical variation also depends on the model's runtime RNG state.
 
-## Results and artifacts
+## Results
 
-A command reports through message-only logging on stderr and in its run's `run.log`. The run also contains `run.json` with invocation parameters, execution status, and elapsed time, and `config.json` with parsed calibration values. The latter is a record of the original configuration: relative paths are interpreted against the source config path recorded in `run.json`.
+Each run retains `run.log`, invocation status and parameters in `run.json`, and parsed calibration values in `config.json`. Relative paths in `config.json` retain their meaning against the source config path recorded in `run.json`.
 
-Configuration fragments and figures are retained inside the run directory by default. A fragment is also printed to the log for inspection and manual seating. Failed runs retain completed artifacts and record the exception; a completed execution status describes process completion, while scientific acceptance is part of the task's result.
-
-## Where the run configs live
-
-A calibration run config sits under `validations/<paper>/tools/` and references its campaign's `config.toml` by relative path. That binding selects the bundled `neurox/presets/works/<paper>.toml` design point through `_neurox_use_preset`. The campaign file contract, and the provenance tags a seated value carries once it is written back, are in [validation campaigns](../../validation/campaigns.md).
+Failed runs preserve completed artifacts and record the exception. A completed process status does not establish scientific acceptance; evaluate the task's reported results and assumptions.
 
 ## Calibration order
 
-Each stage consumes what the stage before it seated, so run them in dependency order:
+1. Extract a linearized cell if the selected model needs calibrated tables.
+2. Choose the macro's operating points and quantization windows.
+3. Characterize ADC input clusters and choose appropriate references.
+4. Derive or fit full-resolution macro output scales using those references.
 
-1. **Cell linearization** — for an array running a linearized cell, extract the chord from converged detailed-cell DCOPs ([cell linearization and solver contract](solver_tolerances.md)).
-2. **Quantization mode set** — the macro's numerical operating windows ([macro calibration](calibrate_macro.md)).
-3. **ADC input characterization** — the nominal input clusters used to choose the mode's reference values manually ([ADC input characterization](calibrate_adc.md)).
-4. **Macro full-resolution rescale factor** — the per-mode recovery coefficient at `adc_bits`, derived from an exact declared code mapping or fitted from complete macro outputs when that relationship is empirical ([macro calibration](calibrate_macro.md)).
-
-The ADC references are chosen from the characterized physical input before the macro's output-code rescale is fitted.
+Run files may live anywhere. Paper-specific configurations belong with their [validation campaign](../../validation/campaigns.md) so their provenance can be reproduced.

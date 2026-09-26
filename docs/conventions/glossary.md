@@ -1,45 +1,37 @@
 # Glossary
 
-The canonical term, symbol, and code name for each concept used across NeuroX subsystems — one concept, one expression.
-
 ## Hardware structure
 
-- **cell** — one programmable circuit at an array site; owns the device topology and its terminal relations, but no array interconnect.
-- **array** — the cell grid and its internal interconnect; excludes every peripheral drive, readout, conversion, and control circuit.
-- **macro** — one complete digital-analog-digital VMM unit: an array together with its peripheral drive, readout, conversion, and control circuits. The macro owns the logical-to-physical weight mapping and the inverse readout combination.
-- **peripheral** — a drive, readout, conversion, or control circuit belonging to a macro but lying outside its array.
-- **crossbar** — a topology qualifier, written `xbar` in code identities; never a substitute noun for either array or macro.
-- **WL phase axes** — the macro-selected leading axes whose Cartesian product contains the WL drive phases executed under one held BL/SL boundary state. The macro owns their meaning and passes only their positions to the array; the array uses them to group capacitive energy.
+- **cell** — a programmable circuit at an array site, including its devices and terminal relations.
+- **array** — the cell grid and its interconnect.
+- **macro** — an array together with drive, readout, conversion, and control circuits providing a logical vector-matrix operation.
+- **peripheral** — a macro circuit outside the array grid.
+- **crossbar** — a topology qualifier, abbreviated `xbar` in code.
+- **WL phase** — one word-line drive phase within a physical access; several phases may share a held BL/SL boundary.
 
-## Operations and lifecycle
+## Operations and data
 
-- **program** — overwrite a module's programmable weight state from the representation its interface declares; may be re-called, each call replacing the previous state.
-- **fabricate** — resample static manufacturing mismatch across every owned module from the unchanged nominal template; re-callable with no state accumulating across calls, orthogonal to `program`.
-- **snapshot** — the verb (the `snapshot()` method) that materializes a per-call `snap` from current dynamic noise; never persisted.
-- **solve_dc** — solve a circuit's DC steady state under its boundary constraints, returning a per-call `dcop`; each solving module implements its own `solve_dc`.
-- **snap** — sampled physical state for one call; `*Snap` suffix. Never "transient"; write "per-call".
-- **dcop** — DC operating point: the per-call steady-state voltages and currents a circuit exposes; `*Dcop` suffix. It contains the electrical quantities its callers need.
-- **record** — one item an emitter submits to a recorder, containing the collected values; `*Record` suffix. Distinct from an aggregated report entry.
-- **entry** — one aggregated row a reporting surface yields, holding the figures accumulated over the records collected under a reported name; never the per-call item itself, which is a `record`.
+- **fabricate** — establish a static manufacturing realization.
+- **program** — replace programmable state using the representation defined by the interface.
+- **snapshot / snap** — capture / captured physical state for an access, including any enabled access-level sampling. Numerical iterations reuse the held realization.
+- **DC operating point / dcop** — steady-state circuit quantities at specified boundaries.
+- **record** — one submitted observation.
+- **report entry** — named quantities assembled from completed observations.
+- **state** — numerical values and convergence-control data carried between iterations; a terminal state can remain unconverged.
+- **trace** — observations from numerical evaluations or their iteration history.
 
-## Numerical solving
+## Signal, code, and value
 
-- **state** — the numerical values and convergence-control data carried between solver iterations; `*State` suffix. Initial, intermediate, and terminal values all have this role, and a terminal state may be unconverged. Use `state`, not `point`, for an iterate; reserve DC operating point for `dcop`.
-- **trace** — observations from one numerical evaluation or their accumulated iteration history; `*Trace` suffix. Used for analysis, distinct from the iteration state and the caller's final result.
-
-## Signal, code, and data
-
-- **signal** — a real analog quantity a circuit carries or produces: a voltage, a current, a charge. Its name carries the physical unit suffix of that quantity.
-- **code** — a real digital integer a circuit carries or produces: a converter input or output, a programmed digit, a shifted-and-added partial sum. Dimensionless, so its name carries no unit suffix.
-- **data** — the abstract numeric content a signal or a code represents, independent of how it is carried; the word to use when neither realization is meant.
-
-`digit`, `slice`, and `value` below name data, so each stays valid whichever domain realizes it.
+- **signal** — a physical analog quantity, such as voltage, current, or charge.
+- **code** — an integer representation carried by a converter or digital circuit.
+- **value** — the numerical quantity represented by signals or codes, such as a logical weight or activation.
 
 ## Value domain and slicing
 
-- **value domain** — the integer grid a macro can physically carry: the input grid $\mathcal{X}$, the digit count $D$, and the radix $r$, all published by the macro interface for algorithm-side ranges to map onto. The algorithm-side `value_range` (the complete value an input scalar can take) is distinct from the primitive single-cell `digit_range`.
-- **digit** — the level-0 value-domain unit: the integer symbol one cell carries, in radix $r$ (`digit_radix`), bounded by the per-cell `digit_range`, and realized physically as the cell conductance state (see [device/rram](../reference/primitive/device/rram.md)). `digit_count` ($D$) digits make one slice.
-- **slice** — the level-1 value-domain unit (synonyms weight-slice, one-digit slice): a fixed-capacity positional piece of a value made of `digit_count` digits, with positional ratio the slice radix $R$ (`slice_radix`). The slice count ($S_w$ weight side, $S_x$ input side) is config-given, not inferred. Slices recombine into the value by the radix-weighted summation. See [CIM precision slicing](../reference/architecture/unit/cim.md#precision-slicing) and [radix summator](../reference/primitive/digital.md#radix-summator).
-- **value** — the level-2, role-neutral algorithm scalar: a weight on the weight side, an activation on the input side, decomposed into slices for the macro and recombined from them. The term itself asserts neither application role.
-- **encoding (codec)** — the representation of an integer as positional digits under a radix and digit count.
-- **coding scheme** — the concrete macro's rule mapping logical values and digits to physical array positions, together with the readout combination that recovers the signed result.
+- **value domain** — the range of integer values a particular interface accepts.
+- **digit** — one position in a radix encoding. Its mapping to physical devices depends on the circuit topology.
+- **slice** — a positional part of a logical value that fits the macro's carrier domain. A slice can contain several native digits.
+- **encoding** — an integer's representation by digits and positional weights.
+- **coding scheme** — the mapping from logical values to physical storage and readout combinations.
+
+[Precision slicing](../reference/architecture/unit/cim.md#precision-slicing) defines decomposition and reconstruction; [notation](notation_conventions.md) defines the corresponding symbols.

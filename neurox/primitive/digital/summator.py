@@ -32,6 +32,22 @@ class Summator(DigitalBase):
 
     The caller supplies PPA characterizing the selected operand-axis extent at
     the configured width and caller's clock period.
+
+    Each method call reduces the complete supplied operand sequence from a fresh
+    zero value; no accumulator state persists between calls. Supply an integer
+    dtype wide enough for intermediate arithmetic and the configured wrap
+    constants. The returned value wraps to the configured signed bit width and
+    keeps the input dtype and device. No fabrication or programming is required.
+
+    The caller supplies physical-instance and operation extents in the operands;
+    `inst_shape` scales static cost but does not broadcast extra dynamic
+    operations. The containing unit owns scheduling and elapsed time.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
     """
 
     config: _Config
@@ -55,6 +71,7 @@ class Summator(DigitalBase):
         Args:
             x: Integer operands along `dim`.
                 Shape: `[..., operand, ...]`.
+            dim: Operand axis to reduce; negative indices count from the end.
             enable: Optional operand enables, broadcastable to `x`.
 
         Returns:

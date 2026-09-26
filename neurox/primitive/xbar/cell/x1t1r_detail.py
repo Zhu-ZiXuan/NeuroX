@@ -261,7 +261,24 @@ XbarCell1t1rDetailTrace = _Trace
 
 @XbarCell1t1r[_Snap].register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
-    """Nonlinear RRAM-NMOS branch condensed at its access node."""
+    """Nonlinear RRAM-NMOS branch condensed at its access node.
+
+    Place and fabricate the cell before programming state indices. Create one
+    snapshot per physical access, then reuse it for all `solve_dc` evaluations
+    under that access's word-line drive. `solve_dc` computes the internal access
+    node together with the condensed branch current and derivatives. Its
+    numerical tolerances belong to the selected policy; a failed solve must not
+    be treated as a valid converged branch. Use the returned terminal
+    derivatives in an outer solver rather than finite-differencing calls that
+    resample physical state.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

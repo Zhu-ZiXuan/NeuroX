@@ -97,6 +97,27 @@ _Snap = XbarCell1t1rLinearSnap
 
 @XbarCell1t1r[_Snap].register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class XbarCell1t1rLinear(XbarCell1t1r[_Snap]):
+    """Evaluate a 1T1R branch from calibrated conductance tables.
+
+    Place the module, then `program` one legal state index per instance. No
+    fabrication step is needed by this implementation. Programming selects the
+    on/off conductance and divider tables; `snapshot` combines them with the
+    supplied word-line voltage. Treat snapshots as read-only views.
+
+    `solve_dc` selects the on tables only when the word-line voltage is strictly
+    above `v_wl_on_threshold__V`. The returned access-node voltage and constant
+    terminal derivatives follow the selected table entry. Tables are tied to
+    their calibration conditions; this model does not predict their voltage
+    dependence or add device mismatch and read noise on its own.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
+
     config: _Config
     policy: _Policy
 

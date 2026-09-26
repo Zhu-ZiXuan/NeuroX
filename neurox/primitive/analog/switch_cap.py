@@ -70,7 +70,20 @@ _Policy = SwitchCapPolicy
 class SwitchCap(ProfileModule):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
+    Place and fabricate the bank before `sample_and_accumulate`. Supply one
+    voltage per capacitor on the final axis; leading axes must broadcast with
+    the physical instances and use their device. Fabrication fixes capacitor
+    mismatch, while enabled thermal noise is sampled at the current temperature
+    for each operation. The returned voltage removes the capacitor axis. The
+    bank does not retain a charge state between calls, and energy is billed once
+    per sample rather than once per numerical step.
+
     Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
         cap_weights: Per-cap multipliers on `config.c_unit__fF`; the length
             fixes the bank's cap count.
     """

@@ -54,8 +54,17 @@ def torch_cond[InputsT, OutputT](
     """Adapt `torch.cond` to one structured input and a structured output.
 
     Args:
-        output_template: Result PyTree structure; tensor values and metadata
-            are unused.
+        pred: Scalar boolean selecting the true or false branch.
+        true_fn: Pure callback for the true branch, accepting the structured
+            inputs.
+        false_fn: Pure callback for the false branch with the same output
+            structure.
+        inputs: Structured operands with tensor leaves for the selected branch.
+        output_template: Result PyTree structure; tensor values and metadata are
+            unused.
+
+    Returns:
+        The selected branch result with the output template structure.
     """
     # --- 1: flatten and validate the structured inputs ---
 
@@ -157,14 +166,21 @@ def torch_scan[CarryT, InputT, OutputT](
     reverse: bool = False,
     output_template: OutputT,
 ) -> tuple[CarryT, OutputT]:
-    """Adapt PyTorch's higher-order scan to structured carry, inputs, and outputs.
+    """Adapt PyTorch scan to structured carry, inputs, and outputs.
 
     Args:
+        combine_fn: Callback returning a tuple (next_carry, output) for one
+            input slice.
+        init: Initial carry PyTree with at least one tensor leaf.
+        xs: Input PyTree with equal positive extents along the selected axis.
+        dim: Negative values are resolved against the first input leaf.
+        reverse: Visit slices in reverse order while retaining input order in
+            outputs.
         output_template: Output PyTree structure, including optional fields;
             tensor values and metadata are unused.
-        dim: Negative values are resolved against the first input leaf.
 
     Returns:
+        A tuple (carry, outputs) containing the final carry and stacked outputs.
         Final carry and outputs in input order, including reverse traversal.
         Each output's iteration axis occupies the resolved `dim` if that axis
         exists in the stacked tensor, otherwise axis zero.
@@ -251,10 +267,13 @@ def torch_map[InputT, OutputT](
     by `fn`. Registered dataclasses are supported as both inputs and outputs,
     including optional fields recorded as absent by PyTree registration.
 
-    The body must be capturable by `torch.compile`, with no input mutation
-    or output aliasing. Input and output PyTree leaves must be Tensors.
+    The body must be capturable by `torch.compile`, with no input mutation or
+    output aliasing. Input and output PyTree leaves must be Tensors.
 
     Args:
+        fn: Pure callback mapping one input slice to the output template
+            structure.
+        xs: Nonempty tensor PyTree with matching positive leading extents.
         output_template: Output PyTree structure, including optional fields;
             tensor values and metadata are unused.
 

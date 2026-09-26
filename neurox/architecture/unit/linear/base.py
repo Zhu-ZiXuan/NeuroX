@@ -36,12 +36,25 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
     """Interface for an integer `torch.nn.functional.linear` replacement.
 
     Construction initializes the common unit and retains the logical weight
-    shape and dtype used by `to_ideal`. Implementations initialize any additional
-    implementation base explicitly after this constructor returns.
+    shape and dtype used by `to_ideal`. Implementations initialize any
+    additional implementation base explicitly after this constructor returns.
 
     `w_logical_shape` accepts `weight.shape` and is stored as a fixed-length
-    `(output, input)` tuple. A different number of axes raises `ValueError`.
-    One basic operation for latency and profiling is one VMM.
+    `(output, input)` tuple. A different number of axes raises `ValueError`. One
+    basic operation for latency and profiling is one VMM.
+
+    Subclass authors implement `program` and `_linear_impl`, together with the
+    remaining `UnitBase` metadata. Keep the final `linear` wrapper: it validates
+    input layout, checks the profile rank, and records operation duration. The
+    implementation hook must include bias and any internal energy accounting,
+    but must not submit a second unit-duration observation. Register the
+    concrete config-policy pair on this family to enable `from_config` dispatch.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        w_logical_shape: Complete logical weight shape accepted by `program`.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -86,6 +99,15 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
         Preserve value ranges, weight shape, dtype, temperature and unit-local
         static PPA. Weights, bias and child circuits are not copied.
+
+        The result starts with a fresh profile layout and constructor device
+        state; place it, configure profiling, and program it explicitly before
+        use. This method does not preserve the source's device placement or
+        measurement state.
+
+        Returns:
+            A new unprogrammed ideal linear unit with fresh placement and
+            profiling state.
         """
         from .ideal import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 
@@ -154,12 +176,39 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @abstractmethod
     def _linear_impl(self, input: Tensor, *, quantization_mode: int, adc_active_bits: int | None) -> Tensor:
-        """Compute the linear output, including the programmed bias."""
+        """Implement the numerical operation behind the final `linear` wrapper.
+
+        The wrapper has checked the input rank, feature/channel count, and
+        active profile layout. Preserve the input's leading axes and return the
+        output layout documented by `linear`, including any programmed bias.
+        Respect the requested quantization window and active converter width
+        where modeled. Emit internal energy once per physical contribution; the
+        wrapper owns the unit-duration submission. Keep this hook traceable
+        inside the wrapper's full-graph compiled, no-gradient execution.
+
+        Args:
+            input: Integer activation tensor in the public operator input
+                layout.
+            quantization_mode: Reference-window index for the configured macro.
+            adc_active_bits: Optional active converter width; None uses the
+                implementation maximum.
+
+        Returns:
+            Integer output including bias, preserving leading axes.
+            Shape: `[*leading, output]`.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def program(self, weight: Tensor, *, bias: Tensor | None = None) -> None:
         """Write the unit's static weight state and optional integer bias.
+
+        Implementations replace previously programmed weights and bias, validate
+        logical weight shape, and prepare whatever internal representation
+        execution requires. Program after placement and any required
+        fabrication, outside the compiled operator call. Callers supply integer
+        values within `w_value_range` and must not mutate tensors retained as
+        programmed storage.
 
         Args:
             weight: Integer weight values.

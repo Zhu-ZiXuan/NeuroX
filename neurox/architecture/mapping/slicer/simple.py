@@ -15,16 +15,24 @@ from .base import Slicer
 class SimpleSlicer(Slicer):
     """Decompose integers into a fixed number of slices bounded by a carrier.
 
-    Compute the largest radix, at most the carrier maximum plus one, from
-    the encoding's digit bounds and `slice_value_range`.
-    Every emitted digit fits that carrier range, including for integer inputs
-    outside `value_range`. Such inputs may not recover their original value.
+    Compute the largest radix, at most the carrier maximum plus one, from the
+    encoding's digit bounds and `slice_value_range`. Every emitted digit fits
+    that carrier range, including for integer inputs outside `value_range`. Such
+    inputs may not recover their original value.
+
+    Use integer inputs within `value_range` for exact reconstruction. `slice`
+    preserves input dtype and device and inserts the selected digit axis. The
+    optional recovery circuit must be owned and placed by the calling module;
+    without it, recovery performs positional tensor arithmetic without a modeled
+    circuit cost or configured register-width wrap.
 
     Args:
         slice_num: Exact number of emitted slices; greater than one.
-        slice_value_range: Inclusive integer interval carried by every slice.
-            It must contain the digit ranges required by the selected encoding.
+        slice_value_range: Inclusive integer interval carried by every slice. It
+            must contain the digit ranges required by the selected encoding.
         encoding: `UNSIGNED`, `TRUE_FORM`, or `CANONICAL`.
+        recovery_circuit: Externally owned recovery circuit, or None for tensor
+            arithmetic.
 
     Raises:
         ValueError: `COMPLEMENT` is not supported for slicing.

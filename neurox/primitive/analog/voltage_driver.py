@@ -94,10 +94,24 @@ _Snap = VoltageDriverSnap
 class VoltageDriver(ProfileModule):
     """Generic Thevenin voltage-source clamp driver.
 
-    The port voltage follows `v_port = v_ref + v_perturb - i_port * r_out`, where
-    `v_perturb` is this driver's own offset / thermal perturbation on top of
-    the nominal reference it is handed. A zero output resistance represents an
-    ideal voltage source.
+    The port voltage follows `v_port = v_ref + v_perturb - i_port * r_out`,
+    where `v_perturb` is this driver's own offset / thermal perturbation on top
+    of the nominal reference it is handed. A zero output resistance represents
+    an ideal voltage source.
+
+    Place and fabricate before taking a snapshot when offset is enabled. Supply
+    the nominal reference and full access layout to `snapshot`, then reuse that
+    snapshot while solving port currents. `solve_dc` neither samples variation
+    nor bills energy. Call `drive` once for each modeled enabled boundary event;
+    its current argument determines the event layout, not the energy magnitude.
+    There is no headroom clamp or current-dependent output resistance.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -210,15 +224,16 @@ class VoltageDriver(ProfileModule):
         """Solve the Thevenin driver's port voltage at the present port current.
 
         Args:
+            i_port__uA: Current sourced from the driver into its load.
+            snap: Held driver open-circuit voltage and output resistance.
             v_port_init__V: Optional initial port voltage for a warm start.
                 Accepted and ignored — this driver is closed-form.
 
         Returns:
-            Port state, where `v_port__V = snap.v_open__V -
-            i_port__uA * snap.r_out__MOhm` and
-            `dvport_di__MOhm = -snap.r_out__MOhm` broadcast to `i_port__uA`
-            — the derivative of that map, which the series drop makes
-            non-positive.
+            Port state, where `v_port__V = snap.v_open__V - i_port__uA *
+            snap.r_out__MOhm` and `dvport_di__MOhm = -snap.r_out__MOhm`
+            broadcast to `i_port__uA` — the derivative of that map, which the
+            series drop makes non-positive.
         """
         return _Dcop(
             v_port__V=snap.v_open__V - i_port__uA * snap.r_out__MOhm,

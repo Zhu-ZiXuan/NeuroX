@@ -78,8 +78,8 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
     `collect_static_data` names an assembled model and snapshots local area and
     leakage after physical-state setup. For dynamic-only collection, name the
     model with `stamp_names` instead. Keep names and hardware state fixed across
-    the measurement. Each completed context retains only submitted names;
-    an empty context is retained too.
+    the measurement. Each completed context retains only submitted names; an
+    empty context is retained too.
 
     Each energy element represents one basic operation of its owning unit. The
     model owner configures module profile ranks to preserve those positions.
@@ -88,14 +88,14 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
     context, aggregating its phases and numerical chunks before submission;
     distinct operator positions own distinct units.
 
-    Scalar energy and duration submissions represent one observation and gain
-    a length-one sample axis before export. Existing observation axes remain
+    Scalar energy and duration submissions represent one observation and gain a
+    length-one sample axis before export. Existing observation axes remain
     unchanged. Even a single context therefore exports scalars with shape `[1]`.
 
-    Completed energy and duration tensors always reside on CPU, independently
-    of the model's device and PyTorch's default device. Snapshots are exported
-    when submitted and ready before context-exit aggregation. CUDA-to-CPU
-    exports use a separate stream.
+    Completed energy and duration tensors always reside on CPU, independently of
+    the model's device and PyTorch's default device. Snapshots are exported when
+    submitted and ready before context-exit aggregation. CUDA-to-CPU exports use
+    a separate stream.
 
     Args:
         concat_dim: Fixed export concatenation axis for all names and tensor
@@ -106,8 +106,8 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
             This policy does not combine independent unit calls or sum time.
 
     Raises:
-        ValueError: Context-exit validation finds incompatible summed shapes or
-            repeated unit timing submissions.
+        ValueError: The repeat policy is invalid, or context-exit validation
+            finds incompatible shapes or repeated unit timing submissions.
     """
 
     def __init__(
@@ -116,6 +116,8 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         concat_dim: int,
         on_repeat: Literal["sum", "replace"] = "sum",
     ) -> None:
+        if on_repeat not in ("sum", "replace"):
+            raise ValueError("on_repeat must be 'sum' or 'replace'")
         super().__init__()
         self._concat_dim = concat_dim
         self._on_repeat = on_repeat
@@ -142,7 +144,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
 
     @property
     def result(self) -> dict[str, ProfileItem]:
-        """Validate completed observations and concatenate their named tensors.
+        """Completed observations concatenated by name after layout validation.
 
         Each access traverses history and concatenates multiple contexts into
         new tensors; a single context can share its tensors. Static costs are
@@ -151,6 +153,12 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         Energy and timing submitted under the same name must describe the same
         sample layout in each context. Names are handled independently; absent
         timing remains `None`.
+
+        Read after context exit so exported observations have completed. The
+        result contains CPU energy and duration tensors and preserves their
+        precision, with normal tensor type promotion where contributions are
+        combined. Treat shared single-context tensors as read-only. Statistical
+        reduction and experiment labels belong to the caller, not this property.
 
         Raises:
             ValueError: Contexts disagree on names or field presence, or energy
@@ -224,9 +232,18 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         """Name the model and snapshot local area and leakage totals.
 
         Call after physical-state setup and outside collection. Names are
-        relative to `model`, including ordinary PyTorch containers. The model
-        is not retained. History is unchanged and must correspond to the same
+        relative to `model`, including ordinary PyTorch containers. The model is
+        not retained. History is unchanged and must correspond to the same
         hardware state and names.
+
+        Each call replaces the static snapshot rather than adding another copy
+        of hardware. Costs already include each module's physical instance count
+        and exclude separately profiled children. Use a fresh profiler if the
+        hardware population or name layout changes between experiments.
+
+        Args:
+            model: Assembled PyTorch model whose NeuroX modules are named and
+                measured.
 
         Raises:
             ValueError: A NeuroX module is bound at multiple model paths.

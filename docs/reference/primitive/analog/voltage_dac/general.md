@@ -12,28 +12,22 @@ Here $L$ is the nominal code-to-voltage LUT and $n$ the drive-thermal sample.
 
 One conversion to code $c$ draws dynamic energy $E[c]$ from a table parallel to $L$. A zero entry denotes a free drive event.
 
-## Numerical method
-
-N/A — direct table lookup, no iteration.
-
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model |
+| [Source](../../../../conventions/module_parameter.md) | Physical origin | Statistical model |
 | --- | --- | --- |
 | drive thermal | thermal noise on the drive output | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$ |
 
-TODO (domain author): physical derivation and citation for the drive-thermal sigma.
+The noise spread is a supplied characterization parameter, constant across codes.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `code_to_signal` ($L$) | LUT entry per integer code | V | — | Design |
 | `drive_thermal__V` ($\sigma_{\mathrm{drive}}$) | additive drive-thermal noise standard deviation | V | $\geq 0$ | Measured |
 | `code_to_per_op_energy__fJ` ($E$) | per-code conversion energy | fJ | same length as $L$; finite entries $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -49,12 +43,4 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 Every instance shares the exact nominal LUT, with no static mismatch or nonlinearity beyond its entries.
 
-TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load).
-
-## Validation
-
-TODO - link validation evidence once written.
-
-## References
-
-TODO.
+The LUT and noise parameters require characterization over the intended load and operating range; no measured envelope is specified here.

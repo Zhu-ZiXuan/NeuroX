@@ -6,14 +6,14 @@ Convolution geometry (`stride`, `padding`, `dilation`, and `groups`) accompanies
 
 ## The two files
 
-- **Config** — the immutable circuit design: module geometry, device and circuit parameters, and calibrated tables. It fully specifies a chip and holds no nonideality switches.
+- **Config** — the immutable circuit design: module geometry, device and circuit parameters, and calibrated tables. It specifies a component and its owned children.
 - **Policy** — one `bool` per nonideality source, plus numerical settings such as `solve_chunk_size`. Its section tree mirrors the config's.
 
-Each entry point selects the pair. Calibration uses one run config naming both files and their sections, under [tool conventions](../guides/calibration/tool_conventions.md); [campaigns](../validation/campaigns.md) defines the campaign file set and physical-value provenance tags.
+Calibration run files name both bindings and their sections; see [running calibration tools](../guides/calibration/tool_conventions.md) for invocation and artifacts.
 
 ## Structure
 
-A load selects a dot-separated section or, when omitted, the file root. Config and policy trees follow ownership: each child is nested under its owner's declared field name, independently of physical adjacency.
+A load selects a section from each file before merging; omitting it selects each file root. Config and policy trees follow ownership: each child is nested under its owner's declared field name, independently of physical adjacency.
 
 When several files feed one object, the first file to state a key wins. A table/scalar conflict at the same key is rejected.
 
@@ -35,24 +35,8 @@ The composition directives are mutually exclusive and cannot accompany `_neurox_
 
 Presets can reference only other presets. Within them, `_neurox_use` is rejected, and paths cannot be absolute, start with `./`, or contain a `..` segment.
 
-## Field semantics
+## Typed loading and file output
 
-Every config or policy field is required. Loading rejects missing fields and unknown keys, naming the missing or accepted fields.
+Loaded fields are checked against the selected configuration or policy schema. Use the [serialization API](extensions.md#neurox.common.serialize_mixin.SerializeMixin) for field conversion, validation errors, per-file section selection, and writing behavior. Individual field docstrings define interface constraints; the corresponding scientific reference explains model parameters and their provenance.
 
-Values must match declared types: a `bool` cannot fill an `int` field, and quoted numbers are strings. The only numeric widening is `int` to `float`, so `g_min__uS = 10` and `g_min__uS = 10.0` both load. Enum fields take a choice's value (`w_encoding = "true_form"`), fixed-length tuples take lists of that length (`x_value_range = [0, 15]`), and filesystem paths take strings.
-
-Files normalize to `None`, `bool`, `int`, `float`, and `str` leaves, lists, and mappings with string keys. Other values are rejected before field construction; quote YAML dates and other values that would become format-specific objects.
-
-The owning field docstring defines its interface semantics. Model parameters, units, constraints, and provenance belong to the corresponding Reference document under the [parameter Source taxonomy](../conventions/module_parameter.md).
-
-## TOML
-
-Files use `.toml` and UTF-8; the `encoding` argument has no effect.
-
-TOML has no null literal. Writing drops `None` mapping entries; `None` inside a list fails.
-
-## YAML
-
-Files use `.yaml` or `.yml` and the requested `encoding`, which defaults to UTF-8.
-
-A `None` value is written as `null` and round-trips as `None`.
+TOML uses UTF-8 and has no null literal. YAML can represent null values. The loader and writer functions in the [serialization tools](extensions.md#neurox.common.serialize) document supported values and format-specific handling.

@@ -89,8 +89,8 @@ def f_kcl_roundoff__uA(
 ) -> Tensor:
     """Estimate each node's wire-current uncertainty from voltage rounding.
 
-    Only voltages attached to a node contribute to its scale. The allowance
-    uses the node dtype's precision and positive segment conductance.
+    Only voltages attached to a node contribute to its scale. The allowance uses
+    the node dtype's precision and positive segment conductance.
 
     Args:
         v_node__V: Wire node voltages.
@@ -98,6 +98,7 @@ def f_kcl_roundoff__uA(
         v_port__V: Array-port voltage, broadcastable with nodes and of extent 1
             along `dim`.
             Shape: `[..., node=1, ...]`.
+        segment_g__uS: Positive conductance of one wire segment.
         dim: Negative index of the axis the wire runs along.
 
     Returns:

@@ -58,4 +58,4 @@ Quantization is intrinsic to every member; further non-idealities are topology-s
 
 The differential input is two-sided and $b\geq1$. At $b=1$, the raw codes are $\{0,1\}$ with symmetric zero point $z=1$ and signed range $[-1,0]$.
 
-TODO (domain author): state the operating envelope over which the monotone boundary model remains valid.
+Physical operating limits require characterization of the concrete converter.

@@ -10,22 +10,16 @@ Each cell $k$ receives an independent fabricated threshold:
 
 $$V_{\mathrm{th},k} = V_{\mathrm{th,nom}} + \mathcal{N}_k(0,\,\sigma_{V_{\mathrm{th}}}^2).$$
 
-## Numerical method
-
-N/A — direct sampling of static thresholds.
-
 ## Noise & non-idealities
 
 Threshold mismatch follows the additive law in [nonideality](../nonideality.md), with constant sigma $\sigma_{V_{\mathrm{th}}}$ and no area scaling.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
-| `vth_nominal__V` | nominal threshold voltage $V_{\mathrm{th,nom}}$ | V | TODO (domain author) | Measured |
+| `vth_nominal__V` | nominal threshold voltage $V_{\mathrm{th,nom}}$ | V | Not established | Measured |
 | `vth_mismatch__V` | additive Gaussian mismatch sigma $\sigma_{V_{\mathrm{th}}}$ | V | $\ge 0$ | Measured |
-
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -41,12 +35,12 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 - No per-read threshold noise is modeled.
 - The threshold is temperature-independent at this level.
 
-TODO (domain author): give the validity range of the Gaussian mismatch assumption, and whether OTS conduction / temperature dependence must be modeled for the studies of interest.
+The measured validity range of Gaussian threshold mismatch is not established. This model supplies thresholds rather than an OTS conduction or temperature model.
 
 ## Validation
 
-TODO: link `validation/device` evidence — threshold mismatch-statistics checks against measured selector data.
+Threshold-mismatch statistics have not been compared with measured selector data in this document.
 
 ## References
 
-TODO: cite the OTS selector device and its threshold-mismatch characterization.
+Citations for the OTS selector device and its threshold-mismatch characterization are not documented here.

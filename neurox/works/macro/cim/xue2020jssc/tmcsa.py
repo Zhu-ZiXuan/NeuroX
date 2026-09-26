@@ -49,7 +49,24 @@ _Policy = TmcsaPolicy
 
 
 class Tmcsa(SarIadc):
-    """TMCSA with PH2/PH3 energy accounting."""
+    """Convert magnitude currents with triple-margin decision energy accounting.
+
+    Construct directly with a matching config and policy plus the analog supply.
+    Place and fabricate before using the inherited `convert` entry. Reference
+    inputs follow `SarIadc`'s full ascending tap ladder, including at reduced
+    active resolution. Each requested decision bills its PH2/PH3 conduction cost
+    and fixed switching overhead while profiling; the base wrapper applies the
+    enable mask once. Configured decision latency includes both phase durations.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        vdd__V: Analog supply used when accounting for physical switching
+            energy.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

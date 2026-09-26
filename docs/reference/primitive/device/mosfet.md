@@ -36,10 +36,6 @@ The small-signal transconductance $g_m$ and output conductance $1/r_o$ follow di
 
 $$g_m = \frac{\partial I_{\mathrm{ds}}}{\partial V_{\mathrm{gs}}} = \frac{\partial I_{\mathrm{ds}}}{\partial V_g} = \beta\left(v_s\sigma_s - v_d\sigma_d\right), \qquad \frac{1}{r_o} = \frac{\partial I_{\mathrm{ds}}}{\partial V_{\mathrm{ds}}} = \frac{\partial I_{\mathrm{ds}}}{\partial V_d} = \beta\,v_d\sigma_d.$$
 
-## Numerical method
-
-N/A — the I-V surface and its three node partials are evaluated in closed form, with no iteration.
-
 ## Noise & non-idealities
 
 Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise on the per-instance threshold and transconductance maps.
@@ -51,7 +47,7 @@ $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coeff
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `mu0__cm2_per_V_s` | low-field carrier mobility $\mu_0$ at $T_{\mathrm{ref}}$ | cm^2/V/s | $> 0$ | Process |
 | `c_ox__fF_per_um2` | gate-oxide capacitance per unit area $C_{\mathrm{ox}}$ | fF/um^2 | $> 0$ | Process |
@@ -65,7 +61,7 @@ $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coeff
 | `W__um` | channel width $W$ (init kwarg) | um | $> 0$ | Design |
 | `L__um` | channel length $L$ (init kwarg) | um | $> 0$ | Design |
 
-The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel), not a tunable parameter, so it is not listed above. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [notation_conventions](../../../conventions/notation_conventions.md#physical-constants)). File-level schema: `api`.
+The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel), not a tunable parameter, so it is not listed above. The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [physical constants](../physics.md#physical-constants)).
 
 ## Symbols
 
@@ -103,12 +99,12 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 - Mismatch is static (sampled at fabricate time) and Pelgrom area-scaled; no per-read electrical noise (e.g. flicker, thermal channel noise) is modeled at this level.
 - Layout-dependent parasitic capacitances are out of scope.
 
-TODO (domain author): give the quantitative validity ranges — overdrive / drain-bias range over which the EKV-softplus surface matches the target device for each polarity, body-effect treatment (the model has no explicit body terminal), and the temperature range of the scaling laws.
+Quantitative bias and temperature validity ranges are not established here. The model has no explicit body terminal.
 
 ## Validation
 
-TODO: link `validation/device` evidence — I-V and node-partial agreement against the analytic EKV reference for both polarities, finite-difference checks of the three partials, and Pelgrom mismatch-statistics checks.
+`tests/primitive/device/test_mosfet.py` checks polarity and numerical derivatives. Measured device agreement and mismatch-statistics evidence remain unspecified.
 
 ## References
 
-TODO: cite the EKV transistor model and the Pelgrom mismatch law.
+Citations for the EKV transistor model and the Pelgrom mismatch law are not documented here.

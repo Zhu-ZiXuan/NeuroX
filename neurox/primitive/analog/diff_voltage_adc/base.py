@@ -53,11 +53,22 @@ _Policy = DiffVadcPolicy
 
 
 class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
-    """Base class for differential voltage-domain ADC implementations.
+    """Base for differential voltage ADCs with injected reference taps.
 
-    Callers select and supply reference taps for every conversion. Each
-    implementation defines and validates its tap count; converters receive
-    no mode identifier.
+    Implement `_convert_impl` and `latency__ns`, and register the config-policy
+    pair. Define topology-specific reference checks in `_validate_runtime_args`.
+    Initialize sources and fabricated state through the physical-module lifecycle.
+
+    Keep the final `convert` wrapper: it checks code layout and range and records
+    returned energy and inputs. The hook must not submit energy again and must
+    remain traceable. Place and fabricate outside conversion.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -112,6 +123,8 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         """Digitise a differential analog voltage into a raw unsigned code.
 
         Args:
+            v_pos__V: Positive-side analog input voltages for all conversion
+                positions.
             v_neg__V: Negative-side analog input voltage, at the same shape as
                 `v_pos__V`.
             v_refs__V: Injected reference taps, with the taps on the last axis.
@@ -119,14 +132,15 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
             active_bits: Active conversion resolution in `[1, bits]`.
 
         Returns:
-            Raw unsigned code values stored as `int32`, one per `v_pos__V` element,
-            in the range `unsigned_range` reports for `active_bits`. For offset-binary
-            codes, recover the signed value as
-            `(code - zero_offset(active_bits)) · rescale_factor` with a positive
+            Raw unsigned code values stored as `int32`, one per `v_pos__V`
+            element, in the range `unsigned_range` reports for `active_bits`.
+            For offset-binary codes, recover the signed value as `(code -
+            zero_offset(active_bits)) · rescale_factor` with a positive
             `rescale_factor`.
 
         Raises:
-            ValueError: The active bit count, reference arguments, or output shape is invalid.
+            ValueError: The active bit count, reference arguments, or output
+                shape is invalid.
             RuntimeError: An output code lies outside the active-bit range.
         """
         self._check_active_bits(active_bits)
@@ -184,7 +198,17 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         raise NotImplementedError
 
     def _validate_runtime_args(self, v_refs__V: Tensor) -> None:
-        """Validate implementation-specific reference requirements before conversion."""
+        """Check the reference layout required by this converter.
+
+        The default accepts any reference tensor. Override for topology-specific
+        requirements such as the trailing tap count; raise `ValueError` for an
+        invalid layout. This hook runs inside compiled conversion, so keep shape
+        checks static and avoid Python decisions based on tensor values.
+
+        Args:
+            v_refs__V: Injected reference tensor whose trailing tap layout must
+                fit the topology.
+        """
 
     @abstractmethod
     def _convert_impl(
@@ -199,12 +223,20 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
         """Compute conversion outputs according to the `convert` contract.
 
         Args:
+            v_pos__V: Positive-side input voltages.
+            v_neg__V: Negative-side voltages with the same shape as the positive
+                side.
+            v_refs__V: Injected taps with the concrete converter reference
+                layout.
+            active_bits: Requested active resolution in the inclusive range from
+                one to bits.
             record_energy: Whether to compute dynamic energy.
 
         Returns:
+            A tuple (codes, energy) with one code and optional energy per input.
             Output codes and per-output dynamic energy [fJ]. Energy is `None`
-            when not requested or when the implementation owns no energy.
-            The caller submits the energy and observation records.
+            when not requested or when the implementation owns no energy. The
+            caller submits the energy and observation records.
         """
         raise NotImplementedError
 

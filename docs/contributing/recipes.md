@@ -1,136 +1,25 @@
-# Recipes
+# Change recipes
 
-Task routing and checklists for core NeuroX changes.
+Choose the row matching your change. Keep interface contracts in their owning docstrings and scientific models in Reference, following the [documentation ownership rules](../conventions/organizing_principles.md).
 
-## Common checklist
+| Change | Update | Verify |
+| --- | --- | --- |
+| Electrical primitive | Model equations, parameter fields, and the electrical interface | Independent numerical oracles and relevant physical limits |
+| Profiled circuit | Local hardware costs, energy events, and operation timing | Ownership, enabled events, and interaction with profiling |
+| Registry family | Base-class extension contract, config-policy dispatch, and exports | Registration and representative construction |
+| Concrete implementation | Model-specific behavior, restrictions, and exported types | The behavior added beyond the family contract |
+| Composite unit | Child ownership, mapping, state lifecycle, and timing composition | End-to-end numerical results and hardware accounting |
+| Numerical algorithm | Mathematical method and callback, shape, dtype, and convergence contracts | Independent solutions, termination, and chunk reassembly |
+| Encoding or slicing | Representable domains, positional weights, and reconstruction | Round trips, range boundaries, and composition |
+| Shared infrastructure | Owning contracts and affected callers | Shared behavior plus a representative downstream use |
 
-Every core change starts here:
+For every change:
 
-1. Identify the task shape below and the owning base class, mixin, shared subsystem, or package surface.
-2. Update or create the [Reference](../reference/README.md) spec first when the physical, mathematical, numerical, or public semantic contract changes.
-3. Route the software record by the scope of what changed. A changed caller-facing or subclass-facing contract — shape, dtype, state, lifecycle, ownership, or the obligations a subclass must meet — is written in the docstring of the symbol that owns and enforces it. A changed contract that spans components, which no single symbol can hold, goes to its system design page, written per [writing_system_design](writing_system_design.md). A purely local refactor changes code, comments, and tests only, and creates no document.
-4. Apply content-placement, dependency, and single-source rules through [organizing_principles](../conventions/organizing_principles.md), code rules through [code_style](../conventions/code_style.md), and documentation text and format rules through [prose_style](../conventions/prose_style.md) and [markdown_style](../conventions/markdown_style.md).
-5. Implement through the relevant base-class or mixin contract. Do not re-state that contract in the leaf implementation.
-6. Update package exports and public API documentation when the import surface changes, and keep the new module inside the package imports dispatch depends on — see [construction](../system_design/construction.md).
-7. Add or update focused tests and validation evidence following [writing_tests](writing_tests.md). Every recipe's test checklist applies within that guide's ownership boundary.
-8. Run the relevant [workflow](workflow.md) quality gates.
+1. Identify the responsible abstraction and read its calling or extension contract.
+2. Update the code, relevant tests, and affected documentation together. A local refactor needs no new design page.
+3. Update exports and import-time registration when the public surface changes.
+4. Select checks using [test guidance](writing_tests.md) and run the [contribution checks](../../CONTRIBUTING.md#quality-gates).
 
-## Introduce a simulation primitive
+## Adding a policy field
 
-A standalone primitive represents an independent, reusable physical or circuit concept with its own behavioral contract. Neither the number of current callers nor the complexity of its formula decides whether the concept deserves that boundary. Pure arithmetic stays in the composing owner, while a block modelled only as static PPA or data-independent per-operation cost stays a seat under [code_style](../conventions/code_style.md) rather than becoming a class.
-
-## Add a pure electrical primitive
-
-Applies to foundational electrical models such as devices and other primitive I/V elements whose silicon rolls up to an owning block, so they self-account no static PPA.
-
-Use the common checklist, then:
-
-- Use the family's config and policy role types. Add specialized descendants only when the primitive introduces fields or a distinct dispatch identity; do not create empty per-class types merely to match its name. Declare no per-instance area / leakage fields, as the owner budgets them.
-- Inherit the electrical family's `NonProfileModule` base, keeping its accounting boundary.
-- Follow the physical-state and lifecycle contracts in [physical_state](../system_design/physical_state.md).
-- Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
-- Export the public class and role dataclasses from the owning package.
-- Test physical equations, validation failures, snapshot behavior, and DC solve behavior where applicable.
-
-## Add a profiled circuit leaf
-
-Applies to analog and digital leaf circuits that own their own silicon and emit PPA profile events.
-
-Use the common checklist, then:
-
-- Use or extend the subsystem config and policy bases. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
-- Inherit the circuit family's `ProfileModule` base and use its energy-emission hooks.
-- Implement the family or leaf primary method defined by its base class.
-- Emit dynamic energy for quantities this leaf owns through `_record_dynamic_energy`.
-- Declare `latency__ns` on the concrete circuit that owns a propagation or conversion delay, or on the narrowest family base when every member owns the same timing contract.
-- At a functional boundary, `latency__ns` covers one complete public operation, including every serial axis owned below that boundary. Compose it explicitly from known execution structure; do not infer it by traversing the module tree or by treating every child latency as additive.
-- Keep paper measurement periods, external clock periods, and leakage-integration windows in validation code unless the runtime model explicitly implements their scheduling semantics.
-- Test shape contract, dtype behavior, PPA emissions, and edge cases for the primary method.
-
-## Add a registry family
-
-Applies when adding a dispatchable abstract family.
-
-Use the common checklist, then:
-
-- Define the config and policy role types that form the family dispatch key; an empty marker is appropriate when its type identity distinguishes the family even though it has no fields.
-- Declare inheritance-only module, config, and policy classes with `base_only=True`; concrete implementations omit the declaration. Use `ABC` for actual abstract interfaces.
-- Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent. Select `ProfileModule` or `NonProfileModule` on the family base; implementations retain that identity.
-- State the family's extension contract in the abstract base's docstring before adding concrete members, and add the family Reference document when the shared science is substantial.
-- Keep shared method docstrings on the abstract declaration.
-- Add at least one concrete member or document why the base is introduced ahead of implementations.
-- Test dispatch, validation, abstract contract enforcement, and public exports.
-
-## Add a concrete registry member
-
-Applies when extending an existing dispatch family.
-
-Use the common checklist, then:
-
-- Extend the family config / policy types according to the family base contract.
-- Register the implementation with the correct key type.
-- Implement only the behavior owned by the concrete member.
-- Do not repeat base-class contracts in the concrete docs; document concrete model and implementation differences.
-- Export the public class and role dataclasses from the family package.
-- Test this member's registration through config dispatch and the behavior, validation, and non-idealities it introduces or changes.
-
-## Add a composite owned-construction block
-
-Applies to modules that own child modules, nested config / policy, layout transforms, programmed state, or profile aggregation.
-
-Use the common checklist, then:
-
-- Define ownership: which children are constructed directly, which are created through `from_config`, and which runtime context each receives.
-- Document shape / layout contracts in Reference when they are part of the model and in the owning class docstring when they are implementation layout; use [organizing_principles](../conventions/organizing_principles.md) for the carrier rule.
-- Follow the owner-constructs-child and config-propagation protocol in [construction](../system_design/construction.md).
-- Follow the lifecycle and state-ownership contracts in [physical_state](../system_design/physical_state.md), and document this composite's own lifecycle behavior in its class docstring.
-- Test owned construction, `fabricate` cascade, `program`, primary execution, shape transforms, and profile aggregation.
-
-## Add a numerical solver or compiled algorithm leaf
-
-Applies to numerical algorithms, solver leaves, chunking helpers, and compile / eager boundaries.
-
-Use the common checklist, then:
-
-- Document the mathematical method in Reference; the implementation constraints belong to the docstrings of the symbols that impose them.
-- State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
-- Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
-- Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the [compile-safety rules](../conventions/code_style.md#compile-safety).
-- Test numerical equations against independent oracles, iteration-control semantics, shape edge cases, dtype behavior, and chunk reassembly within the boundaries in [writing_tests](writing_tests.md).
-
-## Add a value-domain primitive
-
-Applies to pure tensor mappings such as encoding, transcoding, and slicing.
-
-Use the common checklist, then:
-
-- Define a small abstract surface: primary transform methods and static geometry / range properties.
-- Use direct construction or registry dispatch according to the family contract.
-- Return raw tensors for single-tensor results.
-- Keep static geometry as properties on the producing object.
-- Test round trips, value ranges, shape transforms, and invalid inputs.
-
-## Add a policy switch
-
-Applies when adding a runtime non-ideality toggle to a module's `*Policy`.
-
-Adding a policy switch is a deliberate breaking change: `*Policy` fields carry no defaults, so a policy file or preset that omits the new switch fails to load and every call site that constructs the policy stops type-checking, forcing each caller to declare a stance on the new source.
-
-Use the common checklist, then apply the six-step procedure:
-
-1. Add the `*Config` magnitude field when the source has one.
-2. Add the field's bounds directly to the owning class's `validate()` method.
-3. Add the `bool` field to `*Policy`, with no `enable_` prefix.
-4. Add the `apply_*` call gated by the policy `bool` on the runtime path.
-5. Set the value in every preset and config / policy TOML the switch reaches.
-6. Update every call site that constructs the policy.
-
-## Modify shared infrastructure
-
-Applies to mixins, `ModuleBase` / config / policy bases, profiler, non-ideality helpers, quantization helpers, load / dump, preset schema, and other high-impact common mechanisms.
-
-Use the common checklist, then:
-
-- Identify all callers and downstream contracts before implementation.
-- Update the owning docstrings. Update System Design only when the top-level mechanism or behavior changes.
-- Add tests at the shared contract level and retain a representative downstream integration check under [writing_tests](writing_tests.md).
+Config and policy fields have no defaults, so a new field affects constructors and configuration files. Add its validation, implement the selected behavior, and update every affected preset, run file, and caller. Document the field's meaning beside its declaration and any new physical source in the model reference.

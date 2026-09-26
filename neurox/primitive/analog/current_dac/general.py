@@ -60,7 +60,25 @@ _Policy = GeneralIdacPolicy
 
 @Idac.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class GeneralIdac(Idac):
-    """General current DAC model — code-to-current LUT plus signal-independent output noise."""
+    """Look up current levels with optional independent Gaussian output noise.
+
+    Place the module before calling `convert`, then supply integral codes in
+    `[0, code_max]` on the table's device. Codes are cast to integer indices;
+    there is no clipping or explicit bounds validation, and negative indexing is
+    outside the supported input domain. Output shape follows the code tensor and
+    output dtype follows the lookup table.
+
+    This converter needs no fabrication or programming. Noise is sampled per
+    call when enabled. Each output incurs the configured flat conversion energy
+    while profiling, independent of its code. It reports no conversion duration.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

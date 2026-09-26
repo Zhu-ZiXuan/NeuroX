@@ -52,9 +52,9 @@ a state-dependent source whose spread shrinks as $1/\sqrt{C}$.
 
 ## Parameter ownership
 
-Source parameters such as $\sigma$, $A_P$, $S_P$, $\sigma_{\mathrm{rel}}$, and $C_{\mathrm{unit}}$ belong to their subsystems, with provenance per [module_parameter](../../conventions/module_parameter.md). The shared Boltzmann constant $k_B$ and temperature $T$ are defined in [notation_conventions](../../conventions/notation_conventions.md).
+Source parameters such as $\sigma$, $A_P$, $S_P$, $\sigma_{\mathrm{rel}}$, and $C_{\mathrm{unit}}$ belong to their subsystems, with provenance per [module_parameter](../../conventions/module_parameter.md). The Boltzmann constant is defined under [physical constants](physics.md#physical-constants); temperature is a runtime input.
 
-TODO (domain author): the concrete parameterisation of the long-range gradient term — the $S_P$ coefficient, the $D$ separation, and the subsystem that owns them.
+The implemented mismatch kernels use the local area-scaled term. Distance-dependent gradient noise is not implemented.
 
 ## Symbols
 
@@ -80,6 +80,6 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 
 - Static mismatch is a per-instance constant fixed at fabrication; dynamic noise is resampled per read and is i.i.d. across reads.
 - Microscopic fluctuations are spatially uncorrelated and area-averaged, so the local Pelgrom term has variance $\propto 1/\mathrm{area}$.
-- Spatial correlation between elements is modelled only through the long-range gradient term; every other draw is independent per element.
+- Kernel draws are independent per element. Correlation from a shared physical source is represented by reusing its sampled state across consumers.
 
-TODO (domain author): the device-size and temperature ranges over which the Pelgrom and $kT/C$ laws hold, the regimes where inter-element spatial correlation must be modelled explicitly, and confirmation of the area-scaling direction of the absolute-vs-relative framing.
+The applicable device-size and temperature ranges and any additional spatial correlation require model-specific characterization.

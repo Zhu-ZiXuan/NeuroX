@@ -22,11 +22,7 @@ The model owner fixes the observation layout after assembling the hardware and b
 
 Static costs are captured after physical setup and counted once across collection contexts. One context covers one model batch and collects dynamic energy and completed operation durations. Measurement preserves electrical behavior and physical sampling without introducing modeled circuit activity.
 
-Collection preserves each name and its observation axes. An operation with no input-leading axes produces scalar energy and duration; submission gives each scalar a length-one sample axis so successive contexts can concatenate observations. This storage axis changes neither the operator's input layout nor its configured profile rank. Collection retains directly submitted timing and leaves missing data unknown. Reporting derives static energy from the completed observations; applications own grouping, statistical reduction, layout conversion, and presentation.
-
-Collection preserves submitted observations as independent snapshots and exports them to CPU. GPU-to-CPU exports can overlap subsequent computation; context exit waits for them before combining energy and duration. Reporting consumes the completed CPU observations. Configuration-derived costs use the default device; value-dependent costs are computed alongside their inputs.
-
-Each component determines its energy precision. Collection and reporting preserve it, with ordinary tensor type promotion during aggregation.
+The [profiling API](../api/python.md#neurox.api.profiler.Profiler) defines observation storage, device export, context handling, and concatenation. Those software operations preserve the modeled hardware events. Applications own grouping, statistical reduction, and presentation.
 
 ## Operation duration
 
@@ -38,9 +34,7 @@ Standalone macro experiments submit the macro's modeled complete-operation durat
 
 ## Derived data and aggregation
 
-Working duration describes modeled execution; powered duration describes the supply-on interval used with leakage to calculate static energy. Reporting resolves a component's missing timing from its nearest timed ancestor. Powered windows default to working windows, with explicit overrides resolved independently; an override changes neither recorded work nor raw observations. A child's own duration remains its default powered window unless explicitly replaced.
-
-Names sharing timing must share an observation layout. Reporting retains every sample axis and each hardware name. Missing data remains unknown; zero is a known value. A name's total energy adds its available dynamic and static contributions elementwise while retaining unknown individual fields.
+Working duration describes modeled execution; powered duration describes the supply-on interval used with leakage to calculate static energy. A supply-on schedule may include idle time beyond the modeled operation. The [reporter](../api/python.md#neurox.api.reporter.Reporter) defines how explicit powered windows, inherited timing, and missing observations are represented.
 
 Hardware scope is selected before reporting. Model evaluation includes all hardware allocated to each layer. Independent macro experiments divide local area and leakage by the known macro count, retaining one macro's full complement of readout circuits. Dynamic energy, duration, and the raw collected data stay unchanged. The supplied static costs must describe the hardware represented by one retained energy position; per-scan conversion and paper-component grouping follow in application analysis.
 

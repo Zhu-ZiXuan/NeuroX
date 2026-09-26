@@ -53,11 +53,22 @@ _Policy = IadcPolicy
 
 
 class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
-    """Base class for single-ended current ADCs with injected references.
+    """Base for current ADCs with caller-supplied reference taps.
 
-    Callers select and supply reference taps for every conversion. Each
-    implementation defines and validates its tap count independently of the
-    requested resolution; converters receive no mode identifier.
+    Implement `_convert_impl` and `latency__ns`, then register the config-policy
+    pair. Initialize tensor sources and fabricated state through the module
+    lifecycle. The concrete class defines its reference tap count and ordering.
+
+    Keep the final `convert` wrapper: it checks codes, applies enable masks,
+    and records returned energy and inputs. The hook must not submit energy
+    again and must remain traceable. Place and fabricate outside conversion.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -195,14 +206,20 @@ class Iadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
         """Compute conversion outputs according to the `convert` contract.
 
         Args:
+            i_in__uA: Nonnegative input magnitudes for each conversion.
+            i_refs__uA: Reference taps on the last axis, broadcastable with
+                input positions.
+            active_bits: Requested active resolution in the inclusive range from
+                one to bits.
             record_energy: Whether to compute dynamic energy.
-            enable: Optional conversion mask, available when constructing
-                energy on its consuming device. The base masks codes and energy.
+            enable: Optional conversion mask, available when constructing energy
+                on its consuming device. The base masks codes and energy.
 
         Returns:
+            A tuple (codes, energy) with one code and optional energy per input.
             Output codes and per-output dynamic energy [fJ]. Energy is `None`
-            when not requested or when the implementation owns no energy.
-            The caller submits the energy and observation records.
+            when not requested or when the implementation owns no energy. The
+            caller submits the energy and observation records.
         """
         raise NotImplementedError
 

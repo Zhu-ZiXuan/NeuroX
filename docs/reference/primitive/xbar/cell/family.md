@@ -18,7 +18,7 @@ The cell also returns the two **signed terminal conductances** of the branch, th
 
 $$\frac{\partial I}{\partial V_{\mathrm{BL}}} \ge 0, \qquad \frac{\partial I}{\partial V_{\mathrm{SL}}} \le 0.$$
 
-These definite signs are an invariant of the resistive branch: raising the bit-line potential at fixed source line cannot decrease the branch current into the source line, and raising the source-line potential cannot increase it. Any physical branch built from passive / source-symmetric devices satisfies this convention. The concrete per-device origin of the signs is topology-specific.
+These definite signs are an invariant of the resistive branch: raising the bit-line potential at fixed source line cannot decrease the branch current into the source line, and raising the source-line potential cannot increase it. These signs are required by the resistive-branch model and must follow from the selected topology's device equations.
 
 ## Symbols
 
@@ -47,12 +47,8 @@ The cell exposes the converged levels of its two terminals and every internal no
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a read pulse.
 - Exogenous per-read control and the sampled device read state are fixed in the per-call snap, not unknowns of the condensation.
 
-TODO (domain author): the conditions under which a cell topology can supply a definite-sign two-terminal resistive branch (e.g. monotonicity / passivity requirements on its device set), and any topology that would violate them.
+The definite-sign branch derivatives are model assumptions. A topology that violates them requires a different electrical formulation.
 
 ## Validation
 
-TODO: add family-level validation evidence for branch-current and signed-conductance signs, internal-KCL residuals, and finite-difference device derivatives.
-
-## References
-
-TODO.
+The [electrical checks](../../../../validation/structured_while_solve.md) exercise branch signs, internal KCL, and numerical derivatives for the implemented models.

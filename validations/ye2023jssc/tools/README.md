@@ -1,5 +1,5 @@
-# Ye2023 calibration tools
+# Ye2023 parameter derivation
 
-The parallel BL/SL solver owns its stopping constants. Its ordinary path rejects a capped unconverged solve, while its explicitly traced path may return the failure for diagnosis. There are no user-supplied solver tolerances or tolerance-sweep tools, and calibration does not inspect solver traces to decide convergence.
+This campaign derives its divider table from the reported RRAM resistances and geometric-mean T1 bias. T2 leakage and signal currents use Fig. 16; the RS-CSA reference uses Fig. 11. The bundled preset and `anchors.toml` record the values and provenance.
 
-No cell or ADC calibration script is needed. The divider table follows from the reported RRAM resistances and the geometric-mean T1 bias; the unit-width T2 leakage and signal current come from Fig. 16. The 7 uA RS-CSA reference comes from Fig. 11 and gives a rescale factor of 14 MAC units per full-resolution code.
+No separate cell or ADC calibration script is provided. See the parent [campaign](../README.md) for the configured validation run.

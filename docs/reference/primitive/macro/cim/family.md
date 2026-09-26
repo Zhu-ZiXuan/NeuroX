@@ -71,4 +71,4 @@ because dropping one ADC decision bit doubles the full-resolution MAC span repre
 
 ## Assumptions, scope & validity
 
-TODO (domain author): state the calibrated validity range of the output-rescale relation.
+Output-rescale factors require characterization at the selected operating conditions; a general calibrated validity range is not established here.

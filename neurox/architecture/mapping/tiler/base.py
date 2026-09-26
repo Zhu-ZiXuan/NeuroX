@@ -13,21 +13,29 @@ from neurox.primitive.digital import Accumulator, Summator
 
 
 class Tiler(ABC):
-    """Map sliced weights to a two-dimensional tile grid and recover their results.
+    """Map sliced weights to tiles and recover their results.
 
-    Subclasses determine weight placement, valid output counts and output-layout
-    recovery. The base partitions inputs and sums input-tile contributions
-    before restoring the weight-slice axis. Input slices pass through the input
-    mapping; their recovery precedes tile recovery.
+    Implement `map_w`, `effective_output_num`, `output_tile_num`, and
+    `_recover_impl` with consistent placement and padding. The base partitions
+    inputs and sums input-tile results; recover input slices before tiles, then
+    recover weight slices afterwards.
 
-    Construction binds an ordinary reference to the owner's recovery circuit,
-    either a serial accumulator or a parallel summator. An absent reference
-    selects tensor summation without register wrap or circuit cost. The tiler
-    owns no modules or registered buffers.
+    Preserve leading axes and strip padding on recovery. Supply positive matrix
+    dimensions and tile capacities. Recovery circuits remain owned by the
+    containing module; absence selects tensor summation without circuit costs
+    or register-width wrapping.
 
     Args:
+        matrix_input_num: Positive logical matrix input width before padding.
         matrix_output_num: Original matrix output width before slicing.
+        input_per_tile: Positive input capacity of each rectangular tile.
         output_per_tile: Output capacity of a tile, including weight slices.
+        recovery_circuit: Externally owned recovery circuit, or None for tensor
+            arithmetic.
+
+    Attributes:
+        input_tile_num: Number of tiles spanning the input dimension.
+        input_padding: Trailing zero positions added to the input dimension.
     """
 
     def __init__(

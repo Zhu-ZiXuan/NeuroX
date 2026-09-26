@@ -14,9 +14,26 @@ from .base import Tiler
 class SimpleTiler(Tiler):
     """Flatten weight slices in slice-major order before rectangular tiling.
 
-    A tile may contain outputs from different slices. Padding occurs only at
-    the end of the flattened output dimension and the end of the input dimension.
+    A tile may contain outputs from different slices. Padding occurs only at the
+    end of the flattened output dimension and the end of the input dimension.
 
+    Supply sliced weights with trailing axes `(w_slice, output, input)` matching
+    the configured dimensions. Use `map_x` for the corresponding input tiles and
+    `effective_output_num` to distinguish real ports from output padding.
+    Recover tile results only after input-phase and input-slice recovery; weight
+    slices remain separate in the returned tensor for their subsequent radix
+    recovery. This helper owns no hardware or programmed state.
+
+    Args:
+        matrix_input_num: Positive logical matrix input width before padding.
+        matrix_output_num: Positive logical output width before precision
+            slicing.
+        w_slice_num: Number of precision slices represented in the logical
+            weight layout.
+        input_per_tile: Positive input capacity of each rectangular tile.
+        output_per_tile: Positive output-port capacity of each tile.
+        recovery_circuit: Externally owned recovery circuit, or None for tensor
+            arithmetic.
     """
 
     def __init__(

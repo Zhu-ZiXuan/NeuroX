@@ -12,22 +12,16 @@ $$I_{\mathrm{out}} = g\,I_{\mathrm{in}}.$$
 
 Transport has no modeled energy or latency.
 
-## Numerical method
-
-N/A — closed-form map.
-
 ## Noise & non-idealities
 
 None.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `mux_ratio` ($N$) | N in the physical N:1 fan-in ratio | — | $\geq 1$ | Design |
 | `mux_gain` ($g$) | matched scalar transport gain | — | $> 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -42,10 +36,6 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 The model applies within each lane's linear settled band. It excludes per-lane gain mismatch, signal-dependent on-resistance, charge-injection pedestal, settling error, and crosstalk.
 
-## Validation
-
-TODO - link validation evidence once written.
-
 ## References
 
-TODO: cite the time-share current transport model.
+Citations for the time-share current transport model are not documented here.

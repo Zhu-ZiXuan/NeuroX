@@ -419,13 +419,15 @@ class _PortSolver[CellSnapT, CellDcopT: ResistiveCellDcop, BLSnapT: ClampSnap, S
     use `[..., row, col]`, as declared by `row_dim` and `col_dim`.
 
     Args:
-        bl_segment_r__MOhm: Uniform BL resistance of one lattice link,
-            including the boundary link.
-        sl_segment_r__MOhm: Uniform SL resistance of one lattice link,
-            including the boundary link.
+        bl_segment_r__MOhm: Uniform BL resistance of one lattice link, including
+            the boundary link.
+        sl_segment_r__MOhm: Uniform SL resistance of one lattice link, including
+            the boundary link.
         cell: Condensed two-terminal branch evaluated at every array node.
-        bl_driver: Borrowed BL clamp; its owner manages lifecycle and accounting.
-        sl_driver: Borrowed SL clamp; its owner manages lifecycle and accounting.
+        bl_driver: Borrowed BL clamp; its owner manages lifecycle and
+            accounting.
+        sl_driver: Borrowed SL clamp; its owner manages lifecycle and
+            accounting.
         dtype: Floating dtype selecting the stopping tolerances. Only
             `torch.float32` and `torch.float64` are supported.
     """

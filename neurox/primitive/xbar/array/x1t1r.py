@@ -128,16 +128,34 @@ class _Outputs(TensorDataClassMixin, PyTreeDataClassMixin):
 class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
-    The final two grid axes follow the solver's `row_dim` and `col_dim`,
-    in row, column order. Boundary snaps and DCOPs retain the row axis at
-    extent one. Chunking applies only to the leading positions.
+    The final two grid axes follow the solver's `row_dim` and `col_dim`, in row,
+    column order. Boundary snaps and DCOPs retain the row axis at extent one.
+    Chunking applies only to the leading positions.
+
+    Place and fabricate the array and separately owned boundary drivers before
+    programming cell state indices. Sample driver boundaries once per held
+    access, then supply those snapshots to `solve_dc`. The array samples cell
+    state before numerical chunking, preserving one realization across chunks
+    and iterations.
+
+    Use `solve_dc` when convergence is required. Use `solve_dc_trace` for
+    diagnosis and inspect the trace before accepting its operating point; a
+    capped trace can return an unconverged state. Neither call places,
+    fabricates, or programs the externally owned drivers.
 
     Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        row_num: Number of physical rows in each array instance.
+        col_num: Number of physical columns in each array instance.
         vdd__V: Core analog supply behind every array-node capacitance.
         bl_driver: Externally owned BL clamp, forwarded to the solver without
-            registering it as an array child. Its owner handles device placement,
-            fabrication, snapshot sampling, and energy accounting.
+            registering it as an array child. Its owner handles device
+            placement, fabrication, snapshot sampling, and energy accounting.
         sl_driver: Externally owned SL clamp, with the same ownership contract.
+        dtype: Electrical tensor dtype.
     """
 
     row_dim: ClassVar[int] = ColBlColSlArraySolver.row_dim

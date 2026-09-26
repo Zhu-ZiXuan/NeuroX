@@ -40,7 +40,19 @@ _Policy = RsCsaIadcPolicy
 
 
 class RsCsaIadc(SarIadc):
-    """Reference-subtracting current-sense ADC."""
+    """Convert currents using one injected LSB reference per conversion position.
+
+    Construct directly with the matching config and policy, place the converter,
+    and fabricate its inherited comparator state. Unlike the general SAR ladder,
+    `i_refs__uA` must have exactly one trailing tap; each trial scales that tap
+    by its full-width trial code. The tap's leading axes broadcast to the input
+    shape. Supply a positive reference for an increasing quantization transfer.
+
+    `active_bits` selects the number of SAR decisions. Latency adds `init__ns`
+    once to the decision periods, and profiling bills `energy_per_bit__fJ` for
+    each enabled decision. Output coding and enable behavior follow
+    `Iadc.convert`.
+    """
 
     config: _Config
     policy: _Policy

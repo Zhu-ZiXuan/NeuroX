@@ -13,20 +13,16 @@ $$
 
 Here $g$ is the nominal gain, $\varepsilon_g$ the fabricated gain mismatch, and $n$ the access noise.
 
-## Numerical method
-
-N/A — closed-form map.
-
 ## Noise & non-idealities
 
-| Source | Statistical model | Parameter |
+| [Source](../../../conventions/module_parameter.md) | Statistical model | Parameter |
 | --- | --- | --- |
 | gain mismatch | static fractional Gaussian mismatch sampled at fabricate | `mux_gain_mismatch_sigma_relative` |
 | transport noise | dynamic additive Gaussian noise sampled per access | `mux_noise_sigma__V` |
 
 ## Parameters
 
-| Parameter | Meaning | Constraint | Source |
+| Parameter | Meaning | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- |
 | `mux_ratio` | N in the physical N:1 fan-in ratio | $\geq 1$ | Design |
 | `mux_gain` | nominal scalar transport gain | $> 0$ | Design |
@@ -36,12 +32,6 @@ N/A — closed-form map.
 | `area_per_inst__um2` | silicon area per physical lane | $\geq 0$ | Design |
 | `leakage_per_inst__uW` | leakage per physical lane | $\geq 0$ | Design |
 
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
-
 ## Assumptions, scope & validity
 
 The model excludes differential-pair behavior, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, and crosstalk.
-
-## Validation
-
-TODO - link validation evidence once written.

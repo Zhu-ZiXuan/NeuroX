@@ -11,18 +11,23 @@ from .module import ConfigBase, PolicyBase
 class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase]:
     """Dispatch a module family from concrete config and policy types.
 
-    The class that first mixes this in owns one registry table keyed by
-    `(config type, policy type)`; every class below it in the family shares that
-    same table, so one pair selects one implementation family-wide.
-    Registration occurs when the implementation module is imported; import
-    implementations before resolving their config and policy pairs.
+    The class that first mixes this in owns one registry table keyed by `(config
+    type, policy type)`; every class below it in the family shares that same
+    table, so one pair selects one implementation family-wide. Registration
+    occurs when the implementation module is imported; import implementations
+    before resolving their config and policy pairs.
 
-    Mix this in on the family base class, parameterized with the family's
-    config and policy types, and decorate each concrete implementation with
-    the family base's `register_neurox_impl` for the pair it serves. Registration and
-    lookup are called on that base, so `Self` denotes the dispatched family.
-    The family base exposes the public classmethod that constructs the result
-    of `_lookup_impl`; implementations supply the execution behavior.
+    Mix this in on the family base class, parameterized with the family's config
+    and policy types, and decorate each concrete implementation with the family
+    base's `register_neurox_impl` for the pair it serves. Registration and
+    lookup are called on that base, so `Self` denotes the dispatched family. The
+    family base exposes the public classmethod that constructs the result of
+    `_lookup_impl`; implementations supply the execution behavior.
+
+    Dispatch is exact: a subclass of a registered config or policy needs its own
+    registered pair. Configuration values do not select the implementation. Keep
+    registration at import time and leave the shared table intact when adding
+    another subclass to the family.
     """
 
     _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[Self]]

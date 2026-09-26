@@ -11,6 +11,15 @@ class DirectSlicer(Slicer):
     """Insert one size-one slice axis.
 
     Recovery removes that axis without arithmetic or circuit cost.
+
+    `value_range` must have a strictly smaller lower bound, but `slice` does not
+    validate input values. Both slicing and single-slice recovery are views, so
+    mutating their tensors can affect the input. The recovery enable mask is
+    ignored for this one-slice path.
+
+    Args:
+        value_range: Inclusive representable integer interval with lower bound
+            below upper bound.
     """
 
     def __init__(self, *, value_range: tuple[int, int]) -> None:

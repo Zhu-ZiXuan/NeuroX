@@ -16,7 +16,7 @@ The family quantization is a **monotone** mapping of the magnitude input against
 
 $$\mathrm{code} \in [0,\ 2^{b}-1],$$
 
-the count of reference levels the input exceeds, resolved to $b$ bits. Because the input is a non-negative magnitude, there is no zero-code shift: the raw unsigned code is the direct output.
+the count of reference levels the input reaches or exceeds, resolved to $b$ bits. Because the input is a non-negative magnitude, there is no zero-code shift: the raw unsigned code is the direct output.
 
 Bit width nests: for a deterministic member the code at resolution $b$ is the code at $b_{\max}$ right-shifted,
 
@@ -40,10 +40,6 @@ Quantization against the reference levels is intrinsic to every member; all furt
 
 ## Assumptions, scope & validity
 
-Stated assumption: the input is a genuinely single-ended non-negative magnitude, so the unsigned-code convention is well-defined.
+The input is a single-ended nonnegative magnitude.
 
-TODO (domain author): the value-range and operating-envelope limits across which the unsigned-code contract holds.
-
-## References
-
-TODO.
+Physical operating limits require characterization of the concrete converter.

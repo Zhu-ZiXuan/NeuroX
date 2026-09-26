@@ -23,14 +23,21 @@ _recorders: WeakValueDictionary[int, RecorderBase[Any, Any, Any]] = WeakValueDic
 
 
 class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=True):
-    """Collect one family's submissions and merge records after each context.
+    """Implement a recorder family with typed runtime submissions and results.
+
+    Define concrete record, history, and result types, implement
+    `_merge_records` and the `result` property, and expose submission methods
+    decorated with `submission`. Each submission must pass retained tensors
+    through `_export_tensor` before `_submit_record`. The base manages context
+    lifetime and export completion; the subclass owns record validation and
+    aggregation.
 
     Direct subclasses open independent families and bind their submission,
     history-entry, and result types; descendants share their family's active
     slot. Collection is single-threaded: the slot is not thread-local. Emitters
     use `current` or `active` and prepare submissions only when active, without
-    changing numerical behavior. Families decorate their `submit_*` methods
-    with `submission`; those methods validate inputs, prepare retained payloads,
+    changing numerical behavior. Families decorate their `submit_*` methods with
+    `submission`; those methods validate inputs, prepare retained payloads,
     construct typed records, and pass them to `_submit_record`. Each family
     explicitly passes its tensor payloads through `_export_tensor`, which
     detaches, copies and exports them to CPU before they are stored in a record.
@@ -41,13 +48,13 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
 
     Enter and exit outside compiled functions. Ordered runtime submission keeps
     collection state and submission method bodies outside tracing. A CPU
-    identity tensor routes each call to its recorder. Submission is
-    excluded from CUDA Graph capture so every invocation reaches the recorder.
+    identity tensor routes each call to its recorder. Submission is excluded
+    from CUDA Graph capture so every invocation reaches the recorder.
     CUDA-to-CPU exports use pinned destinations and a separate stream per source
     device. Destinations belong to the records and remain pinned while retained;
     their storage is never recycled while a record still references it. Other
-    device inputs use ordinary CPU copies. No CUDA resources are created
-    until the first CUDA-to-CPU export.
+    device inputs use ordinary CPU copies. No CUDA resources are created until
+    the first CUDA-to-CPU export.
 
     Exit releases the active slot and waits for pending exports before merging
     records. Failed execution drains transfers and discards the batch. Clean

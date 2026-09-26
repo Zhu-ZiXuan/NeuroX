@@ -77,7 +77,7 @@ It vanishes for perfectly matched legs ($C_{p,k} = C_{n,k}$): the term is nonzer
 
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter |
+| [Source](../../../../conventions/module_parameter.md) | Physical origin | Statistical model | Parameter |
 | --- | --- | --- | --- |
 | cap mismatch | per-cap area/oxide variation | static per-cap Pelgrom Gaussian on $C_k$ (independent legs), at fabricate | `cap_mismatch_sigma_relative` |
 | comparator offset | static comparator input offset | static Gaussian threshold offset, at fabricate | `comparator_offset_sigma__V` |
@@ -93,11 +93,9 @@ $$\sigma_V^2 = \frac{k_B T}{C_{\mathrm{total}}},$$
 
 with $k_B$ the Boltzmann constant, $T$ the operating temperature, and $C_{\mathrm{total}}$ the sampling leg's array total. The two legs are perturbed independently, each with its own $C_{\mathrm{total}}$.
 
-TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
-
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `bits` | physical CDAC depth $b_{\max}$ | — | $\geq 2$ | Design |
 | `latency_per_bit__ns` | SAR clock period and latency per output bit | ns | $> 0$ | Design |
@@ -109,9 +107,7 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 | `energy_per_bit__fJ` | per-bit energy overhead | fJ | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
-The reference voltage is not a parameter of this ADC — it is supplied per conversion (see [family](family.md)). This topology divides one full-scale reference internally, so its reference count is one: the injected bank carries a single tap. A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `latency_per_bit__ns`. Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
-
-## Symbols
+The reference voltage is not a parameter of this ADC — it is supplied per conversion (see [family](family.md)). This topology divides one full-scale reference internally, so its reference count is one: the injected bank carries a single tap. A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `latency_per_bit__ns`. ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
@@ -136,17 +132,11 @@ The reference voltage is not a parameter of this ADC — it is supplied per conv
 
 ## Assumptions, scope & validity
 
-Stated assumptions:
-
 - The differential topology resolves the MSB by free comparison, so no dedicated MSB cap is modelled.
 - For $b < b_{\max}$ the unreached smaller caps still sample and charge-divide — contributing to $C_{\mathrm{total}}$ and hence the step denominator — but are not switched, so they add no switching energy.
 
-TODO (domain author): the validity range of the merged-capacitor step model (settling, parasitic coupling) and the operating envelope over which calibration is trusted.
-
-## Validation
-
-TODO - link validation evidence once written.
+The characterized operating envelope, including settling and parasitic coupling limits, is not established here.
 
 ## References
 
-TODO: cite the merged-capacitor-switching SAR topology and its energy model.
+Citations for the merged-capacitor-switching SAR topology and its energy model are not documented here.

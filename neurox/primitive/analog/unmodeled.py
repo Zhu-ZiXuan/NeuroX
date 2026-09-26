@@ -45,7 +45,20 @@ _Policy = UnmodeledBlockPolicy
 
 
 class UnmodeledBlock(ProfileModule):
-    """Circuit block represented by flat per-instance and per-operation PPA."""
+    """Represent configured hardware costs without an electrical model.
+
+    Static area and leakage scale with `inst_shape`. Call `execute` with the
+    full layout of actual operations to record flat dynamic costs. Instance
+    extents are not inserted into that layout automatically. No fabrication or
+    programming is required, and execution returns no signal or timing value.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Retained argument; dynamic-energy records use float32.
+    """
 
     config: _Config
     policy: _Policy
@@ -70,7 +83,20 @@ class UnmodeledBlock(ProfileModule):
 
     @torch.no_grad()
     def execute(self, shape: tuple[int, ...], *, enable: Tensor | None = None) -> None:
-        """Record enabled operations in `shape`; `None` enables every position."""
+        """Record a flat cost at every enabled operation position.
+
+        The method has no effect outside an active profiler. Its layout
+        describes real operations, so callers must not invoke it once per
+        numerical iteration.
+
+        Args:
+            shape: Complete observation and internal-work layout, including
+                physical multiplicity and temporal reuse exactly once. Trailing
+                work axes are reduced according to the configured profile
+                leading rank.
+            enable: Boolean event mask broadcastable to `shape`; `None` enables
+                all positions. Disabled events cost zero.
+        """
         if self._is_profiler_active():
             # Mask presence specializes during tracing; only masked costs depend on its device.
             if enable is None:

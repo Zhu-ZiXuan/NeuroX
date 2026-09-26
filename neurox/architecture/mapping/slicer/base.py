@@ -11,13 +11,19 @@ from neurox.primitive.digital import RadixAccumulator, RadixSummator
 
 
 class Slicer(ABC):
-    """Decompose integers along a caller-selected slice axis.
+    """Decompose integers into least-significant-first positional slices.
 
-    Construction binds an ordinary reference to the owner's recovery circuit.
-    A direct implementation has exactly one slice and no recovery circuit.
-    Encoded implementations have multiple slices and may use either a recovery
-    circuit or exact tensor arithmetic without register wrap or circuit cost.
-    Positional weights are the successive powers of `slice_radix`.
+    Implement `slice` and consistent range, count, and radix properties. Preserve
+    other input axes; recovery expects exactly `slice_num` entries on its selected
+    axis. A single slice passes through without arithmetic or circuit costs.
+
+    An optional recovery circuit remains owned and placed by its containing
+    module. Without one, recovery uses tensor arithmetic without register wrap
+    or circuit costs.
+
+    Args:
+        recovery_circuit: Externally owned recovery circuit, or None for tensor
+            arithmetic.
     """
 
     def __init__(

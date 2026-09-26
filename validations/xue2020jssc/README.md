@@ -8,7 +8,7 @@ This campaign validates one 256×512 1T1R sub-array against the paper's simulate
 make validate_xue2020jssc DEVICE=cuda:0
 ```
 
-The command creates `xue2020jssc_<UTC timestamp>/` under `log/validation/xue2020jssc/`, containing `run.log`, `run.json`, raw named observations in `profile.pt`, and `energy_breakdown.svg`. `--output-dir` selects another parent directory; `--log-level` controls message-only logging.
+The command creates `xue2020jssc_<UTC timestamp>/` under `log/validation/xue2020jssc/`, containing `run.log`, `run.json`, raw named observations in `profile.pt`, and `energy_breakdown.svg`. For additional options, invoke `uv run python -m validations.xue2020jssc.validate --device cuda:0`; `--output-dir` selects the parent directory and `--log-level` controls verbosity.
 
 `config.toml` selects the bundled `neurox/presets/works/xue2020jssc.toml` design point through `_neurox_use_preset`.
 

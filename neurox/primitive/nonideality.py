@@ -35,7 +35,22 @@ def apply_stuck_at_fault(
     max_val: float,
     enabled: bool,
 ) -> Tensor:
-    """Replace cells with stuck-at-min / stuck-at-max values."""
+    """Replace selected floating-point elements with minimum or maximum states.
+
+    Minimum and maximum faults are mutually exclusive. Unselected values are
+    unchanged, without clamping.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        min_val: Replacement value for selected minimum-state faults.
+        max_val: Replacement value for selected maximum-state faults.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     rand_mask = torch.rand_like(x)
@@ -47,14 +62,42 @@ def apply_stuck_at_fault(
 
 
 def apply_gaussian(x: Tensor, *, sigma: float | Tensor, enabled: bool) -> Tensor:
-    """Apply additive Gaussian noise."""
+    """Add a fresh zero-mean Gaussian perturbation to a floating-point tensor.
+
+    Tensor spreads use the input device and broadcast with the input. Normal
+    type promotion applies; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        sigma: Nonnegative absolute spread, broadcastable with the input on its
+            device.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     return x + torch.randn_like(x) * sigma
 
 
 def apply_relative_gaussian(x: Tensor, *, sigma_relative: float, enabled: bool) -> Tensor:
-    """Apply multiplicative Gaussian noise, preserving exact zeros."""
+    """Multiply floating-point values by independent Gaussian gains of mean one.
+
+    Zeros stay zero. Positive inputs can become negative; outputs are not
+    clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        sigma_relative: Nonnegative dimensionless spread relative to the nominal
+            value.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     return x * (1.0 + torch.randn_like(x) * sigma_relative)
@@ -77,7 +120,20 @@ def apply_state_dependent_gaussian(
     config: StateDependentGaussianConfig,
     enabled: bool,
 ) -> Tensor:
-    """Apply Gaussian noise whose σ scales with the magnitude of `x`."""
+    """Add Gaussian noise with spread derived from each input magnitude.
+
+    Spread is the configured intercept plus slope times input magnitude. Outputs
+    are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     sigma = config.sigma_slope * x.abs() + config.sigma_intercept
@@ -93,7 +149,19 @@ class LognormalConfig(ConfigBase):
 
 
 def apply_lognormal(x: Tensor, *, config: LognormalConfig, enabled: bool) -> Tensor:
-    """Apply multiplicative log-normal noise."""
+    """Multiply floating-point values by independent log-normal factors.
+
+    The gain has median one, not mean one. Signs and zeros are preserved.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     return x * torch.exp(torch.randn_like(x) * config.sigma)
@@ -126,7 +194,21 @@ def apply_state_dependent_lognormal(
     config: StateDependentLognormalConfig,
     enabled: bool,
 ) -> Tensor:
-    """Apply log-normal noise whose σ depends on normalised state."""
+    """Apply log-normal factors with state-dependent spread.
+
+    Spread follows the configured normalized-state rule without domain clipping.
+    Inputs outside the calibration range extrapolate it. Gains are not
+    mean-corrected.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     x_norm = (x - config.min_val) / (config.max_val - config.min_val + 1e-12)
@@ -144,7 +226,20 @@ class GammaConfig(ConfigBase):
 
 
 def apply_gamma_noise(x: Tensor, *, config: GammaConfig, enabled: bool) -> Tensor:
-    """Apply multiplicative Gamma noise normalised to unit mean."""
+    """Apply independent Gamma gains normalized to unit mean.
+
+    Use float32 or float64 on a device supporting Gamma sampling. Gains preserve
+    signs and zeros; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     concentration = torch.full((), config.shape_k, dtype=x.dtype, device=x.device)
@@ -184,10 +279,20 @@ def apply_state_dependent_gamma(
     config: StateDependentGammaConfig,
     enabled: bool,
 ) -> Tensor:
-    """Apply state-dependent Gamma noise normalised to unit mean.
+    """Apply unit-mean Gamma gains with state-dependent concentration.
 
-    The Gamma sampler requires float32 or higher; a lower-precision input is
-    cast for sampling and cast back on return.
+    Concentration is floored for sampling; outputs are not range-clipped.
+    Sampling promotes dtypes other than float32 or float64 to float32, then
+    casts back to the input dtype.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
     """
     if not enabled:
         return x
@@ -224,7 +329,20 @@ class TelegraphConfig(ConfigBase):
 
 
 def apply_telegraph_noise(x: Tensor, *, config: TelegraphConfig, enabled: bool) -> Tensor:
-    """Apply random telegraph noise."""
+    """Add independent signed, intermittently active perturbations.
+
+    Each call draws independent amplitudes, signs, and activity. No temporal
+    state or dwell-time process is retained; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
     if not enabled:
         return x
     amplitude = torch.randn_like(x) * config.amplitude_std + config.amplitude_mean
@@ -243,13 +361,19 @@ def apply_pelgrom_mismatch(
 ) -> Tensor:
     """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
 
+    Use nonnegative nominal values, nonnegative spread, and a positive unit. The
+    floor applies only when sampling is enabled.
+
     Args:
+        ideal: Nonnegative nominal floating-point values.
         sigma_relative: Per-unit-cell relative σ.
         unit: Single-unit-cell value in the same units as `ideal`.
         floor: Optional minimum clamp applied after sampling.
+        enabled: Enable random draws.
 
     Returns:
-        Tensor with the same dtype / device as `ideal`.
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
     """
     if not enabled:
         return ideal

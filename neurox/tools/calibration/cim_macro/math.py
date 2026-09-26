@@ -18,7 +18,28 @@ class RescaleFit:
 
 
 def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
-    """Fit `ideal ~= rescale_factor * code` through the origin."""
+    """Fit one zero-intercept scale from paired code and ideal observations.
+
+    Inputs are detached, flattened independently, and converted to float64 on
+    their current devices. Supply finite, elementwise-paired samples with equal
+    counts on the same device. Shapes may differ if flattening preserves the
+    intended pairing. Python scalar statistics synchronize accelerator inputs;
+    use this routine for offline fitting rather than inside compiled execution.
+
+    Args:
+        code: Finite observed code samples on the same device as the ideal
+            values.
+        ideal: Paired ideal samples with the same flattened element count.
+
+    Returns:
+        Fitted scale and residual statistics. Constant ideal targets have R2 of
+        one only for a zero residual, otherwise zero. No positivity constraint
+        is imposed on the fitted scale.
+
+    Raises:
+        ValueError: Counts differ, the sample set is empty, or all codes are
+            zero.
+    """
     c = code.detach().flatten().to(torch.float64)
     y = ideal.detach().flatten().to(torch.float64)
     if c.numel() != y.numel():

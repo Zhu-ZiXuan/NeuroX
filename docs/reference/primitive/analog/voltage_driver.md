@@ -25,30 +25,24 @@ $$E = E_{\mathrm{op}},$$
 
 so holding $n$ ports for one access costs $n E_{\mathrm{op}}$.
 
-## Numerical method
-
-N/A — closed-form affine map and its constant derivative; no iteration.
-
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter |
+| [Source](../../../conventions/module_parameter.md) | Physical origin | Statistical model | Parameter |
 | --- | --- | --- | --- |
 | clamp offset | per-instance mismatch fixed at fabrication | additive zero-mean Gaussian in $V_{\mathrm{pert}}$, constant sigma | offset sigma |
 | clamp thermal noise | node fluctuation sampled independently per access | additive zero-mean Gaussian in $V_{\mathrm{pert}}$, constant sigma | thermal sigma |
 
-TODO (domain author): give each sigma's physical derivation and citation, and confirm whether the thermal term carries any temperature scaling.
+Noise spreads are supplied parameters. The driver applies no explicit temperature scaling to these spreads.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance | MOhm | $\geq 0$ | Design |
 | `offset_sigma__V` | Gaussian sigma of the systematic clamp offset | V | $\geq 0$ | Measured |
 | `thermal_sigma__V` | Gaussian sigma of the clamp thermal noise | V | $\geq 0$ | Measured |
 | `energy_per_op__fJ` ($E_{\mathrm{op}}$) | interface-node switching energy per port operation | fJ | $\geq 0$ | Design |
 | leakage / area | total static power and silicon area | uW, um^2 | $\geq 0$ | Design |
-
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -69,12 +63,12 @@ The model applies where constant $R_{\mathrm{out}}$ represents the node's small-
 
 The energy $E_{\mathrm{op}}$ is independent of voltage, current, and $R_{\mathrm{out}}$. The model excludes state-dependent interface swings and duration-dependent branch dissipation, including $I_{\mathrm{port}}^{2}R_{\mathrm{out}}$ loss.
 
-TODO (domain author): the validity boundary of the constant-$R_{\mathrm{out}}$ idealisation (the current range over which a real clamp's output impedance stays linear), and whether finite slew / settling within the read window is neglected.
+The current range over which constant output resistance is accurate has not been characterized here. Slew and finite settling are outside the affine model.
 
 ## Validation
 
-TODO — link validation evidence once written: that $R_{\mathrm{out}} \to 0$ recovers the ideal constant-voltage source, and that the affine clamp reproduces the specified droop.
+The ideal-source limit and affine droop are numerical consistency checks; independent physical validation is not documented here.
 
 ## References
 
-TODO: cite the Thevenin-equivalent clamp model.
+Citations for the Thevenin-equivalent clamp model are not documented here.

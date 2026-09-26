@@ -36,7 +36,3 @@ Lowering and shape restoration are exact integer operations. The unit adds no st
 | $t_i$ | duration of one internal operation | ns | — |
 | $t_{\mathrm{serial}}$ | duration of a serial sequence | ns | — |
 | $t_{\mathrm{parallel}}$ | duration of a parallel stage | ns | — |
-
-## References
-
-TODO.

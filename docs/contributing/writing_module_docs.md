@@ -1,95 +1,39 @@
-# Writing module documents
+# Writing model documents
 
-## Scope
+A model Reference page describes what is computed: physics, mathematics, numerical method, parameters, assumptions, and evidence. Python signatures, tensor layouts, lifecycle requirements, and failure behavior belong in source docstrings.
 
-A module document states one scheme's own science — the physics and mathematics the scheme obeys — independent of implementation.
+## Content
 
-A module document holds:
+Use sections that serve the model; there is no minimum length or required empty template.
 
-- the physical or circuit model the scheme realizes
-- its governing equations
-- its numerical method as mathematics
-- its own noise and non-ideality sources
-- its parameters and their provenance
-- its assumptions, scope, validity, validation, and literature
+- **Physical model:** the modeled mechanism and its idealizations.
+- **Governing equations:** the relations that define its outputs.
+- **Numerical method:** the mathematical solution procedure, where nontrivial.
+- **Noise and non-idealities:** source distributions, dependencies, and lifetimes.
+- **Parameters and symbols:** definitions needed to interpret the equations.
+- **Validity:** supported assumptions and known limitations.
+- **Validation and references:** available checks and the sources supporting the model.
 
-A module document owns science only — not the software that realizes it, its decisions, contracts, or performance.
+Omit empty `N/A` sections and generic citation placeholders. Preserve specific gaps in evidence or characterized validity; do not replace them with invented claims. Link existing checks when they cover the model, distinguishing numerical consistency from independent physical validation.
 
-## Document template
+## Equations and terminology
 
-A module document's title is the science name of the scheme it specifies; see [naming_conventions](../conventions/naming_conventions.md). Length follows model content: a section appears only when it carries model content, never padded and never given an invented rationale. A section that is conventionally expected but genuinely empty may be left as a bare `N/A`, or `N/A — <note>` when the note states a real fact about the model (not a description of a consumer), or `TODO — <missing item>` when applicable but unwritten. Sections keep the order below when present.
+Use mathematical symbols in equations and define them under the shared [notation](../conventions/notation_conventions.md). Code identifiers may connect parameter and symbol tables to their implementation; keep configuration syntax and API instructions in their respective guides.
 
-```markdown
-# <Model name>
-
-## Physical model
-
-## Governing equations
-
-## Numerical method
-
-## Noise & non-idealities
-
-## Parameters
-
-## Symbols
-
-## Assumptions, scope & validity
-
-## Validation
-
-## References
-```
-
-## Filling each section
-
-An optional lead paragraph directly under the H1 stands in for a Summary section. Write it only when it synthesizes something the body does not — the model's essence and its key runtime inputs; omit it when it would only restate the title or duplicate the body. Do not add a `## Summary` heading.
-
-- `Physical model`: the device, circuit, or architecture physics the model realizes, and the idealizations it deliberately makes.
-- `Governing equations`: the equations the model obeys.
-- `Numerical method`: the mathematical formulation, well-posedness, and convergence when relevant.
-- `Noise & non-idealities`: the non-ideal sources the model implements.
-- `Parameters`: the model parameters, their physical constraints, and their provenance.
-- `Symbols`: every symbol the document uses.
-- `Assumptions, scope & validity`: the modeling assumptions and the range over which they hold.
-- `Validation`: how the model is checked against physical data or analytic results.
-- `References`: the literature backing the model.
-
-Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
-
-## Content rules
-
-### Spec the model, not the physical realization
-
-Document what the model computes — its equations, parameters, and modeled non-idealities — and the idealizations it deliberately makes. Do not narrate the physical mechanism the model does not implement, at any layer — device, circuit, or architecture; when the model reduces its subject to a single relation, that relation is the model content and the mechanism narration is not. Keep every idealization and validity statement: what the model deliberately does not model is itself model content.
-
-### Stay in the science layer
-
-A module document states electrical and physical fact only. It carries no software or object-oriented structure, no class or type names in prose, and no architecture or consumer language — no naming of a consuming block, a consuming solve, or an inheritance relation. A plain electrical term, such as a channel-polarity name, is a physical fact and stays as prose without code styling. Code identifiers appear only in the symbol-table Code-field column, nowhere else in the document.
-
-### Equations
-
-- Use standard physics and EE symbols; do not put code identifiers inside equations.
-- Coarse-grained equations are allowed when they express the spec better than implementation detail.
-
-### Symbols
-
-Every module document includes a Symbols table listing every symbol it uses, including common ones. Take common symbols from [notation_conventions](../conventions/notation_conventions.md). When a family document provides a shared symbol table, cite it and list only the symbols this scheme adds beyond it.
+Use the shared family definitions where applicable. A model-specific symbol table lists additions rather than repeating an entire family table:
 
 ```markdown
 | Symbol | Meaning | Unit | Code field |
 | --- | --- | --- | --- |
 ```
 
-### Parameters
+## Parameters
 
-Use the five-column table below. Give every parameter a Constraint and a Source; [module_parameter](../conventions/module_parameter.md) defines both columns and what each admits. Runtime inputs such as activations, weights, temperature, and operating points earn no row — define the important ones in the lead paragraph, Governing equations, or Symbols instead.
+State physical constraints and parameter provenance using the [source taxonomy](../conventions/module_parameter.md):
 
 ```markdown
 | Parameter | Meaning | Unit | Constraint | Source |
 | --- | --- | --- | --- | --- |
 ```
 
-### Noise
-
-The Noise & non-idealities section states each source's physical or statistical model and its distribution parameters.
+Runtime operands, temperature, and operating points are inputs to the equations rather than design parameters. Describe their meaning where they enter the model. For a derived parameter, identify the inputs and derivation instead of assigning it an independent source.

@@ -46,6 +46,20 @@ class Vdac(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
 
     A converter reports no duration; conversion settles within an externally
     scheduled window.
+
+    Implement `code_max` and `_convert_impl`, then register the concrete
+    config-policy pair on this family. The public `convert` wrapper disables
+    gradient tracking and delegates conversion; it does not validate or clip
+    codes. The implementation must preserve the caller's element layout, perform
+    its modeled sampling, and emit its own dynamic energy when profiling is
+    active. Static per-instance costs come from the family configuration.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -120,5 +134,20 @@ class Vdac(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=True):
 
     @abstractmethod
     def _convert_impl(self, code: Tensor) -> Tensor:
-        """Convert inputs according to the `convert` contract."""
+        """Convert integer codes and record the modeled switching cost.
+
+        Return one analog value for each input element using placed tensor
+        sources. Callers supply codes in `[0, code_max]`; define any additional
+        restrictions on the concrete class. The wrapper supplies no clipping,
+        energy submission, or sampling, so the implementation owns those modeled
+        operations. Do not mutate input codes or record another component's
+        costs.
+
+        Args:
+            code: Integer input codes in the inclusive range from zero to
+                code_max.
+
+        Returns:
+            Output voltage for each input code on the placed sources' device.
+        """
         raise NotImplementedError

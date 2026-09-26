@@ -33,12 +33,25 @@ _Config = UnitConfig
 
 
 class UnitBase(ProfileModule, ABC, base_only=True):
-    """Single-instance integer operators with value-domain and execution metadata.
+    """Integer operators with value-domain and execution metadata.
 
     Before profiling, bind the assembled subtree's profile leading rank to the
     number of independent operation axes in its input. Public operator entries
     check this rank before executing their children. Numerical execution never
-    changes the configured rank; aggregation across operations belongs to callers.
+    changes the configured rank; aggregation across operations belongs to
+    callers.
+
+    Implement the weight and input value ranges, converter width, output rescale
+    factor, and one-operation latency. Operator families add programming and
+    execution interfaces. Initialize through `UnitBase.__init__` with a
+    `UnitConfig` and a policy; unit-local area and leakage are supplied by that
+    config, while independently profiled children account for their own costs.
+    Subclasses must preserve the distinction between independent caller
+    positions and internal work when emitting observations.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
     """
 
     config: _Config
@@ -130,6 +143,17 @@ class UnitBase(ProfileModule, ABC, base_only=True):
 
     @final
     def _check_profile_leading_rank(self, expected_rank: int) -> None:
+        """Check that profiling preserves the operator's caller axes.
+
+        Call from a public execution wrapper only while profiling is active,
+        before running child computations. This helper validates the configured
+        rank; it never changes it. A mismatch raises `ValueError` and must be
+        corrected by the model owner before collection.
+
+        Args:
+            expected_rank: Number of independent input-leading axes the operator
+                must preserve.
+        """
         if self._profile_leading_rank != expected_rank:
             raise ValueError(
                 f"profiling requires profile_leading_rank={expected_rank}; got {self._profile_leading_rank}. "

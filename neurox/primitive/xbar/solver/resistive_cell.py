@@ -35,6 +35,12 @@ class ResistiveCell[SnapT, DcopT: ResistiveCellDcop](Protocol):
     """Condensed branch evaluated against a caller-supplied snapshot.
 
     The snapshot and cell evaluation must support compiled tensor execution.
+
+    Implementers must return local derivatives evaluated at the requested
+    operating point with the same broadcast layout as the returned signal. A
+    solver may invoke this transfer repeatedly on one held snapshot. Keep calls
+    free of new physical sampling, programming, or energy billing; numerical
+    iterations are not additional physical accesses.
     """
 
     @property

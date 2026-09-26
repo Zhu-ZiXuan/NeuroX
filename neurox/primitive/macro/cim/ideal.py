@@ -109,7 +109,30 @@ _Policy = IdealCimMacroPolicy
 
 @CimMacro.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class IdealCimMacro(CimMacro):
-    """Ideal macro VMM whose highest precision is the exact integer result."""
+    """Use a programmed arithmetic control with the macro family's geometry.
+
+    Program a complete `[*inst_shape, input, output]` matrix before calling
+    `vec_mat_mul`. Programming retains a detached copy. Supply integer-valued
+    weights and inputs within the configured ranges, on a common device, and
+    respect `max_active_num` for each access.
+
+    With `adc_active_bits=None`, execution returns the exact integer dot product
+    and `rescale_factor` is one. An explicit active width applies the configured
+    quantization scheme and mode scale, even when it equals `adc_bits`. Integer
+    accumulation must remain representable in int64.
+
+    This implementation has zero modeled scan latency and emits no analog
+    dynamic energy. Configured local static costs remain visible. An ideal twin
+    therefore provides a numerical control without predicting the removed
+    physical circuits.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

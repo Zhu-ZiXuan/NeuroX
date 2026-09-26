@@ -1,12 +1,12 @@
 # Naming and titles
 
-The single home of the naming law — whether a name carries its family qualifier or drops it, for a class name, a code or doc file, and a document title.
+Names identify concepts consistently across code and documentation.
 
 Identifiers and filenames use concise English words and established ASCII domain abbreviations. Reuse the code name assigned to a scientific quantity by [notation conventions](notation_conventions.md); do not translate one concept into multiple synonymous names.
 
 One identity names an object across code and documentation. A name read in isolation is self-identifying and carries the full identity, family included; a name read inside its package or directory is package-relative and drops the qualifier the enclosing name already supplies. A class name and a document title are self-identifying; a code module file is package-relative. With no enclosing family the two coincide.
 
-Every documentation file is named in snake_case.
+Topic documentation files use snake_case. Standard repository files retain their recognized names, including `README.md`, `CONTRIBUTING.md`, `LICENSE`, and `CITATION.cff`.
 
 | | Class | Code file | Title |
 | --- | --- | --- | --- |
@@ -26,7 +26,7 @@ A domain qualifier is determined by the scope in which a name must remain unambi
 
 ## Python symbol prefixes
 
-A single leading underscore marks a non-public, library-internal symbol. Use by a subclass, an internal collaborator, or a test does not promote that symbol to the supported interface. A bare name marks a supported interaction surface; whether its audience is a library user or an extension author follows the owning User API or Extension SPI contract.
+A single leading underscore marks a symbol outside the application API. A base may explicitly document such a method as a subclass hook; its extension contract then belongs in the owning docstring. Incidental use by an internal collaborator or test does not make a helper an extension interface. A bare name marks a supported interaction surface whose audience follows the owning User API or Extension SPI contract.
 
 A double leading underscore is reserved for the rare case where a broadly inherited base deliberately uses Python name mangling to prevent an accidental subclass collision. It is not a stronger privacy marker than a single leading underscore.
 
@@ -45,4 +45,4 @@ A generic type parameter is named `[<Owner>]<Role>T`: an optional ownership qual
 
 The qualifier answers whose companion type the parameter stands for. An unqualified name is the declarer's own companion type, or a role that is ownership-agnostic to begin with. A qualified name is another module's companion type — a composed child or a collaborator — and the qualifier is that owner's name: `<Child>SnapT` is the child's snap, `<Collaborator>RecordT` is the collaborator's record.
 
-Same-role parameters appearing together in one parameter list therefore differ in ownership, the qualifier is what tells them apart, and at most one of them is unqualified. If a parameter for the declarer's own companion type ever seems to need a qualifier, the class holds two selves; the design changes, not the name.
+When several type parameters have the same role, qualify them by owner; at most one remains unqualified.

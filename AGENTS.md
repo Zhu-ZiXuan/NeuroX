@@ -1,3 +1,3 @@
 # NeuroX agent guide
 
-Read `docs/contributing/README.md` to know about the contributing rules of Neurox. When necessary, follow its links to the authoritative public development workflow and conventions.
+Read `CONTRIBUTING.md` before working in this repository. Follow its links for the conventions and task-specific guidance relevant to the change.

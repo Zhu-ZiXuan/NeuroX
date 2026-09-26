@@ -125,7 +125,35 @@ def extract_linear_cell_config(
     device: torch.device,
     dtype: torch.dtype,
 ) -> XbarCell1t1rLinearConfig:
-    """Extract linear divider tables from converged canonical Detail solves."""
+    """Calibrate on/off divider tables at one declared terminal operating point.
+
+    Build a new detailed cell on `device` in `dtype`, disable its stochastic
+    policies, and solve every programmed state at both word-line levels. The
+    supplied config is unchanged. Returned tables preserve state order; their
+    switching threshold is the midpoint of the two supplied word-line voltages.
+    Use float32 or float64 and `v_bl_op__V > v_sl_op__V`, with the on level
+    above the off level. Scalar result extraction can synchronize the device.
+
+    Args:
+        cell_config: Detailed-cell model whose weight states are calibrated.
+        v_bl_op__V: Bit-line calibration voltage, greater than the source-line
+            voltage.
+        v_sl_op__V: Source-line calibration voltage.
+        v_wl_off__V: Word-line voltage for the off-state tables.
+        v_wl_on__V: Word-line voltage for the on-state tables, above the off
+            level.
+        device: Device for deterministic electrical solves.
+        dtype: Float32 or float64 computation dtype for extraction.
+
+    Returns:
+        Linear-cell configuration fitted at the supplied operating point. This
+        does not validate the approximation at other voltages or temperatures.
+
+    Raises:
+        ValueError: The operating span or derived table values are invalid.
+        RuntimeError: The detailed electrical solve fails its convergence
+            checks.
+    """
     cell = _build_cell(cell_config, device=device, dtype=dtype)
     g_cell_off: list[float] = []
     g_cell_on: list[float] = []
@@ -169,7 +197,22 @@ def linear_fragment_text(
     v_bl_op__V: float,
     v_sl_op__V: float,
 ) -> str:
-    """Return a mergeable linear-cell fragment with its extraction point."""
+    """Serialize a calibrated linear-cell config as a mergeable TOML fragment.
+
+    The returned text contains a `cell_config` table and comments identifying
+    the supplied BL/SL extraction voltages. It performs no solve or file I/O.
+    Pass the same voltages used during extraction so the recorded provenance
+    remains true.
+
+    Args:
+        linear_config: Extracted linear-cell tables to serialize.
+        v_bl_op__V: Bit-line voltage used when those tables were extracted.
+        v_sl_op__V: Source-line voltage used when those tables were extracted.
+
+    Returns:
+        TOML text containing the cell_config table and operating-point
+        provenance.
+    """
     header = (
         "# Linearized 1T1R cell fragment emitted by neurox.tools.calibration.cell.\n"
         "# Tables reproduce the canonical Detail cell at\n"

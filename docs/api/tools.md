@@ -30,6 +30,8 @@
 
 ::: neurox.tools.calibration.adc.data
 
+::: neurox.tools.calibration.cim_macro.sampling
+
 ::: neurox.tools.calibration.cell.x1t1r
 
 ::: neurox.tools.calibration.cim_macro.construction

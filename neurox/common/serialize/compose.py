@@ -34,8 +34,13 @@ def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, *, strict_typ
 def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
     """Deep-merge dictionaries in descending priority order.
 
+    This merge does not mutate inputs but is not a deep copy: values and nested
+    subtrees that need no recursive merge may retain references to the original
+    objects. Treat the merged result as read-only or copy it before mutation.
+    Lists and scalar values are replaced as whole values rather than combined.
+
     Args:
-        dicts: Earlier dictionaries take precedence over later ones.
+        *dicts: Earlier dictionaries take precedence over later ones.
         strict_type: Reject a dictionary/non-dictionary conflict instead of
             resolving it by priority.
 

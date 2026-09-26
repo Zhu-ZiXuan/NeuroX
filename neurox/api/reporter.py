@@ -58,12 +58,18 @@ def profile_result_to_report_items(
     treat results as read-only.
 
     Args:
+        result: Completed named profiler observations with the intended hardware
+            scope.
         powered_duration__ns: Exact name-to-tensor replacements for the powered
             window lookup. Names absent from the input may define an ancestor
             window. The nearest name with a recorded duration or override wins;
-            a child's recorded duration takes precedence over ancestor overrides.
-            Tensors must match the corresponding sample
-            layout and device. Zero represents a zero-length powered interval.
+            a child's recorded duration takes precedence over ancestor
+            overrides. Tensors must match the corresponding sample layout and
+            device. Zero represents a zero-length powered interval.
+
+    Returns:
+        A mapping from names to report items, preserving observation axes. Input
+        observation tensors are shared and should be treated as read-only.
     """
     # --- Index directly submitted working windows ---
 
@@ -97,14 +103,32 @@ def profile_result_to_report_items(
 
 
 class Reporter:
-    """Expose named hardware and sample data from a completed profiler result.
+    """Read named PPA quantities from a completed profiler result.
 
-    Names and sample axes are preserved. Timing inheritance, powered-window
-    overrides, hardware scope, and tensor sharing follow
-    `profile_result_to_report_items`.
+    Construct after the profiler context exits. The reporter retains each name
+    and observation axis; it does not sum a model, average batches, or infer a
+    schedule. Use `breakdown` to select a metric and perform
+    application-specific aggregation afterwards. Static costs must already
+    describe the physical scope represented by each observation.
 
-    Construct after collection. Later collection is not incorporated into this
-    reporter; application code owns subsequent aggregation and scheduling.
+    A name without its own duration inherits the nearest timed ancestor's
+    window. `powered_duration__ns` overrides powered windows by exact name
+    before ancestor lookup; a child's own recorded duration takes precedence
+    over an ancestor window. Overrides must match the corresponding observation
+    layout and device. They change leakage-energy calculation without changing
+    recorded work.
+
+    Missing quantities remain `None`; zero is a known value. Total energy
+    combines available dynamic and static contributions, even if only one is
+    available. Input observation tensors are shared, so treat report tensors as
+    read-only. Later profiler collection is not incorporated into an existing
+    reporter.
+
+    Args:
+        result: Completed named profiler observations with the intended hardware
+            scope.
+        powered_duration__ns: Optional exact-name powered-window overrides
+            matching the observation layout and device.
     """
 
     def __init__(
@@ -134,7 +158,20 @@ class Reporter:
         Area and leakage use um2 and uW; energies use fJ, durations use ns.
         Total energy adds available dynamic and static contributions elementwise;
         their individual metrics retain `None` for any missing contribution.
+
+        Raises:
+            ValueError: The metric name is not supported.
         """
+        if metric not in (
+            "area",
+            "leakage",
+            "dynamic_energy",
+            "static_energy",
+            "total_energy",
+            "working_duration",
+            "powered_duration",
+        ):
+            raise ValueError(f"unsupported report metric {metric!r}")
         if metric == "area":
             return {name: item.area__um2 for name, item in self._data.items()}
         if metric == "leakage":

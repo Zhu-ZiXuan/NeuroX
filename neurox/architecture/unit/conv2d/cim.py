@@ -31,7 +31,28 @@ _Policy = Conv2dCimUnitPolicy
 
 @Conv2dUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class Conv2dCimUnit(Conv2dUnit, CimUnit):
-    """CIM-backed convolution with independent, parallel hardware per channel group."""
+    """Execute integer convolutions on independent CIM channel groups.
+
+    Place and fabricate before programming the complete kernel and optional
+    integer bias. `config.merge` permits input-slot sharing within each group;
+    groups own separate hardware and run in parallel. Zero padding requires an
+    input value range containing zero.
+
+    Supply integer operands in the configured domains. The inherited `conv2d`
+    interface defines leading image axes and profiling. Latency covers one full
+    image and its window schedule, not the leading batch dimensions.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        w_logical_shape: Complete logical weight shape accepted by `program`.
+        stride: Positive convolution steps `(height, width)`.
+        padding: Nonnegative zero padding on each spatial side.
+        dilation: Positive kernel-tap spacing `(height, width)`.
+        groups: Number of independent channel groups; output channels must
+            divide evenly.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

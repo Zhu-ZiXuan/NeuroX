@@ -44,9 +44,9 @@ class RramConfig(ConfigBase):
     # === Retention drift ===
 
     drift_decay_rate: float
-    """Power-law drift exponent."""
+    """Retained config field; unused by the current programming/read model."""
     drift_t0: float
-    """Reference time [s] for the retained drift law."""
+    """Retained drift reference time [s]; currently unused."""
 
     # === Read noise ===
 
@@ -79,7 +79,7 @@ class RramPolicy(PolicyBase):
     prog_gamma: bool
     """Apply state-dependent programming Gamma at program time."""
     drift: bool
-    """Drift selection; programming at time zero applies no drift."""
+    """Retained policy field; no retention-time evolution is applied."""
     stuck_at: bool
     """Apply stuck-at faults at program time."""
     read_telegraph: bool
@@ -112,9 +112,21 @@ class Rram(NonProfileModule):
     Programming variation is applied by `program()` and read variation by
     `snapshot()`; fabrication therefore owns no RRAM state.
 
+    Call `program` before `snapshot` and use a floating-point target tensor on
+    the intended device. The programmed tensor's device and dtype determine
+    stored state; module placement alone does not migrate that state. Reprogram
+    when changing placement. Hold one snapshot through all trial voltages of an
+    access so solver iterations share the same read variation. This device emits
+    no independent area, leakage, or energy observations.
+
     Args:
-        g_max__uS: Maximum programmable conductance; both bounds must be
-            normal values representable by `dtype`.
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        g_max__uS: Maximum programmable conductance; both bounds must be normal
+            values representable by `dtype`.
     """
 
     config: _Config

@@ -81,7 +81,25 @@ _Policy = ReferencePolicy
 
 
 class Reference(ProfileModule):
-    """Return one fabricated tensor without interpreting its axes or units."""
+    """Supply a held reference tensor with caller-defined units and axes.
+
+    Construct from a scalar or rectangular tuple tree, place the module, then
+    call `fabricate` before `values`. The fabricated result prepends
+    `inst_shape` to the configured value shape. Fabrication draws enabled
+    relative tolerance; repeated reads return the same realization without
+    additional sampling.
+
+    Own a physical reference once and share its returned values with consumers.
+    Area and standing power are configured per physical instance; reading values
+    emits no dynamic energy. Treat the returned tensor as read-only.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy
@@ -123,5 +141,15 @@ class Reference(ProfileModule):
 
     @torch.no_grad()
     def values(self) -> Tensor:
-        """Return the fabricated tensor unchanged."""
+        """Return the held reference tensor without copying or resampling it.
+
+        Call `fabricate` first. The result shares internal storage and retains
+        its fabricated dtype and device; consumers must not mutate it. Axis
+        meaning and physical units are supplied by the owner of the reference.
+
+        Returns:
+            Reference values with physical instance axes preceding configured
+            axes.
+            Shape: `[*inst_shape, ...]`.
+        """
         return self._values

@@ -24,7 +24,23 @@ _Policy = LinearCimUnitPolicy
 
 @LinearUnit.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class LinearCimUnit(LinearUnit, CimUnit):
-    """CIM linear operator using separate physical tiles without input-slot sharing."""
+    """Execute integer linear products on a configured CIM macro population.
+
+    Place, set temperature, and fabricate before programming a complete matrix
+    and optional bias. Supply integer operands within the declared value ranges.
+    The configuration sets precision slices and recovery circuits; each tile
+    has separate hardware without input-slot sharing.
+
+    Select a quantization window and optional ADC width per call. Bias is added
+    after recovery in the output-code domain. The inherited `linear` interface
+    specifies layout and profiling; latency covers one vector, not the batch.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        w_logical_shape: Complete logical weight shape accepted by `program`.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

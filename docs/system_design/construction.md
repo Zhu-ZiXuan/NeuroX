@@ -4,7 +4,7 @@ A simulation separates the hardware design from the choices made for a run. Cons
 
 ## Design and run choices
 
-Configuration describes physical, design, and specification values reused across runs. Policy selects how a run models that design, including which non-idealities are active. A source's physical magnitude belongs to the design; the decision to apply it belongs to the run. Parameter ownership follows the variability criterion in [module parameter](../conventions/module_parameter.md).
+Configuration describes physical, design, and specification values reused across runs. Policy selects how a run models that design, including which non-idealities are active. A source's physical magnitude belongs to the design; the decision to apply it belongs to the run.
 
 Both descriptions follow the system's composition. Each component receives the design and run choices relevant to its own responsibility. Alternative realizations of a component must satisfy the same role within the enclosing system.
 

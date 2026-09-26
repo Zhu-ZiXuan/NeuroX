@@ -69,7 +69,25 @@ _Policy = GeneralVdacPolicy
 
 @Vdac.register_neurox_impl(config_type=_Config, policy_type=_Policy)
 class GeneralVdac(Vdac):
-    """General voltage DAC model with a code-to-voltage LUT."""
+    """Look up voltages with optional independent Gaussian output noise.
+
+    Place the module's lookup tables before calling `convert`. Supply integral
+    codes from zero through `code_max` on the tables' device. Values are cast to
+    integer indices without a range check or saturation; negative codes would
+    use Python-style indexing and are outside the interface contract.
+
+    The result preserves the code layout and uses the signal table's dtype. No
+    fabrication or programming is required. Every call samples fresh output
+    noise when enabled and records the corresponding per-code energy while
+    profiling. No settling time is modeled by this converter.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

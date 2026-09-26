@@ -1,44 +1,31 @@
-# Algorithm-engineer workflow
+# Operator workflow
 
-Train an original floating-point model, then observe its operator energy with NeuroX during checkpoint inference. The original model supplies the predictions; energy observation checks that each sample's logits match inference without observation exactly.
+A library workflow selects a model, establishes its state, executes integer operands, and interprets its observations. The [quickstart](../../get_started/README.md) provides a complete ideal linear example.
 
-The bundled examples provide LeNet-5 on MNIST and BERT-small on SST-2. Each directory contains `model_float.py`, `data.py`, `train_float.py`, and an `evaluate.py` entry into the shared energy evaluation code. BERT requires `transformers` and `datasets` in addition to the core dependencies.
+## Select a model and value domain
 
-## Train the original model
+The [unit API](../../api/units.md) offers ideal and CIM linear and convolution implementations. Ideal units provide integer arithmetic without analog execution. CIM units map operands onto a configured macro and recovery circuits. Read the [unit model](../../reference/architecture/unit/family.md) and the chosen components' assumptions before interpreting differences between them.
 
-LeNet trains from random initialization and saves a floating-point state dictionary:
+Provide operands in the unit's declared integer value domain. Preparing quantized inputs and weights from a neural network belongs to the calling application. Operator results and hardware statistics can be examined independently of a training pipeline.
 
-```bash
-python -m example.lenet.train_float --device cuda:0 --dataset-dir dataset/mnist \
-    --checkpoint weight/lenet_float.pth
-```
+## Construct the hardware
 
-BERT fine-tunes the pretrained encoder and classification head:
+Construct a concrete unit in Python, or use the file factories in the [application API](../../api/python.md). [Configuration and policy](../../api/configuration.md) describe the hardware and the selected run behavior. Bundled presets supply reusable circuit designs; a unit configuration also supplies its mapping and digital parameters.
 
-```bash
-python -m example.bert.train_float --device cuda:0 --dataset-dir dataset/sst2 \
-    --checkpoint weight/bert_small_float.pth
-```
+Set logical weight shape and any convolution geometry explicitly. Configuration fields and factory signatures are documented from source; geometry and value-domain checks belong to those interfaces.
 
-The corresponding Make targets are `make train-lenet DEVICE=cuda:0` and `make train-bert DEVICE=cuda:0`. Training parameters can be overridden through `DATASET_DIR`, `RAW_CKPT`, `BATCH_SIZE`, `EPOCHS`, and `LR`; BERT also accepts `MAX_LENGTH`.
+## Establish state
 
-## Evaluate energy
+Move the assembled unit to the selected device, establish temperature, and fabricate it when the model requires a fabricated realization. Program weights and optional bias before execution. Place operand tensors on the device expected by the unit. Follow the owning interface's dtype and shape requirements.
 
-Evaluation loads the original checkpoint and observes supported linear and convolution operators:
+[Physical state](../../system_design/physical_state.md) explains which changes require a new fabrication or programming event. Repeated execution can retain the same hardware realization while sampling fresh access variation.
 
-```bash
-python -m example.lenet.evaluate --device cuda:0 --checkpoint weight/lenet_float.pth \
-    --preset xue2020jssc --num-samples 10 --output log/energy/lenet_xue.json
-python -m example.bert.evaluate --device cuda:0 --checkpoint weight/bert_small_float.pth \
-    --preset ye2023jssc --num-samples 10 --output log/energy/bert_ye.json
-```
+## Collect observations
 
-Checkpoints and evaluation data must be available locally. `--num-samples` bounds the evaluation size; each selected sample forms one inference batch. The Make targets `eval-lenet` and `eval-bert` accept `DEVICE`, `EVAL_CKPT`, `PRESET`, and `MAX_SAMPLES`.
+Set the profile leading rank on the assembled unit to match the independent operation axes in its input. Collect static data after physical-state setup, then open a profiler context around the operation. Keep the assembled hardware and names fixed during measurement.
 
-The observer uses physical macro presets by default; `--ideal-macro` selects ideal twins and excludes analog dynamic energy. Each logical operator position owns one unit programmed before measurement. Operand encoding preserves the original model's outputs. Grouped convolutions use independent hardware per group. Attention matrix products and operations outside the observed linear/convolution products are outside the report's scope. Unsupported input domains are reported in `<output>.unsupported.json` and stop preparation.
+Construct a reporter after the context exits. The [profiler and reporter API](../../api/python.md) defines the retained fields, concatenation, and reporting options. [PPA accounting](../../system_design/ppa_accounting.md) explains local hardware ownership, working and powered durations, and which aggregation belongs to the application.
 
-## Read the report
+## Check the result
 
-The JSON output records the checkpoint, preset, sample count, accuracy, logit-preservation check, and per-sample and per-operator PPA. Digital circuit costs and clock timing are evaluation assumptions defined in `example/energy/factory.py`, not measurements from the cited papers.
-
-The accompanying `.profile.pt` file retains named observations for custom analysis through the [Python API](../../api/python.md). Static energy defaults to each unit's working window; alternative supply-on schedules use powered-window overrides under [PPA accounting](../../system_design/ppa_accounting.md). Application analysis groups hardware and reduces operation axes to dataset samples.
+Compare numerical outputs against a suitable ideal calculation under the same value-domain assumptions. For physical PPA claims, consult [validation campaigns](../../validation/campaigns.md) and preserve the chosen configurations, dependency versions, device, and measurement basis. A matching arithmetic result alone does not validate a physical energy estimate.

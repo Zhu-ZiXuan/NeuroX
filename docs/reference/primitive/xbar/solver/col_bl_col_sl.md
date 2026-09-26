@@ -165,7 +165,7 @@ The port solve stops when $\|\mathbf{F}_{\mathrm{port}}\|_\infty\leq\tau_{\mathr
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | $R_{\mathrm{BL},\mathrm{seg}}$, $R_{\mathrm{SL},\mathrm{seg}}$ | Uniform rail link resistance, including the boundary link | MOhm | $>0$ | Extracted |
 
@@ -216,4 +216,4 @@ Linear branches with ideal or Thevenin clamps admit an independent dense nodal s
 
 ## References
 
-TODO: cite the Newton and block-tridiagonal solution methods.
+Citations for the Newton and block-tridiagonal solution methods are not documented here.

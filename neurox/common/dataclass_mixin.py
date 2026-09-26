@@ -1,4 +1,9 @@
-"""Construction, PyTree registration, and traversal for tensor data classes."""
+"""Construction, PyTree registration, and traversal for tensor data classes.
+
+Equivalent Python control flow blocks are pseudocode. Tensor notation stands
+for the same operation on every tensor in a structured value; tree traversal
+is omitted.
+"""
 
 from __future__ import annotations
 
@@ -19,8 +24,12 @@ class TensorDataClassMixin:
 
     A subclass declares its fields as annotations without initial values, and
     must not apply `@dataclass` or define `__init__`. This mixin supplies a
-    frozen, keyword-only dataclass to every descendant before delegating to later
-    class-initialization hooks, so they can inspect the complete fields.
+    frozen, keyword-only dataclass to every descendant before delegating to
+    later class-initialization hooks, so they can inspect the complete fields.
+
+    Field immutability prevents rebinding attributes; it does not prevent
+    in-place tensor writes. Do not use value equality on these containers to
+    compare numerical results; compare their tensor fields explicitly.
     """
 
     def __init_subclass__(cls, **kwargs: object) -> None:
@@ -65,7 +74,13 @@ def map_single_tensor_fields[NodeT: DataclassInstance](
     fn: Callable[[Tensor], Tensor],
     node: NodeT,
 ) -> NodeT:
-    """Transform tensor fields of a dataclass in declaration order.
+    """Apply a callback to every direct or nested dataclass tensor field.
+
+    Traversal follows field declaration order and recurses into dataclass
+    instances only. Lists, tuples, and mappings are retained without descending
+    into them. Each field occurrence is visited, including repeated references
+    to one tensor. The helper performs no tensor copy or device conversion by
+    itself; the callback controls replacement and mutation.
 
     Equivalent Python control flow:
 
@@ -74,12 +89,13 @@ def map_single_tensor_fields[NodeT: DataclassInstance](
     ```
 
     Args:
-        fn: Returns a replacement for each tensor field; owns any tensor mutation.
-        node: Dataclass instance, including any nested dataclasses.
+        fn: Transform one tensor into its replacement.
+        node: Dataclass instance whose field structure is preserved.
 
     Returns:
-        Dataclass of the same concrete type. Non-tensor fields are preserved;
-        subtrees without tensor fields retain their original objects.
+        A reconstructed instance of the same concrete type when any tensor is
+        replaced. Non-tensor fields and tensor-free subtrees retain their values
+        and identities. Reconstruction invokes the dataclass constructor.
     """
     replacements: dict[str, object] = {}
     for field in dataclasses.fields(node):
@@ -98,7 +114,12 @@ def map_paired_tensor_fields[NodeT: DataclassInstance](
     node: NodeT,
     other: NodeT,
 ) -> NodeT:
-    """Transform corresponding tensor fields of two dataclasses.
+    """Apply a callback to matching tensor fields in two dataclass trees.
+
+    Both inputs must have the same concrete dataclass types and matching tensor
+    positions. Traversal follows `node` in declaration order and recurses only
+    into dataclass instances; containers are not traversed. Tensor placement,
+    shape compatibility, and mutation are the callback's responsibility.
 
     Equivalent Python control flow:
 
@@ -107,19 +128,16 @@ def map_paired_tensor_fields[NodeT: DataclassInstance](
     ```
 
     Args:
-        fn: Receives corresponding tensors in `(node, other)` order and
-            returns their replacement; owns any tensor mutation.
-        node: Dataclass instance whose structure is retained.
-        other: Dataclass with the same concrete nested structure and tensor
-            field positions as `node`.
+        fn: Receives `(node_tensor, other_tensor)` and returns the replacement.
+        node: Tree supplying the result's structure and non-tensor field values.
+        other: Tree supplying the second tensor at each matching position.
 
     Returns:
-        Dataclass of the same concrete type. Non-tensor fields retain their
-        values from `node`; subtrees without tensor fields retain their
-        original objects from `node`.
+        A reconstructed tree of the same concrete type, preserving tensor-free
+        subtrees from `node`. Dataclass constructors run during reconstruction.
 
     Raises:
-        TypeError: Inputs have incompatible concrete structures.
+        TypeError: Matching dataclass nodes have different concrete types.
     """
     if type(other) is not type(node):
         raise TypeError("map_paired_tensor_fields() inputs must have the same concrete dataclass structure")
@@ -138,7 +156,13 @@ def map_paired_tensor_fields[NodeT: DataclassInstance](
 
 
 def visit_tensor_fields(fn: Callable[[Tensor], None], node: DataclassInstance) -> None:
-    """Visit tensor fields in declaration order without reconstructing objects.
+    """Visit tensor fields without reconstructing or copying the dataclass tree.
+
+    The callback receives each tensor field in declaration order, recursively
+    through nested dataclass instances. Containers such as lists and mappings
+    are not traversed. Repeated references are visited at each field occurrence.
+    The callback owns any tensor mutation; frozen fields do not freeze their
+    underlying tensor storage.
 
     Equivalent Python control flow:
 
@@ -147,9 +171,8 @@ def visit_tensor_fields(fn: Callable[[Tensor], None], node: DataclassInstance) -
     ```
 
     Args:
-        fn: Inspects each tensor field; owns any tensor mutation.
-        node: Dataclass instance, including any nested dataclasses. Subtrees
-            without tensor fields do not invoke the callback.
+        fn: Inspect or act on one tensor; its return value is discarded.
+        node: Dataclass instance supplying the fields to visit.
     """
     for field in dataclasses.fields(node):
         value = getattr(node, field.name)

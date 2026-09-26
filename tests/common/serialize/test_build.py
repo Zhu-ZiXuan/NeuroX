@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -94,3 +96,34 @@ def test_recursive_type_alias_coerces_nested_toml_values(tmp_path: Path) -> None
     path.write_text("values = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]\n", encoding="utf-8")
     config = _ArrayConfig.from_file(path)
     assert config.values == (((1.0, 2.0), (3.0, 4.0)), ((5.0, 6.0), (7.0, 8.0)))
+
+
+class _Mode(Enum):
+    LOW = "low"
+
+
+@dataclass(frozen=True)
+class _LiteralConfig(SerializeMixin):
+    code: Literal[0, 1]
+    enabled: Literal[True]
+    mode: Literal[_Mode.LOW]
+
+
+def test_literal_fields_round_trip_without_erasing_types() -> None:
+    data = {"code": 1, "enabled": True, "mode": "low"}
+    config = _LiteralConfig.from_dict(data)
+    assert type(config.code) is int
+    assert config.enabled is True
+    assert config.mode is _Mode.LOW
+    assert config.to_dict() == data
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [("code", True, TypeError), ("code", 1.0, TypeError), ("enabled", 1, TypeError), ("code", 2, ValueError)],
+)
+def test_literal_fields_distinguish_type_mismatches_from_invalid_choices(field, value, error) -> None:
+    data = {"code": 1, "enabled": True, "mode": "low"}
+    data[field] = value
+    with pytest.raises(error, match=field):
+        _LiteralConfig.from_dict(data)

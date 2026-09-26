@@ -54,7 +54,22 @@ _Dcop = XbarCell1t1rDcop
 
 
 class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
-    """WH-2T1R cell."""
+    """A two-state branch with internal-voltage-selected T2 readout.
+
+    Program and solve the inherited linear 1T1R branch, then pass its operating
+    point to `i_t2_unit__uA`. That method returns unit-width current: the signal
+    term is enabled only when the solved internal voltage exceeds the configured
+    threshold, and leakage is always included. Selection of TBL rows and scaling
+    to physical T2 widths belong to the array. It does not independently bill
+    PPA.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
 
     config: _Config
     policy: _Policy

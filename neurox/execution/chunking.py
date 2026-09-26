@@ -1,4 +1,9 @@
-"""Memory-bounded execution over a declared leading shape."""
+"""Memory-bounded execution over a declared leading shape.
+
+Equivalent Python control flow blocks are pseudocode. Tensor notation stands
+for the same operation on every tensor in a structured value; tree traversal
+is omitted.
+"""
 
 from __future__ import annotations
 
@@ -35,9 +40,9 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
 
     Equal-sized chunks run in at most two maps; singleton groups run directly.
     Only real positions enter each callback. Expanded inputs are gathered on
-    demand, and no state is carried between chunks. Complete outputs,
-    including histories, occupy storage proportional to the full leading
-    extent; joining groups can temporarily retain both groups and their result.
+    demand, and no state is carried between chunks. Complete outputs, including
+    histories, occupy storage proportional to the full leading extent; joining
+    groups can temporarily retain both groups and their result.
 
     Equivalent Python control flow:
 
@@ -59,7 +64,8 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
 
     Args:
         expected_chunk_size: Positive upper bound on positions per chunk;
-            selects the fewest balanced chunks. Zero selects one unbounded chunk.
+            selects the fewest balanced chunks. Zero selects one unbounded
+            chunk.
         leading_shape: Position prefix of input and assembled output tensors.
             Inputs may be expanded views with zero strides. Extents are
             positive; an empty tuple is one position.
@@ -70,10 +76,10 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
         output_template: Result dataclass structure used by map, including
             nested dataclasses and optional fields. Map requires registered
             PyTrees with tensor leaves; template values and metadata are unused.
-        body_fn: Receives a dataclass whose tensor fields have one leading
-            chunk axis; returns a dataclass with that exact chunk axis.
-            Mapped outputs match `output_template`; remaining dimensions stay fixed.
-            Depends only on its input chunk and captured constants.
+        body_fn: Receives a dataclass whose tensor fields have one leading chunk
+            axis; returns a dataclass with that exact chunk axis. Mapped outputs
+            match `output_template`; remaining dimensions stay fixed. Depends
+            only on its input chunk and captured constants.
 
     Returns:
         Results in row-major position order with the chunk axis replaced by

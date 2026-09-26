@@ -4,7 +4,7 @@ A crossbar pure array is a grid of [cell](../cell/family.md) sites bridged by re
 
 ## Physical model
 
-The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive ladders along the row axis, one link per seat-to-seat step; IR drop develops along those links. Each circuit node carries its total capacitance to ground, including the device and interconnect parasitics seen there. The word line is the driven boundary, carries no DC conduction path, and enters the array as the input drive $V_{\mathrm{WL},k}$ at each seat's word-line node.
+The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its internal node so the array solve treats each site as one branch. Internal node voltages remain available for energy accounting. Each column's bit line and source line are resistive ladders along the row axis, one link per site-to-site step; IR drop develops along those links. Each circuit node carries its total capacitance to ground, including the device and interconnect parasitics seen there. The word line is the driven boundary, carries no DC conduction path, and enters the array as the input drive $V_{\mathrm{WL},k}$ at each site's word-line node.
 
 Two boundary clamp drivers close the circuit at each column: the bit-line clamp holds $V_{\mathrm{BL,port}}$ while absorbing the column's bit-line port current, and the source-line driver holds $V_{\mathrm{SL,port}}$. Both are peer blocks — the array does not own their transfer characteristics or their reference taps, but receives them per solve and pins its boundary voltages to them.
 
@@ -20,7 +20,7 @@ Each concrete array adopts the grid axis order declared by its solver; that orde
 
 The array owns no static mismatch of its own. Non-idealities enter through the cells — per-cell device conductance non-idealities and access-device mismatch, carried inside the condensed branch (see [cell](../cell/family.md)) — and through the injected boundary blocks, whose clamp-driver and word-line-drive non-idealities are properties of those peer blocks, not of the array.
 
-TODO: once the device / analog Reference documents settle, state exactly which sources couple into the array operating point and how, with the statistical model per [nonideality](../../nonideality.md).
+Device variation enters through the sampled cell branch; boundary variation enters through the held driver state. Their distributions belong to the device and peripheral models, and each realization is held fixed during numerical settling.
 
 ## Energy model
 
@@ -28,16 +28,16 @@ Per access the array dissipates the capacitive energy of its nodes under the sup
 
 ## Parameters
 
-The array parameters are the repeated cell seat — its layout pitch, rail link resistance, and one capacitance total per node. The model has no conduction-window parameter. Cell parameters are specified in [cell](../cell/family.md).
+The array parameters are the repeated cell site — its layout pitch, rail link resistance, and one capacitance total per node. The model has no conduction-window parameter. Cell parameters are specified in [cell](../cell/family.md).
 
-| Parameter | Meaning | Unit | Constraint | Source |
+| Parameter | Meaning | Unit | Constraint | [Source](../../../../conventions/module_parameter.md) |
 | --- | --- | --- | --- | --- |
 | cell sub-module config | cell devices, sizing, and state map | — | — | see [cell](../cell/family.md) |
-| cell-seat pitch | layout spacing between adjacent cell seats along each axis | um | $> 0$ | Extracted |
-| bit-line / source-line link resistance | seat-to-seat rail interconnect | MOhm | $> 0$ | Extracted |
-| per-node capacitance total | total capacitance to ground seen at each node of a seat | fF | $\ge 0$ | Extracted |
+| cell-site pitch | layout spacing between adjacent cell sites along each axis | um | $> 0$ | Extracted |
+| bit-line / source-line link resistance | site-to-site rail interconnect | MOhm | $> 0$ | Extracted |
+| per-node capacitance total | total capacitance to ground seen at each node of a site | fF | $\ge 0$ | Extracted |
 
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../api/README.md).
+How to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../api/README.md).
 
 ## Symbols
 
@@ -57,16 +57,16 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 - Each array uses one topology-compatible cell family; within the BL/SL equations, every site contributes one condensed two-terminal branch and no internal cell node.
 - Each column's BL/SL rails are lumped per-link resistive ladders along the row axis, not distributed lines.
-- The word line is the driven boundary, carries no DC conduction path, and enters as the input drive at each seat's word-line node.
+- The word line is the driven boundary, carries no DC conduction path, and enters as the input drive at each site's word-line node.
 - Boundary transfer functions are supplied to each solve rather than modeled as part of the array.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.
 
-TODO (domain author): the array-geometry and array-size range over which the lumped per-link / per-node abstraction holds, and regimes where a concrete array should not be trusted.
+The geometry and array-size range over which lumped wire segments remain accurate has not been characterized here.
 
 ## Validation
 
-TODO: add validation evidence for solver fixed points, converged residuals, per-cell finite-difference device derivatives, and dtype-aware chunking agreement.
+Numerical equilibrium, branch derivatives, and array integration are covered by the [adaptive solve checks](../../../../validation/structured_while_solve.md). These numerical checks do not establish a measured operating envelope.
 
 ## References
 
-TODO: cite the wire-ladder formulation and the Tellegen energy-accounting basis.
+Citations for the wire-ladder formulation and the Tellegen energy-accounting basis are not documented here.

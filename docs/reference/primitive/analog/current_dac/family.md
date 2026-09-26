@@ -16,8 +16,4 @@ A current DAC converts an unsigned integer code $c\in[0,c_{\max}]$ to a single-e
 
 Out-of-range codes are undefined and are not clamped.
 
-TODO (domain author): the validity range of the code-to-current abstraction (settling, finite output impedance, the compliance-voltage headroom the driven node must leave) common to the family.
-
-## References
-
-TODO.
+Settling, output impedance, and compliance limits depend on the concrete converter.

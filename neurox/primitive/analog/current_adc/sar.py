@@ -53,6 +53,25 @@ class SarIadc(Iadc):
 
     The full-width search uses `2 ** bits - 1` ascending taps on the ladder's
     last axis. A shorter ladder fails during tap selection.
+
+    Place the module, then call `fabricate` before conversion, including when
+    comparator offset is disabled. Keep input currents and reference taps on the
+    same device as the fabricated state. The ladder is supplied anew per call;
+    `active_bits` truncates the search but does not shorten the full-width
+    ladder. Inputs are nonnegative magnitudes. Out-of-range magnitudes saturate
+    to the end codes; monotonic reference ordering is the caller's
+    responsibility.
+
+    Latency is one configured decision period per active bit. This base concrete
+    converter has no modeled switching-energy contribution; subclasses with such
+    a model implement `_compute_bit_dynamic_energy__fJ`.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
     """
 
     config: _Config
@@ -148,4 +167,26 @@ class SarIadc(Iadc):
         bit_position: int,
         enable: Tensor | None,
     ) -> Tensor | None:
+        """Return this bit decision's per-input energy, or `None` if unmodeled.
+
+        Subclass this hook to add a physical switching-cost model. `trial_code`
+        is the full-width trial code and `bit_position` counts from the least
+        significant bit as zero, even when conversion stops early. Return energy
+        over the input layout; the search sums decisions and the public wrapper
+        masks and submits the result. Do not submit it here. The default returns
+        `None`.
+
+        Args:
+            i_in__uA: Magnitude currents for the current conversion positions.
+            i_refs__uA: Injected full-width ascending reference ladder.
+            trial_code: Full-width trial codes for the current decision.
+            bit_position: Zero-based bit position counted from the least
+                significant bit.
+            enable: Optional conversion enables, broadcastable to the input
+                layout.
+
+        Returns:
+            Per-input decision energy, or None when no switching cost is
+            modeled.
+        """
         return None
