@@ -1,0 +1,39 @@
+# Xue2020 JSSC validation anchors. Tags follow docs/validation/campaigns.md; pages use printed numbering.
+
+# Total energy per access
+[target]
+# [simulated p210] Macro power at the 2-bit-input, 3-bit-weight operating point.
+total_macro__mW = 5.13
+sub_array_num = 8                 # [reported p211 Fig.20(c)] independent 256x512 sub-arrays
+input_bits = 2                    # [reported p210] power-evaluation input precision
+weight_bits = 3                   # [reported p210] power-evaluation weight precision
+vdd__V = 1.0                      # [reported p209] simulation supply; [measured p211] nominal test supply
+per_access__fJ = 32062.5          # [derived] 5.13 mW * 50 ns / 8 = 32.0625 pJ per sub-array access
+
+[measurement]
+cycle__ns = 50.0                  # [derived] reciprocal of the [simulated p210] 20 MHz access rate
+
+# Hard gate
+[gate]
+# [assumed] Relative tolerance on total energy per access.
+hard_tolerance_relative = 0.05
+
+# Fig.18 power-breakdown shares
+# [simulated p210 Fig.18] Percentages of the simulated 5.13 mW macro power.
+[fig18_shares]
+control = 29.2
+reference = 23.7
+cablc = 14.9
+dswct = 11.5
+sinwp_sc = 8.0
+pn_isub = 3.4
+tmcsa = 9.3
+
+# Workload
+[data]
+weight_distribution = "zero_inflated_sign_magnitude_uniform_nonzero"
+weight_range = [-3, 3]                # [derived] 3-bit sign-magnitude
+weight_nonzero_probability = 0.8      # [calibrated] Fig.18 paired read-path targets
+input_distribution = "zero_inflated_unsigned_uniform_nonzero"
+input_range = [0, 3]                  # [derived] 2-bit unsigned
+input_nonzero_probability = 0.28      # [calibrated] Fig.18 paired read-path targets; at most nine candidate rows

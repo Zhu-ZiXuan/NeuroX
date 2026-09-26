@@ -1,0 +1,108 @@
+# Ye et al., JSSC 2023, 1b-IN / 3b-W / 4b-O operating point.
+
+[cim_macro]
+_neurox_class = "Ye2023JsscCimMacroConfig"
+
+input_num = 32                      # [reported p6 Table II] physical input capacity
+max_active_num = 32                 # [reported p6 Table II] full input parallelism
+lane_num = 1                        # [reported p3 Fig. 3(a)] one time-shared RS-CSA path
+scan_num = 64                       # [reported p3 Fig. 3(a)] output rows serialized per RS-CSA
+v_bl__V = 0.3                       # [reported p4 Fig. 7(a)]
+v_wl_on__V = 0.6                    # [reported p4 Fig. 7(a)] binary WL-drive high level
+v_tbl__V = 0.1                      # [reported p4 Fig. 7(a)]
+v_sl__V = 0.0                       # [reported p4 Fig. 7(a)]
+vdd__V = 0.8                        # [measured p6 Table II]
+rescale_factors = [14.0]            # [derived] 7 uA/code / 0.5 uA/MAC
+w_digit_num = 3                     # [reported p4 Fig. 7(a)] three weight digits
+w_digit_radix = 2                   # [reported p4 Fig. 7(a)] binary radix
+t_settle__ns = 5.0                  # [measured p7 Fig. 18] PH0 array-settling duration
+
+# [derived] Measured macro area minus the assumed array footprint below.
+area_per_inst__um2 = 110604.0
+leakage_per_inst__uW = 0.0
+
+
+[cim_macro.array_config]
+
+# [assumed] Effective WH-2T1R cell pitches; total array footprint is 4096 um2.
+row_cell_space__um = 1.0
+col_cell_space__um = 0.5
+
+# [assumed] Local metal segment resistance.
+bl_segment_r__MOhm = 5.0e-6
+sl_segment_r__MOhm = 5.0e-6
+
+# [assumed] 28 nm local-node and interconnect capacitance totals.
+bl_node_c__fF = 0.305
+x_node_c__fF = 0.150
+sl_node_c__fF = 0.018
+wl_node_c__fF = 1.6654              # [calibrated] 213.16 fF per 128-cell WL closes the 50% Fig. 19 array anchor.
+t2_gate_unit_c__fF = 0.1            # [derived/assumed] Fig. 4(c) 100 nm/30 nm core T2 and 28 nm gate-capacitance scale.
+tbl_node_unit_c__fF = 0.1           # [assumed] Unit-width T2 diffusion plus local TBL interconnect.
+
+
+[cim_macro.array_config.cell_config]
+g_cell_on_table__uS = [7.5975, 24.025]  # [derived from reported p3 Fig. 4(c)] R_HRS=100 kohm, R_LRS=10 kohm, R_T1=sqrt(R_HRS*R_LRS)=31.6 kohm.
+vx_ratio_on_table = [0.75975, 0.24025]
+
+# [assumed] T1-off BL-to-SL leakage; V_X remains at the BL-side potential.
+g_cell_off_table__uS = [0.001, 0.001]
+vx_ratio_off_table = [0.0, 0.0]
+v_wl_on_threshold__V = 0.3          # [derived] midpoint of 0/0.6 V WL levels
+v_x_on_threshold__V = 0.15          # [derived] midpoint of nominal HRS/LRS V_X
+
+i_t2_leak__uA = 0.0028409           # [assumed/derived] Linear T2-width scaling: 1 uA / (32 * (1+2+4+4)).
+i_t2_unit_signal__uA = 0.5          # [measured p7 Fig. 16(b)] Unit-width LRS signal; the <30 nA HRS signal is neglected.
+
+
+
+[cim_macro.adc_config]
+bits = 4                            # [measured p6 Table II]
+latency_per_bit__ns = 1.0           # [measured p7 Fig. 18] optimized PH2-PH4 duration
+init__ns = 4.0                      # [derived] additional duration giving the optimized 5 ns PH1
+comparator_offset_sigma__uA = 0.0   # [not reported] ideal comparison
+
+
+
+# [calibrated] 50% Fig. 19 RS-CSA power after its standing reference branch.
+energy_per_bit__fJ = 32.573
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+
+[cim_macro.reference_config]
+values = [7.0]                      # [simulated p6 Fig. 11(a)] I_LSB
+tolerance_sigma_relative = 0.0
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 5.6          # [derived] One 7 uA standing reference branch on the 0.8 V core supply.
+
+[cim_macro.bl_driver_config]
+r_out__MOhm = 0.0
+offset_sigma__V = 0.0
+thermal_sigma__V = 0.0
+energy_per_op__fJ = 0.0
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+
+[cim_macro.sl_driver_config]
+r_out__MOhm = 0.0
+offset_sigma__V = 0.0
+thermal_sigma__V = 0.0
+energy_per_op__fJ = 0.0
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+
+# [derived] Mean Fig. 19 block powers split into 70% dynamic and 30% static.
+# Dynamic energy uses the complete 85 ns measurement cycle.
+[cim_macro.mux_driver_config]
+area_per_inst__um2 = 0.0
+energy_per_op__fJ = 335.13
+leakage_per_inst__uW = 1.6897
+
+
+[cim_macro.timing_ctrl_config]
+area_per_inst__um2 = 0.0
+energy_per_op__fJ = 834.41
+leakage_per_inst__uW = 4.2071

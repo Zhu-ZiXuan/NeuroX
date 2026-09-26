@@ -1,0 +1,37 @@
+# RRAM device parameters.
+
+
+[default]
+_neurox_class = "RramConfig"
+
+# --- Working range ---
+g_min__uS = 10.0
+
+# --- I-V nonlinearity ---
+nonlinearity_alpha = 0.5
+
+# --- Drift ---
+drift_decay_rate = 0.03
+drift_t0 = 1.0
+
+# --- Read thermal noise ---
+read_thermal__uS = 0.002
+
+# --- Programming Gamma ---
+[default.prog_gamma]
+k_slope = 0.0
+k_intercept = 100.0
+theta = 1.0
+min_val = 10.0
+max_val = 100.0
+
+# --- Read telegraph noise ---
+[default.read_telegraph]
+amplitude_mean = 0.005
+amplitude_std = 0.001
+p_high_state = 0.01
+
+# --- Stuck-at fault ---
+[default.stuck_at]
+p_at_min = 0.001
+p_at_max = 0.001

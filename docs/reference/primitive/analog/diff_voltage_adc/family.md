@@ -1,0 +1,61 @@
+# Differential voltage ADC family
+
+Every member digitizes a differential voltage into a raw unsigned integer code.
+
+## Shared conventions
+
+An ADC digitizes a positive leg $V^{+}$ against a negative leg $V^{-}$. Both legs, every noise term, and the code boundaries are expressed in volts. The reference values $V_{\mathrm{ref}}$ are supplied per call along a trailing tap axis and set the full-scale range; the resolution $b$ sets the number of code levels within it. No member holds its own references, and no operating-mode identity reaches a converter.
+
+The configured `bits` is the physical output width. Every call supplies an integer `active_bits` in `[1, bits]`. The number of reference values consumed by one conversion is topology-specific rather than a family law.
+
+## Governing laws
+
+The family quantization is monotone against an ordered boundary set $\{B_c\}$:
+
+$$
+\mathrm{code} =
+\operatorname{clamp}\left(
+\operatorname{bucketize}(V^{+}-V^{-},\{B_c\}),
+0,
+n_{\mathrm{codes}}-1
+\right).
+$$
+
+The returned code is the raw bucket index. The corresponding signed physical magnitude follows
+
+$$
+M_{\mathrm{ideal}}
+\approx
+(\mathrm{code}-z)\cdot\mathrm{rescale\_factor},
+\qquad
+\mathrm{rescale\_factor}>0,
+$$
+
+where $z$ is the topology-specific zero-point offset. The conversion itself does not apply this affine recovery.
+
+For uniform boundaries, $\mathrm{LSB}=\mathrm{FSR}/2^b$ and $n_{\mathrm{codes}}=2^b$. A symmetric topology has $z=2^{b-1}$ and therefore represents the signed range $[-2^{b-1},2^{b-1}-1]$ after zero-point removal.
+
+## Noise & non-idealities
+
+Quantization is intrinsic to every member; further non-idealities are topology-specific.
+
+## Symbols
+
+| Symbol | Meaning | Unit | Code field |
+| --- | --- | --- | --- |
+| $V^{+},V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
+| $V_{\mathrm{ref}}$ | per-call injected reference taps, $[\ldots,\ n_{\mathrm{ref}}]$ with the taps last | V | `v_refs__V` |
+| $n_{\mathrm{ref}}$ | reference count the member's circuit takes | — | member-defined |
+| $b$ | active conversion resolution, per call | — | `active_bits` |
+| $b_{\max}$ | physical output bit width | — | `bits` |
+| $\mathrm{FSR}$ | full-scale input range | V | derived |
+| $\mathrm{LSB}$ | uniform code step | V | derived |
+| $B_c$ | code boundary at index $c$ | V | derived |
+| $n_{\mathrm{codes}}$ | number of raw code buckets | — | derived |
+| $z$ | zero-point offset | — | `zero_offset(active_bits)` |
+
+## Assumptions, scope & validity
+
+The differential input is two-sided and $b\geq1$. At $b=1$, the raw codes are $\{0,1\}$ with symmetric zero point $z=1$ and signed range $[-1,0]$.
+
+Physical operating limits require characterization of the concrete converter.

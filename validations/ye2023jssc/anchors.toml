@@ -1,0 +1,28 @@
+# Paper targets and workload assumptions for Ye et al., JSSC 2023.
+
+[gate]
+primary_input_sparsity = 0.50
+total_power_tolerance_relative = 0.05
+
+[measurement]
+cycle__ns = 85.0                    # [adopted] full simulated/measured cycle for power accounting
+
+[data]
+input_sparsity = [0.875, 0.50]      # [paper, Fig. 19]
+weight_sparsity = 0.50              # [adopted] calibration workload
+
+[paper]
+total_power__uW = [31.96, 82.94]    # [paper, Fig. 19]
+macro_area__um2 = 114700.0          # [paper, Table II] 310 um x 370 um
+
+[paper.shares.p875]
+array = 16.2
+rscsa = 22.3
+mux_driver = 17.6
+timing_ctrl = 43.9
+
+[paper.shares.p50]
+array = 67.7
+rscsa = 8.6
+mux_driver = 6.8
+timing_ctrl = 16.9

@@ -1,0 +1,243 @@
+"""Construct module families from independent config and policy file sets.
+
+Each file set follows `SerializeMixin.from_file`: the first file wins a
+conflict, and a section selects a table within each file. Relative paths
+are interpreted from the working directory. Config and policy construction
+validate their fields; the family's `from_config` validates their dispatch
+pair and constructs the module tree.
+
+The returned tree retains its constructor state. Device placement, training
+mode, fabrication, programming, and naming belong to the caller.
+
+Use float32 for routine electrical computation and float64 when higher precision is needed.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+
+import torch
+
+from neurox.architecture.unit.conv2d import Conv2dUnit, Conv2dUnitConfig, Conv2dUnitPolicy
+from neurox.architecture.unit.linear import LinearUnit, LinearUnitConfig, LinearUnitPolicy
+from neurox.primitive.analog.current_adc import Iadc, IadcConfig, IadcPolicy
+from neurox.primitive.analog.diff_voltage_adc import DiffVadc, DiffVadcConfig, DiffVadcPolicy
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+
+
+def iadc_from_file(
+    *,
+    config_files: Sequence[Path],
+    policy_files: Sequence[Path],
+    inst_shape: tuple[int, ...],
+    dtype: torch.dtype,
+    config_section: str | None = None,
+    policy_section: str | None = None,
+) -> Iadc:
+    """Construct a current ADC from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
+    config = IadcConfig.from_file(*config_files, section=config_section)
+    policy = IadcPolicy.from_file(*policy_files, section=policy_section)
+    return Iadc.from_config(
+        config=config,
+        policy=policy,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
+
+
+def diff_vadc_from_file(
+    *,
+    config_files: Sequence[Path],
+    policy_files: Sequence[Path],
+    inst_shape: tuple[int, ...],
+    dtype: torch.dtype,
+    config_section: str | None = None,
+    policy_section: str | None = None,
+) -> DiffVadc:
+    """Construct a differential voltage ADC from configuration files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
+    config = DiffVadcConfig.from_file(*config_files, section=config_section)
+    policy = DiffVadcPolicy.from_file(*policy_files, section=policy_section)
+    return DiffVadc.from_config(
+        config=config,
+        policy=policy,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
+
+
+def cim_macro_from_file(
+    *,
+    config_files: Sequence[Path],
+    policy_files: Sequence[Path],
+    inst_shape: tuple[int, ...],
+    dtype: torch.dtype = torch.float32,
+    config_section: str | None = None,
+    policy_section: str | None = None,
+    to_ideal: bool = False,
+) -> CimMacro:
+    """Construct a CIM macro from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
+    config = CimMacroConfig.from_file(*config_files, section=config_section)
+    policy = CimMacroPolicy.from_file(*policy_files, section=policy_section)
+    module = CimMacro.from_config(
+        config=config,
+        policy=policy,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
+    return module.to_ideal() if to_ideal else module
+
+
+def linear_unit_from_file(
+    *,
+    config_files: Sequence[Path],
+    policy_files: Sequence[Path],
+    w_logical_shape: tuple[int, ...],
+    dtype: torch.dtype = torch.float32,
+    config_section: str | None = None,
+    policy_section: str | None = None,
+    to_ideal: bool = False,
+) -> LinearUnit:
+    """Construct a linear unit from config and policy files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        w_logical_shape: Complete logical weight shape required by `program`.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
+    config = LinearUnitConfig.from_file(*config_files, section=config_section)
+    policy = LinearUnitPolicy.from_file(*policy_files, section=policy_section)
+    module = LinearUnit.from_config(
+        config=config,
+        policy=policy,
+        w_logical_shape=w_logical_shape,
+        dtype=dtype,
+    )
+    return module.to_ideal() if to_ideal else module
+
+
+def conv2d_unit_from_file(
+    *,
+    config_files: Sequence[Path],
+    policy_files: Sequence[Path],
+    w_logical_shape: tuple[int, ...],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+    dilation: tuple[int, int],
+    groups: int,
+    dtype: torch.dtype = torch.float32,
+    config_section: str | None = None,
+    policy_section: str | None = None,
+    to_ideal: bool = False,
+) -> Conv2dUnit:
+    """Construct a convolution unit from configuration files.
+
+    Paths resolve from the working directory. Config and policy types must
+    select a registered implementation.
+
+    Args:
+        config_files: Nonempty config paths; earlier files take precedence.
+        policy_files: Nonempty policy paths; earlier files take precedence.
+        w_logical_shape: Complete logical weight shape required by `program`.
+        stride: Positive spatial step `(height, width)`.
+        padding: Nonnegative zero padding on each spatial side.
+        dilation: Positive kernel spacing `(height, width)`.
+        groups: Independent channel groups; output channels must divide evenly.
+        dtype: Electrical tensor dtype.
+        config_section: Table selected in each config file, or None for the
+            root.
+        policy_section: Table selected in each policy file, or None for the
+            root.
+        to_ideal: Return a fresh ideal twin after constructing the selected
+            model.
+
+    Returns:
+        A new module in constructor state. The caller handles device placement,
+        fabrication, programming, and profiling setup.
+    """
+    config = Conv2dUnitConfig.from_file(*config_files, section=config_section)
+    policy = Conv2dUnitPolicy.from_file(*policy_files, section=policy_section)
+    module = Conv2dUnit.from_config(
+        config=config,
+        policy=policy,
+        w_logical_shape=w_logical_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+        dtype=dtype,
+    )
+    return module.to_ideal() if to_ideal else module

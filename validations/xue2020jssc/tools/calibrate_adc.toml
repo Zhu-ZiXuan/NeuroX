@@ -1,0 +1,22 @@
+[macro]
+config_files = ["../config.toml"]
+config_section = "cim_macro"
+policy_file = "../policy.toml"
+policy_section = "policy"
+
+[probe]
+quantization_mode = 0
+
+[stimulus]
+active_row_selection = "contiguous"
+
+[stimulus.random]
+seed = 0
+weight_samples = 512
+input_samples_per_weight = 256
+batch_w = 256
+batch_x = 256
+
+[stimulus.target]
+seed = 1
+batch_w = 256

@@ -1,0 +1,32 @@
+"""Explicit construction restrictions for inheritance-only classes."""
+
+from __future__ import annotations
+
+from typing import ClassVar, Self, final
+
+
+class BaseOnlyMixin:
+    """Mark abstract construction roles with `base_only=True` at class definition.
+
+    An opted-in class raises `TypeError` when instantiated. Each descendant
+    chooses independently: omit the keyword for a concrete class, or repeat it
+    for another inheritance-only role. Use `ABC` and abstract methods separately
+    when subclasses must implement an interface; this mixin checks construction
+    permission only. Cooperative `__init_subclass__` overrides must forward
+    class keywords through `super()` so this restriction is initialized.
+    """
+
+    __base_only: ClassVar[bool] = True
+
+    def __init_subclass__(cls, *, base_only: bool = False, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.__base_only = base_only
+
+    # Python passes each concrete constructor's arguments through __new__ first.
+    # Only cls reaches object.__new__; Python supplies the original arguments
+    # to the concrete __init__ after allocation.
+    @final
+    def __new__(cls, *args: object, **kwargs: object) -> Self:
+        if cls.__base_only:
+            raise TypeError(f"{cls.__qualname__} is declared base_only; construct a concrete subclass instead")
+        return super().__new__(cls)

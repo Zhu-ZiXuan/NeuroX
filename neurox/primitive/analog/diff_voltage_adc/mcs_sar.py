@@ -1,0 +1,337 @@
+"""V_cm-based (Merged Capacitor Switching, MCS) differential SAR voltage ADC.
+
+See Also:
+    docs/reference/primitive/analog/diff_voltage_adc/mcs_sar.md
+"""
+
+from __future__ import annotations
+
+import math
+
+import torch
+from torch import Tensor
+
+from neurox.primitive.nonideality import (
+    apply_gaussian,
+    apply_pelgrom_mismatch,
+)
+from neurox.primitive.physics import thermal_fluctuation_energy__fJ
+
+from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
+
+
+class McsSarDiffVadcConfig(DiffVadcConfig):
+    # === CDAC ===
+
+    c_unit__fF: float
+    """CDAC unit capacitance the binary weights multiply."""
+
+    # === Nonidealities ===
+
+    cap_mismatch_sigma_relative: float
+    """Per-unit-cap relative Pelgrom σ."""
+    comparator_offset_sigma__V: float
+    """Static Gaussian σ on the comparator threshold."""
+    comparator_thermal_noise_sigma__V: float
+    """Per-cycle Gaussian σ for thermal comparator noise, quoted at 300 K."""
+
+    # === Timing ===
+
+    latency_per_bit__ns: float
+    """SAR comparator clock period; latency at `active_bits` is
+    `(active_bits + 1) · latency_per_bit`."""
+
+    # === Dynamic energy ===
+
+    energy_per_op__fJ: float
+    """Data-independent energy charged once per conversion."""
+    energy_per_bit__fJ: float
+    """Per-cycle SAR strobe / logic / control overhead; charged `bits` times
+    per conversion."""
+
+    def validate(self) -> None:
+        super().validate()
+
+        # --- Resolution ---
+
+        self._require_ge(self.bits, "bits", 2)
+
+        # --- CDAC ---
+
+        self._require_pos(self.c_unit__fF, "c_unit__fF")
+
+        # --- Nonidealities ---
+
+        self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_non_neg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
+        self._require_non_neg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
+
+        # --- Timing ---
+
+        self._require_pos(self.latency_per_bit__ns, "latency_per_bit__ns")
+
+        # --- Dynamic energy ---
+
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_non_neg(self.energy_per_bit__fJ, "energy_per_bit__fJ")
+
+
+class McsSarDiffVadcPolicy(DiffVadcPolicy):
+    cap_mismatch: bool
+    """Apply `cap_mismatch_sigma_relative` at fabricate time."""
+    comparator_offset: bool
+    """Apply `comparator_offset_sigma__V` at fabricate time."""
+    comparator_thermal_noise: bool
+    """Apply `comparator_thermal_noise_sigma__V` per SAR cycle."""
+    sampling_thermal_noise: bool
+    """Apply kT/C sampling thermal noise on the held top plates."""
+
+
+_Config = McsSarDiffVadcConfig
+_Policy = McsSarDiffVadcPolicy
+
+
+@DiffVadc.register_neurox_impl(config_type=_Config, policy_type=_Policy)
+class McsSarDiffVadc(DiffVadc):
+    """V_cm-based (MCS) differential SAR voltage ADC.
+
+    The CDAC swings against one full-scale reference, so this converter's
+    injected bank is single-tap: the sole tap sets `V_cm = V_ref / 2` and the
+    per-bit switching energy.
+
+    Place and fabricate the converter before calling `convert`, even when all
+    non-idealities are disabled. Positive and negative inputs have the same
+    shape and device; `v_refs__V` has exactly one trailing tap and broadcasts
+    over the conversion positions. Fabrication fixes capacitor mismatch and
+    comparator offset. Enabled sampling noise is fresh at each conversion.
+
+    The result is a raw unsigned offset-binary code. Use
+    `zero_offset(active_bits)` when recovering a signed value, and supply the
+    scale appropriate to the chosen reference. Conversion records switching
+    energy when profiling and models a sample cycle followed by one decision
+    cycle per active bit.
+
+    Args:
+        config: Hardware configuration.
+        policy: Run policy matching `config`.
+        inst_shape: Positive physical instance extents; singletons allow
+            broadcasting.
+        dtype: Electrical tensor dtype.
+    """
+
+    config: _Config
+    policy: _Policy
+
+    # === Nominal buffers ===
+
+    _nominal_c__fF: Tensor  # Shape: [bit]
+    _nominal_comparator_offset__V: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _c_p__fF: Tensor  # Shape: [*inst_shape, bit]
+    _c_n__fF: Tensor  # Shape: [*inst_shape, bit]
+    _comparator_offset__V: Tensor  # Shape: [*inst_shape]
+
+    def __init__(
+        self,
+        *,
+        config: _Config,
+        policy: _Policy,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+    ) -> None:
+        super().__init__(
+            config=config,
+            policy=policy,
+            inst_shape=inst_shape,
+            dtype=dtype,
+        )
+        self._register_fabrication_buffers(dtype=dtype)
+
+    def latency__ns(self, *, active_bits: int) -> float:
+        """One conversion — the sample cycle plus one comparator cycle per bit.
+
+        The SAR cycles run sequentially inside the one converter, all on the
+        comparator clock, so the window is `(active_bits + 1) * clk_period`.
+
+        Raises:
+            ValueError: `active_bits` is outside `[1, bits]`.
+        """
+        self._check_active_bits(active_bits)
+        return self.config.latency_per_bit__ns * (active_bits + 1)
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        config = self.config
+        c_unit = config.c_unit__fF
+        nominal_c__fF = torch.tensor(
+            [c_unit] + [c_unit * (2**k) for k in range(config.bits - 1)],
+            dtype=dtype,
+        )
+        self._register_nonpersistent_buffer("_nominal_c__fF", nominal_c__fF)
+        self._register_nonpersistent_buffer(
+            "_nominal_comparator_offset__V",
+            torch.zeros((), dtype=dtype),
+        )
+
+    def _sample_fabrication_variation(self) -> None:
+        # Two independently-sampled cap arrays for the differential CDAC. The
+        # floor keeps a Gaussian tail from sampling a non-positive cap, which
+        # the step tables and the kT/C sigma both divide by.
+        policy = self.policy
+        self._c_p__fF = apply_pelgrom_mismatch(
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
+            sigma_relative=self.config.cap_mismatch_sigma_relative,
+            unit=self.config.c_unit__fF,
+            floor=0.1 * self.config.c_unit__fF,
+            enabled=policy.cap_mismatch,
+        )
+        self._c_n__fF = apply_pelgrom_mismatch(
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self.config.bits),
+            sigma_relative=self.config.cap_mismatch_sigma_relative,
+            unit=self.config.c_unit__fF,
+            floor=0.1 * self.config.c_unit__fF,
+            enabled=policy.cap_mismatch,
+        )
+        self._comparator_offset__V = apply_gaussian(
+            self._nominal_comparator_offset__V.clone().expand(self.inst_shape),
+            sigma=self.config.comparator_offset_sigma__V,
+            enabled=policy.comparator_offset,
+        )
+
+    def _convert_impl(
+        self,
+        *,
+        v_pos__V: Tensor,
+        v_neg__V: Tensor,
+        v_refs__V: Tensor,
+        active_bits: int,
+        record_energy: bool,
+    ) -> tuple[Tensor, Tensor | None]:
+        """V_cm-based (MCS) differential SAR conversion.
+
+        Args:
+            v_pos__V: Positive-side input voltage.
+            v_neg__V: Negative-side input voltage, at the same shape.
+            v_refs__V: Injected reference taps; the CDAC swings against one
+                full-scale reference, so the single tap is read off the last
+                axis and the leading dims broadcast against the inputs.
+                Shape: `[..., tap=1]`.
+            active_bits: Active conversion resolution in `[1, bits]`.
+            record_energy: Whether to compute dynamic energy.
+
+        Returns:
+            Raw offset-binary code tensor valued in `[0, 2 ** active_bits - 1]`, one
+            code per `v_pos__V` element, and optional per-output dynamic energy [fJ].
+        """
+        # Shape: [..., tap=1] -> [...]
+        v_ref__V = v_refs__V[..., 0]
+        v_cm__V = 0.5 * v_ref__V
+
+        c_p__fF = self._c_p__fF
+        c_n__fF = self._c_n__fF
+        # Shape: [..., bit] -> [...]
+        c_p_total__fF = c_p__fF.sum(dim=-1)
+        # Shape: [..., bit] -> [...]
+        c_n_total__fF = c_n__fF.sum(dim=-1)
+
+        # --- 1: sample and hold ---
+
+        # sample: bottom (drive): V_in, top (drive): V_cm
+        # hold: bottom (drive): V_cm, top (float): 2*V_cm-V_in
+        v_p_top__V = 2 * v_cm__V - v_pos__V
+        v_n_top__V = 2 * v_cm__V - v_neg__V
+
+        # sample thermal noise on each held top plate (per-leg kT/C).
+        kt__fJ = thermal_fluctuation_energy__fJ(self.T__K)
+        v_p_top__V = apply_gaussian(
+            v_p_top__V, sigma=torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
+        )
+        v_n_top__V = apply_gaussian(
+            v_n_top__V, sigma=torch.sqrt(kt__fJ / c_n_total__fF), enabled=self.policy.sampling_thermal_noise
+        )
+
+        # --- 2: resolve the MSB without capacitor switching ---
+
+        # neg cap top to comparator Vin+, pos cap top to comparator Vin-
+        last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
+        code = last_bit.int()
+
+        # --- 3: precompute loop-invariant per-bit constants ---
+
+        # The active capacitor slice is indexed directly by the SAR bit.
+        first_active_cap = self.bits - active_bits + 1
+        # Shape: [..., bit]
+        c_p_used__fF = c_p__fF[..., first_active_cap : self.bits]
+        # Shape: [..., bit]
+        c_n_used__fF = c_n__fF[..., first_active_cap : self.bits]
+        # Shape: [...] -> [..., bit=1]
+        c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
+        # Shape: [...] -> [..., bit=1]
+        c_n_total_e__fF = c_n_total__fF.unsqueeze(-1)
+        v_p_step_table__V = v_cm__V * c_p_used__fF / c_p_total_e__fF
+        v_n_step_table__V = v_cm__V * c_n_used__fF / c_n_total_e__fF
+
+        # --- 4: run the SAR decisions ---
+
+        for bit_index in range(active_bits - 2, -1, -1):
+            # Shape: [..., bit] -> [...]
+            v_p_step__V = v_p_step_table__V[..., bit_index]
+            # Shape: [..., bit] -> [...]
+            v_n_step__V = v_n_step_table__V[..., bit_index]
+            v_p_top__V = torch.where(last_bit, v_p_top__V + v_p_step__V, v_p_top__V - v_p_step__V)
+            v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
+            # neg cap top to comparator Vin+, pos cap top to comparator Vin-
+            last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
+            code = (code << 1) | last_bit.int()
+
+        # --- 5: compute dynamic energy when requested ---
+
+        energy__fJ = None
+        if record_energy:
+            e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
+            e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
+            e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.energy_per_op__fJ
+
+            e_step_p_table__fJ = 0.5 * v_ref__V**2 * c_p_used__fF * (1 - c_p_used__fF / c_p_total_e__fF)
+            e_step_n_table__fJ = 0.5 * v_ref__V**2 * c_n_used__fF * (1 - c_n_used__fF / c_n_total_e__fF)
+            c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
+
+            shifts = torch.arange(1, active_bits, device=code.device, dtype=code.dtype)
+            # Shape: [...] -> [..., bit]
+            bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
+            # Shape: [..., bit] -> [...]
+            e_switch__fJ = torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
+            e_detect__fJ = e_switch__fJ + active_bits * self.config.energy_per_bit__fJ
+            # Shape: [..., bit] -> [...]
+            c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
+            e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
+            energy__fJ = e_sample__fJ + e_detect__fJ + e_reset__fJ
+
+        return code, energy__fJ
+
+    def _compare(self, *, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
+        """Strobe the differential comparator.
+
+        Adds per-cycle thermal noise to the differential top-plate voltage and
+        compares against the fabricated comparator offset.
+
+        Returns:
+            Bool tensor; `True` means the positive leg won.
+        """
+        config = self.config
+        policy = self.policy
+
+        noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(self.T__K / 300.0)
+        v_diff__V = apply_gaussian(
+            v_pos__V - v_neg__V,
+            sigma=noise_sigma__V,
+            enabled=policy.comparator_thermal_noise,
+        )
+        return v_diff__V > self._comparator_offset__V
+
+    def _validate_runtime_args(self, v_refs__V: Tensor) -> None:
+        # One full-scale reference feeds the CDAC, so the bank is single-tap.
+        tap_num = int(v_refs__V.shape[-1]) if v_refs__V.ndim else 0
+        if tap_num != 1:
+            raise ValueError(f"require: v_refs__V tap_num ({tap_num}) == 1")

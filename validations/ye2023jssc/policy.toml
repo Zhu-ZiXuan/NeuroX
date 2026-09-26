@@ -1,0 +1,23 @@
+# Deterministic policy used by the paper-reproduction campaign.
+
+[policy]
+_neurox_class = "Ye2023JsscCimMacroPolicy"
+
+[policy.array_policy]
+solve_chunk_size = 16384
+
+[policy.array_policy.cell_policy]
+
+[policy.adc_policy]
+comparator_offset = false
+
+[policy.reference_policy]
+tolerance = false
+
+[policy.bl_driver_policy]
+offset = false
+thermal = false
+
+[policy.sl_driver_policy]
+offset = false
+thermal = false

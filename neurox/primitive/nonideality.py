@@ -1,0 +1,384 @@
+"""Reusable analog non-ideality kernels and their config dataclasses.
+
+`enabled` is a Python bool resolved at trace time. Disabled kernels return the
+input object unchanged, preserving expanded views; treat all results as read-only.
+Kernels accept a scalar spread directly or coupled parameters in a frozen config.
+
+See Also:
+    docs/reference/primitive/nonideality.md
+    docs/system_design/nonideality_kernels.md
+"""
+
+from __future__ import annotations
+
+import torch
+from torch import Tensor
+
+from neurox.common.module import ConfigBase
+
+
+class StuckAtFaultConfig(ConfigBase):
+    p_at_min: float
+    p_at_max: float
+
+    def validate(self) -> None:
+        self._require_non_neg(self.p_at_min, "p_at_min")
+        self._require_non_neg(self.p_at_max, "p_at_max")
+        self._require_lt(self.p_at_min + self.p_at_max, "p_at_min + p_at_max", 1.0)
+
+
+def apply_stuck_at_fault(
+    x: Tensor,
+    *,
+    config: StuckAtFaultConfig,
+    min_val: float,
+    max_val: float,
+    enabled: bool,
+) -> Tensor:
+    """Replace selected floating-point elements with minimum or maximum states.
+
+    Minimum and maximum faults are mutually exclusive. Unselected values are
+    unchanged, without clamping.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        min_val: Replacement value for selected minimum-state faults.
+        max_val: Replacement value for selected maximum-state faults.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    rand_mask = torch.rand_like(x)
+    p_min = config.p_at_min
+    p_both = config.p_at_min + config.p_at_max
+    is_min = rand_mask < p_min
+    is_max = (rand_mask >= p_min) & (rand_mask < p_both)
+    return torch.where(is_min, min_val, torch.where(is_max, max_val, x))
+
+
+def apply_gaussian(x: Tensor, *, sigma: float | Tensor, enabled: bool) -> Tensor:
+    """Add a fresh zero-mean Gaussian perturbation to a floating-point tensor.
+
+    Tensor spreads use the input device and broadcast with the input. Normal
+    type promotion applies; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        sigma: Nonnegative absolute spread, broadcastable with the input on its
+            device.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    return x + torch.randn_like(x) * sigma
+
+
+def apply_relative_gaussian(x: Tensor, *, sigma_relative: float, enabled: bool) -> Tensor:
+    """Multiply floating-point values by independent Gaussian gains of mean one.
+
+    Zeros stay zero. Positive inputs can become negative; outputs are not
+    clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        sigma_relative: Nonnegative dimensionless spread relative to the nominal
+            value.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    return x * (1.0 + torch.randn_like(x) * sigma_relative)
+
+
+class StateDependentGaussianConfig(ConfigBase):
+    sigma_slope: float
+    """Linear growth of the noise σ per unit of `|x|`."""
+    sigma_intercept: float
+    """Base σ at `|x| = 0`."""
+
+    def validate(self) -> None:
+        self._require_non_neg(self.sigma_slope, "sigma_slope")
+        self._require_non_neg(self.sigma_intercept, "sigma_intercept")
+
+
+def apply_state_dependent_gaussian(
+    x: Tensor,
+    *,
+    config: StateDependentGaussianConfig,
+    enabled: bool,
+) -> Tensor:
+    """Add Gaussian noise with spread derived from each input magnitude.
+
+    Spread is the configured intercept plus slope times input magnitude. Outputs
+    are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    sigma = config.sigma_slope * x.abs() + config.sigma_intercept
+    return x + torch.randn_like(x) * sigma
+
+
+class LognormalConfig(ConfigBase):
+    sigma: float
+    """Standard deviation of the underlying normal, not of the multiplicative factor."""
+
+    def validate(self) -> None:
+        self._require_non_neg(self.sigma, "sigma")
+
+
+def apply_lognormal(x: Tensor, *, config: LognormalConfig, enabled: bool) -> Tensor:
+    """Multiply floating-point values by independent log-normal factors.
+
+    The gain has median one, not mean one. Signs and zeros are preserved.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    return x * torch.exp(torch.randn_like(x) * config.sigma)
+
+
+class StateDependentLognormalConfig(ConfigBase):
+    # === State range ===
+
+    min_val: float
+    """Lower bound of the state-normalisation range."""
+    max_val: float
+    """Upper bound of the state-normalisation range."""
+
+    # === Noise scale ===
+
+    sigma_slope: float
+    """Amount the noise σ falls as the normalised state rises from 0 to 1."""
+    sigma_intercept: float
+    """Base σ at the min state (normalised state 0)."""
+
+    def validate(self) -> None:
+        self._require_gt(self.max_val, "max_val", self.min_val)
+        self._require_non_neg(self.sigma_slope, "sigma_slope")
+        self._require_non_neg(self.sigma_intercept, "sigma_intercept")
+
+
+def apply_state_dependent_lognormal(
+    x: Tensor,
+    *,
+    config: StateDependentLognormalConfig,
+    enabled: bool,
+) -> Tensor:
+    """Apply log-normal factors with state-dependent spread.
+
+    Spread follows the configured normalized-state rule without domain clipping.
+    Inputs outside the calibration range extrapolate it. Gains are not
+    mean-corrected.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    x_norm = (x - config.min_val) / (config.max_val - config.min_val + 1e-12)
+    sigma = x_norm * (-config.sigma_slope) + config.sigma_intercept
+    return x * torch.exp(torch.randn_like(x) * sigma)
+
+
+class GammaConfig(ConfigBase):
+    shape_k: float
+    scale_theta: float
+
+    def validate(self) -> None:
+        self._require_pos(self.shape_k, "shape_k")
+        self._require_pos(self.scale_theta, "scale_theta")
+
+
+def apply_gamma_noise(x: Tensor, *, config: GammaConfig, enabled: bool) -> Tensor:
+    """Apply independent Gamma gains normalized to unit mean.
+
+    Use float32 or float64 on a device supporting Gamma sampling. Gains preserve
+    signs and zeros; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    concentration = torch.full((), config.shape_k, dtype=x.dtype, device=x.device)
+    gamma_dist = torch.distributions.Gamma(concentration, 1.0 / config.scale_theta)
+    gamma_sample = gamma_dist.sample(x.shape)
+    mean = config.shape_k * config.scale_theta
+    return x * (gamma_sample / mean)
+
+
+class StateDependentGammaConfig(ConfigBase):
+    # === State range ===
+
+    min_val: float
+    """Lower bound of the state-normalisation range."""
+    max_val: float
+    """Upper bound of the state-normalisation range."""
+
+    # === Distribution parameters ===
+
+    k_slope: float
+    """Rate at which the Gamma shape k varies with normalised state."""
+    k_intercept: float
+    """Gamma shape k at the min state (normalised state 0)."""
+
+    theta: float
+    """Scale parameter, held constant across all states."""
+
+    def validate(self) -> None:
+        self._require_gt(self.max_val, "max_val", self.min_val)
+        self._require_pos(self.k_intercept, "k_intercept")
+        self._require_pos(self.theta, "theta")
+
+
+def apply_state_dependent_gamma(
+    x: Tensor,
+    *,
+    config: StateDependentGammaConfig,
+    enabled: bool,
+) -> Tensor:
+    """Apply unit-mean Gamma gains with state-dependent concentration.
+
+    Concentration is floored for sampling; outputs are not range-clipped.
+    Sampling promotes dtypes other than float32 or float64 to float32, then
+    casts back to the input dtype.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    in_dtype = x.dtype
+    needs_cast = in_dtype not in (torch.float32, torch.float64)
+    x32 = x.float() if needs_cast else x
+
+    x_norm = (x32 - config.min_val) / (config.max_val - config.min_val + 1e-12)
+
+    k = (x_norm * config.k_slope + config.k_intercept).clamp(min=0.1)
+
+    gamma_sample = torch.distributions.Gamma(concentration=k, rate=1.0 / config.theta).sample()
+
+    mean = (k * config.theta).clamp(min=1e-12)
+    result = x32 * (gamma_sample / mean)
+    return result.to(in_dtype) if needs_cast else result
+
+
+class TelegraphConfig(ConfigBase):
+    # === Amplitude distribution ===
+
+    amplitude_mean: float
+    amplitude_std: float
+    """Standard deviation of the Gaussian amplitude draw."""
+
+    # === State probability ===
+
+    p_high_state: float
+    """Probability that a cell sits in the high RTN state."""
+
+    def validate(self) -> None:
+        self._require_non_neg(self.amplitude_std, "amplitude_std")
+        self._require_in_closed_interval(self.p_high_state, "p_high_state", lower=0.0, upper=1.0)
+
+
+def apply_telegraph_noise(x: Tensor, *, config: TelegraphConfig, enabled: bool) -> Tensor:
+    """Add independent signed, intermittently active perturbations.
+
+    Each call draws independent amplitudes, signs, and activity. No temporal
+    state or dwell-time process is retained; outputs are not clipped.
+
+    Args:
+        x: Floating-point nominal values to perturb.
+        config: Validated distribution parameters for this perturbation.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return x
+    amplitude = torch.randn_like(x) * config.amplitude_std + config.amplitude_mean
+    sign = torch.where(torch.rand_like(x) < 0.5, -1.0, 1.0).to(dtype=x.dtype)
+    mask = (torch.rand_like(x) < config.p_high_state).to(dtype=x.dtype)
+    return x + amplitude * sign * mask
+
+
+def apply_pelgrom_mismatch(
+    ideal: Tensor,
+    *,
+    sigma_relative: float,
+    unit: float,
+    floor: float | None = None,
+    enabled: bool,
+) -> Tensor:
+    """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
+
+    Use nonnegative nominal values, nonnegative spread, and a positive unit. The
+    floor applies only when sampling is enabled.
+
+    Args:
+        ideal: Nonnegative nominal floating-point values.
+        sigma_relative: Per-unit-cell relative σ.
+        unit: Single-unit-cell value in the same units as `ideal`.
+        floor: Optional minimum clamp applied after sampling.
+        enabled: Enable random draws.
+
+    Returns:
+        Perturbed values, or the original input object without sampling when
+        disabled. Treat shared storage as read-only.
+    """
+    if not enabled:
+        return ideal
+    sigma = torch.sqrt(ideal / unit) * (sigma_relative * unit)
+    out = ideal + torch.randn_like(ideal) * sigma
+    if floor is not None:
+        out = out.clamp_min(floor)
+    return out

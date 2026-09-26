@@ -1,0 +1,23 @@
+# MOSFET process / mismatch parameters.
+# Each top-level section: `<channel>_<node>_<flavor>`.
+
+
+[nmos_28_rvt]
+_neurox_class = "MosfetConfig"
+
+# --- Process electrical ---
+mu0__cm2_per_V_s = 200.0
+c_ox__fF_per_um2 = 31.4
+vth0__V = 0.40
+
+# --- Subthreshold ---
+n_factor = 1.25
+
+# --- Temperature coefficients ---
+T_nom__K = 300.0
+ute = 1.5
+kt1__V = -0.002
+
+# --- Pelgrom mismatch coefficients ---
+A_vt__mV_um = 3.0
+A_beta_relative__um = 2.0e-3

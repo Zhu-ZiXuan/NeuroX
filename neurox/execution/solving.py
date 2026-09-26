@@ -1,0 +1,359 @@
+"""Convergence-controlled solving and raw observation collection.
+
+Equivalent Python control flow blocks are pseudocode. Tensor notation stands
+for the same operation on every tensor in a structured value; tree traversal
+is omitted.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Self, final
+
+import torch
+from torch import Tensor
+
+from neurox.common.base_only_mixin import BaseOnlyMixin
+from neurox.common.dataclass_mixin import (
+    PyTreeDataClassMixin,
+    TensorDataClassMixin,
+    map_single_tensor_fields,
+    visit_tensor_fields,
+)
+from neurox.common.torch_compat import torch_assert_async, torch_cond
+
+from .loop import run_scan_without_inputs, run_while_loop_with_counter
+
+__all__ = [
+    "SolvingState",
+    "SolvingTrace",
+    "run_solving",
+    "run_solving_loop",
+    "run_solving_trace_scan",
+]
+
+
+class SolvingState(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
+    """Registered numerical state whose positions report whether they remain active.
+
+    Excluded positions are inactive. Numerical failures raise rather than become
+    inactive. Tensor leaves share a device. Construction raises `TypeError` if
+    `is_active` has a non-boolean dtype.
+
+    Subclass by declaring the tensors needed by the update rule. Keep field
+    structure, shape, dtype, and device fixed across iterations. A body callback
+    returns a new state and preserves inactive positions; this base does not
+    mask updates automatically. `is_active=False` means excluded or converged,
+    never an invalid numerical state. Retain the base validation when adding a
+    `__post_init__` check.
+    """
+
+    is_active: Tensor
+    """Boolean mask of positions requiring evaluation in this invocation.
+    Shape: `[...]`."""
+
+    def __post_init__(self) -> None:
+        if self.is_active.dtype != torch.bool:
+            raise TypeError("is_active must be a boolean mask")
+
+    # === Public API ===
+
+    @property
+    def device(self) -> torch.device:
+        """Device shared by all tensor leaves."""
+        return self.is_active.device
+
+    @property
+    def any_active(self) -> Tensor:
+        """Whether any positions remain active."""
+        return self.is_active.any()
+
+
+class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, base_only=True):
+    """Registered observation or history with trailing iteration axes.
+
+    A history has the same concrete type as one observation. Each enclosing scan
+    appends one iteration axis to every tensor, including nested histories.
+    Floating observations use NaN for unselected or inactive positions and
+    unused steps; boolean flags use false and signed integers use `-1` for
+    unused steps. Optional fields remain fixed throughout an invocation.
+    Construction rejects tensor fields outside these dtype families with
+    `TypeError`, including fields in nested dataclasses.
+
+    Declare observation fields on a concrete subclass, using the same structure
+    for one observation and a stacked history. If adding validation through
+    `__post_init__`, call the parent check. Populate unused template values
+    before starting a trace run; the solver checks dtype families but does not
+    choose physical observables or validate their meaning.
+    """
+
+    def __post_init__(self) -> None:
+        def validate_tensor(tensor: Tensor) -> None:
+            if not (
+                tensor.is_floating_point()
+                or tensor.dtype in (torch.bool, torch.int8, torch.int16, torch.int32, torch.int64)
+            ):
+                raise TypeError("Trace fields must be floating, boolean, or signed integer tensors")
+
+        visit_tensor_fields(validate_tensor, self)
+
+    # === Public API ===
+
+    @final
+    def select(self, index: int) -> Self:
+        """Remove the last iteration axis to retrieve one complete observation."""
+        return map_single_tensor_fields(lambda tensor: tensor.select(-1, index), self)
+
+    @final
+    def mask_invalid(self, valid: Tensor) -> Self:
+        """Replace invalid observations with unused values without changing the input.
+
+        Args:
+            valid: Boolean position mask, including singleton broadcast axes.
+                Trailing singleton axes are appended to match each tensor's
+                rank, including nested traces, before applying the mask.
+
+        Returns:
+            Trace with invalid floating values replaced by NaN, booleans by
+            false, and signed integers by `-1`. Optional fields are preserved.
+        """
+
+        def mask_tensor(tensor: Tensor) -> Tensor:
+            # Nested histories append axes after positions; the mask must not
+            # align its last position axis with an iteration axis.
+            mask_shape = (*valid.shape, *((1,) * (tensor.ndim - valid.ndim)))
+            broadcast_valid = valid.reshape(mask_shape)
+            unused: bool | float | int
+            if tensor.dtype == torch.bool:
+                unused = False
+            elif tensor.is_floating_point():
+                unused = torch.nan
+            else:
+                unused = -1
+            return torch.where(broadcast_valid, tensor, unused)
+
+        return map_single_tensor_fields(mask_tensor, self)
+
+
+def run_solving[StateT: SolvingState, TraceT: SolvingTrace](
+    *,
+    init_state: StateT,
+    body_fn: Callable[[StateT], tuple[StateT, TraceT]],
+    record_trace: bool,
+    default_trace_fn: Callable[[], TraceT],
+    max_iter: int,
+    trace_mask: Tensor | None = None,
+) -> tuple[StateT, TraceT | None]:
+    """Solve with optional history collection using a shared evaluation callback.
+
+    Args:
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
+        body_fn: Returns the next state and one observation; owns numerical
+            validation and preservation of inactive positions.
+        record_trace: Select history collection with scan or state-only
+            iteration with while. Must be a Python boolean. Recording permits
+            unconverged terminal states; state-only solving requires
+            convergence.
+        default_trace_fn: Called only when recording to construct the unused
+            observation required by `run_solving_trace_scan`.
+        max_iter: Positive upper bound on updates and, when recording, history
+            capacity.
+        trace_mask: Recording selection as defined by `run_solving_trace_scan`;
+            ignored when recording is disabled.
+
+    Returns:
+        A tuple containing:
+            Terminal state and history, or `None` for history when recording is
+            disabled. History tensors gain a trailing iteration axis.
+
+    Raises:
+        ValueError: `max_iter` is not positive.
+        RuntimeError: The terminal state remains active with
+            `record_trace=False`.
+    """
+    if record_trace:
+        return run_solving_trace_scan(
+            init_state=init_state,
+            body_fn=body_fn,
+            default_trace=default_trace_fn(),
+            max_iter=max_iter,
+            strict=False,
+            trace_mask=trace_mask,
+        )
+
+    def solve_body(current: StateT) -> StateT:
+        next_state, _ = body_fn(current)
+        return next_state
+
+    state = run_solving_loop(
+        init_state=init_state,
+        body_fn=solve_body,
+        max_iter=max_iter,
+        strict=True,
+    )
+    return state, None
+
+
+def run_solving_loop[StateT: SolvingState](
+    *,
+    init_state: StateT,
+    body_fn: Callable[[StateT], StateT],
+    max_iter: int,
+    strict: bool,
+) -> StateT:
+    """Update active positions until convergence or an iteration cap.
+
+    Equivalent Python control flow, omitting entry validation:
+
+    ```python
+    state = init_state
+    step = 0
+    while step < max_iter and state.any_active:
+        state = body_fn(state)
+        step += 1
+    if strict and state.any_active:
+        raise RuntimeError("Solving did not converge")
+    return state
+    ```
+
+    Args:
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
+        body_fn: Returns the next state; owns numerical updates, preservation of
+            inactive positions, and numerical validation.
+        max_iter: Positive upper bound on callback evaluations.
+        strict: Require the terminal state to have no active positions.
+
+    Returns:
+        Terminal state, including unconverged positions when `strict=False`. An
+        initially inactive state is returned without invoking `body_fn`.
+
+    Raises:
+        ValueError: `max_iter` is not positive.
+        RuntimeError: The terminal state remains active with `strict=True`.
+    """
+    if max_iter <= 0:
+        raise ValueError(f"max_iter must be positive; got {max_iter}")
+
+    def solving_cond_fn(step: Tensor, current: StateT) -> Tensor:
+        return (step < max_iter) & current.any_active
+
+    def solving_body_fn(_step: Tensor, current: StateT) -> StateT:
+        return body_fn(current)
+
+    state = run_while_loop_with_counter(
+        init_state=init_state,
+        cond_fn=solving_cond_fn,
+        body_fn=solving_body_fn,
+    )
+
+    if strict:
+        torch_assert_async(~state.any_active, f"Solving did not converge within {max_iter} iterations")
+
+    return state
+
+
+def run_solving_trace_scan[StateT: SolvingState, TraceT: SolvingTrace](
+    *,
+    init_state: StateT,
+    body_fn: Callable[[StateT], tuple[StateT, TraceT]],
+    default_trace: TraceT,
+    max_iter: int,
+    strict: bool,
+    trace_mask: Tensor | None = None,
+) -> tuple[StateT, TraceT]:
+    """Collect a fixed-capacity history of convergence observations.
+
+    Observations use activity before each update, retaining the final
+    convergence check for each position. Selection affects recording only. Once
+    all positions are inactive, remaining steps use `default_trace`.
+
+    Equivalent Python control flow:
+
+    ```python
+    state = init_state
+    observations = []
+    for _ in range(max_iter):
+        if state.any_active:
+            valid = state.is_active
+            if trace_mask is not None:
+                valid = valid & trace_mask
+            state, trace = body_fn(state)
+            for _ in range(trace.ndim - valid.ndim):
+                valid = valid.unsqueeze(-1)
+            trace = torch.where(valid, trace, default_trace)
+        else:
+            trace = default_trace
+        observations.append(trace)
+    if strict and state.any_active:
+        raise RuntimeError("Solving did not converge")
+    return state, torch.stack(observations, dim=-1)
+    ```
+
+    Args:
+        init_state: Initial registered state with its active-position mask and
+            fixed tensor layout.
+        body_fn: Returns the next state and one raw observation; owns
+            preservation of inactive positions and numerical validation.
+        default_trace: Observation filled with unused values, matching the
+            masked callback output, including nested histories. The active
+            branch produces contiguous observations.
+        max_iter: Positive history capacity and upper bound on updates.
+        strict: Require the terminal state to have no active positions.
+        trace_mask: Optional boolean selection broadcastable to
+            `init_state.is_active`, independent of numerical activity.
+
+    Returns:
+        A tuple (state, history) containing terminal state and trace history.
+        Each trace tensor gains a final axis of size
+        `max_iter`; existing nested history axes keep their order. Unconverged
+        positions are retained when `strict=False`.
+
+    Raises:
+        ValueError: `max_iter` is not positive.
+        RuntimeError: The terminal state remains active with `strict=True`.
+    """
+    if max_iter <= 0:
+        raise ValueError("max_iter must be positive")
+
+    def active_body_fn(current: StateT) -> tuple[StateT, TraceT]:
+        next_state, trace = body_fn(current)
+        # Use pre-update activity so the observation that proves convergence survives.
+        valid = current.is_active
+        if trace_mask is not None:
+            valid = valid & trace_mask
+        trace = trace.mask_invalid(valid)
+        # Explicit format also fixes size-one strides across cond branches.
+        trace = map_single_tensor_fields(lambda t: t.clone(memory_format=torch.contiguous_format), trace)
+        return next_state, trace
+
+    def inactive_body_fn(current: StateT) -> tuple[StateT, TraceT]:
+        # Even a no-op branch must return fresh tensors to avoid cond input aliasing.
+        return (
+            map_single_tensor_fields(torch.clone, current),
+            map_single_tensor_fields(torch.clone, default_trace),
+        )
+
+    def solving_body_fn(current: StateT) -> tuple[StateT, TraceT]:
+        return torch_cond(
+            current.any_active,
+            active_body_fn,
+            inactive_body_fn,
+            current,
+            output_template=(current, default_trace),
+        )
+
+    state, trace = run_scan_without_inputs(
+        init_state=init_state,
+        length=max_iter,
+        body_fn=solving_body_fn,
+        output_template=default_trace,
+    )
+    # Shape: [iteration, ...] -> [..., iteration]
+    trace = map_single_tensor_fields(lambda t: t.movedim(0, -1), trace)
+
+    if strict:
+        torch_assert_async(~state.any_active, f"Solving did not converge within {max_iter} iterations")
+
+    return state, trace
