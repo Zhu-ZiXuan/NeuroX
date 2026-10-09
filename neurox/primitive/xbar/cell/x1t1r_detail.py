@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.torch_compat import torch_assert_async
+from neurox.execution.compilation import compile_recording
 from neurox.execution.solving import SolvingState, SolvingTrace, run_solving
 from neurox.primitive.device.mosfet import MosfetConfig, MosfetPolicy, MosfetSnap, Nmos
 from neurox.primitive.device.rram import Rram, RramConfig, RramPolicy, RramSnap
@@ -377,7 +378,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[_Snap]):
         dcop, _ = self._solve_dc_impl(v_bl__V=v_bl__V, v_sl__V=v_sl__V, snap=snap, record_trace=False, trace_mask=None)
         return dcop
 
-    @torch.compile(dynamic=False, fullgraph=True)
+    @compile_recording(dynamic=False, fullgraph=True)
     def _solve_dc_impl(
         self,
         *,

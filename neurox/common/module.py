@@ -411,9 +411,10 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
         """Submit energy when profiling, retaining the configured observation prefix.
 
-        Compute energy under `torch.no_grad()` or an equivalent guard. Reassemble
-        chunks before submission and include each physical instance and access
-        once; trailing axes are summed. Scalar constants may be expanded views.
+        Compute energy under `torch.no_grad()` or an equivalent guard. Scoped
+        execution restores chunk positions before reducing trailing work axes.
+        Include each physical instance and access once. Scalar constants may
+        be expanded views.
 
         Args:
             dynamic_energy__fJ: Energy over full caller extents and billed
@@ -428,14 +429,12 @@ class ProfileModule(ModuleBase, ABC, base_only=True):
         if profiler is None:
             return
 
-        rank = self._profile_leading_rank
-        if rank > dynamic_energy__fJ.ndim:
-            raise ValueError("profile leading rank exceeds the submitted tensor rank")
-        if rank < dynamic_energy__fJ.ndim:
-            # Shape: [*observation, *work] -> [*observation]
-            dynamic_energy__fJ = dynamic_energy__fJ.sum(dim=tuple(range(rank, dynamic_energy__fJ.ndim)))
-
-        profiler.submit_dynamic_energy(dynamic_energy__fJ, source=self._profile_identity, channel=channel)
+        profiler.submit_dynamic_energy(
+            dynamic_energy__fJ,
+            source=self._profile_identity,
+            channel=channel,
+            leading_rank=self._profile_leading_rank,
+        )
 
     @final
     def _record_latency(self, latency__ns: Tensor) -> None:

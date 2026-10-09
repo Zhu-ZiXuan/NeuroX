@@ -20,3 +20,16 @@ The root `neurox` package exposes construction, lifecycle, profiling, and report
 ## Reporting
 
 ::: neurox.api.reporter
+
+## Diagnostic collection
+
+::: neurox.api.trace
+    options:
+      members: [TraceCollector, TraceRecord]
+      inherited_members: [__enter__, __exit__]
+
+## Compiled record execution
+
+::: neurox.execution.compilation
+    options:
+      members: [compile_recording, recording_backend]

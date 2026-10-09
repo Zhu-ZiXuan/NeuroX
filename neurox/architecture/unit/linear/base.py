@@ -15,6 +15,7 @@ from torch import Tensor
 from neurox.architecture.unit.base import UnitBase, UnitConfig
 from neurox.common.module import PolicyBase
 from neurox.common.registry_mixin import RegistryMixin
+from neurox.execution.compilation import compile_recording
 
 if TYPE_CHECKING:
     from .ideal import IdealLinearUnit
@@ -128,7 +129,7 @@ class LinearUnit(RegistryMixin[_Config, _Policy], UnitBase, ABC, base_only=True)
 
     @final
     @torch.no_grad()
-    @torch.compile(dynamic=False, fullgraph=True)
+    @compile_recording(dynamic=False, fullgraph=True)
     def linear(
         self,
         input: Tensor,

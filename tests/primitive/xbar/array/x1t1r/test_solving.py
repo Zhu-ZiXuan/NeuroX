@@ -175,3 +175,29 @@ def test_compact_word_lines_use_explicit_leading_shape(device: torch.device) -> 
     assert actual.i_bl_port__uA.shape == (5, 1, 1, _COL_NUM)
     torch.testing.assert_close(actual.i_bl_port__uA, expected.i_bl_port__uA)
     torch.testing.assert_close(actual.v_bl_port__V, expected.v_bl_port__V)
+
+
+def test_trace_collector_observes_existing_diagnostic_result(device: torch.device) -> None:
+    from neurox import TraceCollector
+
+    array = _build_array(device=device)
+    with TraceCollector() as collector:
+        dcop, trace = _solve_trace(array)
+    assert len(collector.result) == 1
+    observed = collector.result[0].values
+    torch.testing.assert_close(observed["residual__V"], trace.residual__V.cpu(), equal_nan=True)
+    torch.testing.assert_close(observed["node_trace.residual__uA"], trace.node_trace.residual__uA.cpu(), equal_nan=True)
+    torch.testing.assert_close(observed["node_trace.limited"], trace.node_trace.limited.cpu())
+    assert dcop.i_bl_port__uA.isfinite().all()
+
+    v_wl, bl_snap, sl_snap = _inputs(array)
+    with TraceCollector() as normal_collector:
+        normal = array.solve_dc(
+            v_wl,
+            leading_shape=tuple(v_wl.shape[:-2]),
+            wl_phase_dims=(-3,),
+            bl_driver_snap=bl_snap,
+            sl_driver_snap=sl_snap,
+        )
+    assert not normal_collector.result
+    torch.testing.assert_close(normal.i_bl_port__uA, dcop.i_bl_port__uA)

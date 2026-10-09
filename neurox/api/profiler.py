@@ -254,7 +254,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
             for _, module in neurox_profile_modules(model)
         }
 
-    @RecorderBase.submission
+    @RecorderBase.submission(payloads=("dynamic_energy__fJ",), leading_rank="leading_rank", additive=True)
     def submit_dynamic_energy(
         self,
         dynamic_energy__fJ: Tensor,
@@ -262,8 +262,9 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
         name: str | None = None,
         channel: str | None = None,
         source: Tensor | None = None,
+        leading_rank: int | None = None,
     ) -> None:
-        """Buffer energy already reduced to the emitter's observation axes.
+        """Buffer energy with an optional observation-prefix reduction.
 
         Retain a detached copy without changing dtype, exported to CPU.
         CPU exports from CUDA become readable at context exit. Names passed
@@ -279,11 +280,19 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
             channel: Optional billing segment under the emitter; a matching
                 real child receives the contribution in its existing row.
             source: CPU identity from `register_source`, resolved at runtime.
+            leading_rank: Optional retained observation prefix. Remaining axes
+                are summed after scoped loops restore their record layouts.
+                `None` accepts energy that has already been reduced.
 
         Raises:
             ValueError: The supplied channel is empty or contains a dot, or
                 exactly one of `name` and `source` was not supplied.
         """
+        if leading_rank is not None:
+            if not 0 <= leading_rank <= dynamic_energy__fJ.ndim:
+                raise ValueError("profile leading rank exceeds the submitted tensor rank")
+            if leading_rank < dynamic_energy__fJ.ndim:
+                dynamic_energy__fJ = dynamic_energy__fJ.sum(dim=tuple(range(leading_rank, dynamic_energy__fJ.ndim)))
         if channel is not None and (not channel or "." in channel):
             raise ValueError(f"channel {channel!r} must name one nonempty virtual segment")
         if dynamic_energy__fJ.ndim == 0:
@@ -296,7 +305,7 @@ class Profiler(RecorderBase[_EnergyRecord | _LatencyRecord, _History, dict[str, 
             )
         )
 
-    @RecorderBase.submission
+    @RecorderBase.submission(payloads=("latency__ns",), allow_loop=False)
     def submit_latency(self, latency__ns: Tensor, *, name: str | None = None, source: Tensor | None = None) -> None:
         """Buffer detached copies of basic-operation durations with their sample layout.
 

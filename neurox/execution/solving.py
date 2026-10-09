@@ -8,6 +8,7 @@ is omitted.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import fields
 from typing import Self, final
 
 import torch
@@ -20,6 +21,7 @@ from neurox.common.dataclass_mixin import (
     map_single_tensor_fields,
     visit_tensor_fields,
 )
+from neurox.common.recording import record_trace, trace_recording_active
 from neurox.common.torch_compat import torch_assert_async, torch_cond
 
 from .loop import run_scan_without_inputs, run_while_loop_with_counter
@@ -100,6 +102,17 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, ba
     # === Public API ===
 
     @final
+    def record(self, *, source: str) -> None:
+        """Save this completed history when a TraceCollector is active.
+
+        Tensor field names use dotted paths for nested traces. Absent optional
+        fields remain absent. This observes an existing history and changes
+        neither its contents nor the numerical solver's convergence policy.
+        """
+        if trace_recording_active():
+            record_trace(_trace_values(self), source=source)
+
+    @final
     def select(self, index: int) -> Self:
         """Remove the last iteration axis to retrieve one complete observation."""
         return map_single_tensor_fields(lambda tensor: tensor.select(-1, index), self)
@@ -133,6 +146,18 @@ class SolvingTrace(TensorDataClassMixin, PyTreeDataClassMixin, BaseOnlyMixin, ba
             return torch.where(broadcast_valid, tensor, unused)
 
         return map_single_tensor_fields(mask_tensor, self)
+
+
+def _trace_values(trace: SolvingTrace, prefix: str = "") -> dict[str, Tensor]:
+    values: dict[str, Tensor] = {}
+    for entry in fields(trace):
+        value = getattr(trace, entry.name)
+        name = f"{prefix}{entry.name}"
+        if isinstance(value, Tensor):
+            values[name] = value
+        elif isinstance(value, SolvingTrace):
+            values.update(_trace_values(value, f"{name}."))
+    return values
 
 
 def run_solving[StateT: SolvingState, TraceT: SolvingTrace](

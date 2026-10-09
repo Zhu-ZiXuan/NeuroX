@@ -17,6 +17,7 @@ from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
 from neurox.encoding import Encoding, Transcoder
+from neurox.execution.compilation import compile_recording
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -253,7 +254,7 @@ class CimMacro(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
 
     @final
     @torch.no_grad()
-    @torch.compile(dynamic=False, fullgraph=True)
+    @compile_recording(dynamic=False, fullgraph=True)
     def vec_mat_mul(
         self,
         x: Tensor,

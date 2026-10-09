@@ -25,6 +25,8 @@ _ROOT_LIFT_EXCEPTIONS = {
             "ProfileItem",
             "Reporter",
             "ReportItem",
+            "TraceCollector",
+            "TraceRecord",
             "check_unique_binding",
             "fabricate",
             "set_profile_leading_rank",

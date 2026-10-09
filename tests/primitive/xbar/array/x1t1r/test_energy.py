@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import Tensor
 
@@ -54,6 +55,7 @@ def _cell_config(
 def _build_array(
     *,
     vx_ratio_off_table: tuple[float, ...] = _VX_RATIO_OFF_TABLE,
+    solve_chunk_size: int = 0,
 ) -> _Array:
     array = XbarArray1t1r(
         bl_driver=_ideal_driver(),
@@ -73,7 +75,7 @@ def _build_array(
         ),
         policy=XbarArray1t1rPolicy(
             cell_policy=XbarCell1t1rLinearPolicy(),
-            solve_chunk_size=0,
+            solve_chunk_size=solve_chunk_size,
         ),
         inst_shape=(),
         row_num=_ROW_NUM,
@@ -113,6 +115,7 @@ def _solve(
     wl_phase_dims: tuple[int, ...],
     bl_ref__V: float = _BL_V_REF__V,
     sl_ref__V: float = _SL_V_REF__V,
+    on_repeat: str = "sum",
 ) -> tuple[Tensor, Tensor]:
     leading_shape = tuple(v_wl__V.shape[:-1])
     bl_driver = array.solver.bl_driver
@@ -121,7 +124,7 @@ def _solve(
     sl_ref__V = torch.full((*leading_shape, 1, _COL_NUM), sl_ref__V, dtype=_DTYPE)
     stamp_names(array)
     array.set_profile_leading_rank(len(leading_shape) - len(wl_phase_dims))
-    with Profiler(concat_dim=0) as profiler, torch.no_grad():
+    with Profiler(concat_dim=0, on_repeat=on_repeat) as profiler, torch.no_grad():
         dcop = array.solve_dc(
             v_wl__V=v_wl__V.unsqueeze(array.col_dim),
             leading_shape=leading_shape,
@@ -164,3 +167,17 @@ def test_multiple_wl_phase_dims_share_one_rest_establishment() -> None:
 
     torch.testing.assert_close(grid_energy, flat_energy, check_dtype=False)
     torch.testing.assert_close(grid_current.flatten(0, 1), flat_current)
+
+
+@pytest.mark.parametrize("on_repeat", ["sum", "replace"])
+def test_chunked_access_preserves_complete_energy_and_repeat_policy(on_repeat: str) -> None:
+    phases = _phases().expand(5, -1, -1)
+    expected, expected_current = _solve(_build_array(), phases, wl_phase_dims=(1,))
+    actual, actual_current = _solve(
+        _build_array(solve_chunk_size=4),
+        phases,
+        wl_phase_dims=(1,),
+        on_repeat=on_repeat,
+    )
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(actual_current, expected_current)

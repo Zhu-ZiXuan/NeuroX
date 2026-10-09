@@ -13,7 +13,10 @@ from torch import Tensor
 
 from neurox.common.dataclass_mixin import PyTreeDataClassMixin, TensorDataClassMixin
 from neurox.common.module import ConfigBase, DcopBase, PolicyBase, ProfileModule
+from neurox.common.recording import trace_recording_active
 from neurox.execution.chunking import run_chunked
+from neurox.execution.compilation import compile_recording
+from neurox.execution.recording import begin_record_scope, end_record_scope
 from neurox.primitive.physics import e_cap_excursion__fJ
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
@@ -121,7 +124,6 @@ class _Inputs[BLSnapT: ClampSnap, SLSnapT: ClampSnap](TensorDataClassMixin):
 
 class _Outputs(TensorDataClassMixin, PyTreeDataClassMixin):
     dcop: _Dcop
-    energy__fJ: Tensor | None
     trace: _Trace | None
 
 
@@ -315,6 +317,9 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
         )
         if trace is None:
             raise RuntimeError("A traced array solve returned no trace")
+        # Naming is needed only when a caller requested diagnostic collection.
+        if trace_recording_active():
+            trace.record(source=self.qualified_name)
         return dcop, trace
 
     def _solve_dc_impl(
@@ -327,7 +332,6 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
         sl_driver_snap: SLSnapT,
         record_trace: bool,
     ) -> tuple[_Dcop, _Trace | None]:
-        record_energy = self._is_profiler_active()
         row_num = self._row_num
         row_dim = self.row_dim
         col_dim = self.col_dim
@@ -356,22 +360,18 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
 
         # --- 3: execute the numerical graph and submit its energy ---
 
-        dcop, energy__fJ, trace = self._solve_dc_chunking(
+        dcop, trace = self._solve_dc_chunking(
             leading_shape=leading_shape,
             wl_phase_dims=wl_phase_dims,
             cell_snap=cell_snap,
             bl_driver_snap=bl_driver_snap,
             sl_driver_snap=sl_driver_snap,
-            record_energy=record_energy,
             record_trace=record_trace,
         )
 
-        if energy__fJ is not None:
-            self._record_dynamic_energy(energy__fJ)
-
         return dcop, trace
 
-    @torch.compile(dynamic=False, fullgraph=True)
+    @compile_recording(dynamic=False, fullgraph=True)
     def _solve_dc_chunking(
         self,
         *,
@@ -380,19 +380,19 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
         cell_snap: _CellSnap,
         bl_driver_snap: BLSnapT,
         sl_driver_snap: SLSnapT,
-        record_energy: bool,
         record_trace: bool,
-    ) -> tuple[_Dcop, Tensor | None, _Trace | None]:
+    ) -> tuple[_Dcop, _Trace | None]:
 
         # --- 1: solve independent chunks and reassemble their outputs ---
 
+        access_scope = begin_record_scope("energy_access")
+
         def solve_chunk(inputs: _Inputs[BLSnapT, SLSnapT]) -> _Outputs:
-            def final_fn(state: _State) -> tuple[_Dcop, Tensor | None]:
+            def final_fn(state: _State) -> _Dcop:
                 cell_dcop = self.cell.solve_dc(
                     v_bl__V=state.v_bl_node__V, v_sl__V=state.v_sl_node__V, snap=inputs.cell_snap
                 )
-                energy__fJ = None
-                if record_energy:
+                if self._is_profiler_active():
                     energy__fJ = self._energy_from_state(
                         state,
                         cell_snap=inputs.cell_snap,
@@ -400,16 +400,16 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
                         sl_driver_snap=inputs.sl_driver_snap,
                         cell_dcop=cell_dcop,
                     )
-                dcop = self._dcop_from_state(
+                    self._record_dynamic_energy(energy__fJ)
+                return self._dcop_from_state(
                     state,
                     cell_snap=inputs.cell_snap,
                     bl_driver_snap=inputs.bl_driver_snap,
                     sl_driver_snap=inputs.sl_driver_snap,
                     cell_dcop=cell_dcop,
                 )
-                return dcop, energy__fJ
 
-            (dcop, energy__fJ), trace = self.solver.solve(
+            dcop, trace = self.solver.solve(
                 cell_snap=inputs.cell_snap,
                 bl_driver_snap=inputs.bl_driver_snap,
                 sl_driver_snap=inputs.sl_driver_snap,
@@ -417,7 +417,7 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
                 record_trace=record_trace,
                 trace_mask=None,
             )
-            return _Outputs(dcop=dcop, energy__fJ=energy__fJ, trace=trace)
+            return _Outputs(dcop=dcop, trace=trace)
 
         # Only the PyTree structure matters here; empty leaves avoid full-size
         # allocations before chunking. Recording flags fix optional structure at trace time.
@@ -431,9 +431,9 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
             )
         output_template = _Outputs(
             dcop=self._dcop_template(),
-            energy__fJ=torch.empty(0, dtype=torch.float32) if record_energy else None,
             trace=trace_template,
         )
+        energy_scope = begin_record_scope("energy_sum", shape=wl_phase_dims)
         result = run_chunked(
             operands=_Inputs(
                 cell_snap=cell_snap,
@@ -447,12 +447,11 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
             device=cell_snap.v_wl__V.device,
         )
 
-        # --- 2: aggregate phase and rest energy for each hold window ---
+        end_record_scope(energy_scope)
 
-        energy__fJ = None
-        phase_energy__fJ = result.energy__fJ
-        if phase_energy__fJ is not None:
-            phase_energy__fJ = phase_energy__fJ.sum(dim=wl_phase_dims)
+        # --- 2: establish the held boundary once per access ---
+
+        if self._is_profiler_active():
             v_bl_rest__V = bl_driver_snap.v_open__V
             v_sl_rest__V = sl_driver_snap.v_open__V
             # Remove later axes first so earlier phase indices keep their meaning.
@@ -463,9 +462,10 @@ class XbarArray1t1r[BLSnapT: ClampSnap, SLSnapT: ClampSnap](ProfileModule):
                 v_bl_rest__V=v_bl_rest__V,
                 v_sl_rest__V=v_sl_rest__V,
             )
-            energy__fJ = phase_energy__fJ + rest_energy__fJ
+            self._record_dynamic_energy(rest_energy__fJ)
 
-        return result.dcop, energy__fJ, result.trace
+        end_record_scope(access_scope)
+        return result.dcop, result.trace
 
     def _dcop_template(self) -> _Dcop:
         """Return the PyTree structure produced by `_dcop_from_state`.

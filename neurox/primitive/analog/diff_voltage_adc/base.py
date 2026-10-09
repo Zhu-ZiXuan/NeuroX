@@ -15,6 +15,7 @@ from torch import Tensor
 from neurox.common.module import ConfigBase, PolicyBase, ProfileModule
 from neurox.common.registry_mixin import RegistryMixin
 from neurox.common.torch_compat import torch_assert_async
+from neurox.execution.compilation import compile_recording
 from neurox.primitive.analog.adc_probe import AdcProber
 
 
@@ -111,7 +112,7 @@ class DiffVadc(ProfileModule, RegistryMixin[_Config, _Policy], ABC, base_only=Tr
 
     @final
     @torch.no_grad()
-    @torch.compile(dynamic=False, fullgraph=True)
+    @compile_recording(dynamic=False, fullgraph=True)
     def convert(
         self,
         *,

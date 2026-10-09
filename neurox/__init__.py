@@ -17,6 +17,7 @@ from .api.function import (
 )
 from .api.profiler import ProfileItem, Profiler
 from .api.reporter import Reporter, ReportItem
+from .api.trace import TraceCollector, TraceRecord
 
 __all__ = [
     "architecture",
@@ -26,6 +27,8 @@ __all__ = [
     "ProfileItem",
     "Reporter",
     "ReportItem",
+    "TraceCollector",
+    "TraceRecord",
     # function
     "check_unique_binding",
     "fabricate",

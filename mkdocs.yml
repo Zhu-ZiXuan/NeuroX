@@ -151,6 +151,7 @@ nav:
   - Construction: system_design/construction.md
   - Physical state: system_design/physical_state.md
   - PPA accounting: system_design/ppa_accounting.md
+  - Record collection: system_design/record_collection.md
   - CIM execution: system_design/cim_execution.md
   - Non-ideality composition: system_design/nonideality_kernels.md
 - About:

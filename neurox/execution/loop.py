@@ -11,8 +11,13 @@ from collections.abc import Callable
 
 import torch
 from torch import Tensor
+from torch.utils import _pytree as pytree
 
+from neurox.common.recording import recording_active
 from neurox.common.torch_compat import torch_map, torch_scan, torch_while_loop
+
+from .compilation import compile_recording
+from .recording import begin_record_scope, end_record_scope
 
 __all__ = [
     "run_map",
@@ -113,6 +118,7 @@ def run_scan[StateT, InputT, OutputT](
     output_template: OutputT,
     dim: int = 0,
     reverse: bool = False,
+    record_dim: int | None = None,
 ) -> tuple[StateT, OutputT]:
     """Scan PyTree input slices while carrying a state.
 
@@ -140,6 +146,8 @@ def run_scan[StateT, InputT, OutputT](
             Tensor values and metadata are unused.
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
+        record_dim: Position of the added hidden-record axis; `None` follows
+            the scan output axis. Use `-1` to append an iteration/history axis.
         reverse: Visit inputs in reverse order while returning outputs in input
             order.
 
@@ -149,7 +157,21 @@ def run_scan[StateT, InputT, OutputT](
         axis at the resolved `dim` if that axis exists in the stacked tensor,
         otherwise at axis zero.
     """
-    return torch_scan(
+    # Recording and compiler state specialize at capture time.
+    if recording_active() and not torch.compiler.is_compiling():
+        return _compiled_scan(
+            init_state=init_state,
+            xs=xs,
+            body_fn=body_fn,
+            output_template=output_template,
+            dim=dim,
+            reverse=reverse,
+            record_dim=record_dim,
+        )
+    first = pytree.tree_leaves(xs)[0]
+    axis = (dim if dim >= 0 else dim + first.ndim) if record_dim is None else record_dim
+    token = begin_record_scope("scan", shape=(int(reverse),), axis=axis)
+    result = torch_scan(
         body_fn,
         init_state,
         xs,
@@ -157,6 +179,8 @@ def run_scan[StateT, InputT, OutputT](
         reverse=reverse,
         output_template=output_template,
     )
+    end_record_scope(token)
+    return result
 
 
 def run_scan_without_output[StateT, InputT](
@@ -167,6 +191,7 @@ def run_scan_without_output[StateT, InputT](
     device: torch.device | None = None,
     dim: int = 0,
     reverse: bool = False,
+    record_dim: int | None = None,
 ) -> StateT:
     """Scan PyTree input slices and retain only the terminal state.
 
@@ -193,6 +218,8 @@ def run_scan_without_output[StateT, InputT](
         dim: Input iteration axis; negative values are resolved against the
             first input leaf.
         reverse: Visit input slices in reverse order.
+        record_dim: Position of the added hidden-record axis; `None` follows
+            the scan output axis.
 
     Returns:
         Terminal carry with the same structured layout as init_state.
@@ -202,12 +229,13 @@ def run_scan_without_output[StateT, InputT](
     def scan_body(state: StateT, input: InputT) -> tuple[StateT, Tensor]:
         return body_fn(state, input), torch.empty(0, device=device)
 
-    state, _ = torch_scan(
-        scan_body,
-        init_state,
-        xs,
+    state, _ = run_scan(
+        body_fn=scan_body,
+        init_state=init_state,
+        xs=xs,
         dim=dim,
         reverse=reverse,
+        record_dim=record_dim,
         output_template=torch.empty(0, device=device),
     )
     return state
@@ -221,6 +249,7 @@ def run_scan_without_inputs[StateT, OutputT](
     output_template: OutputT,
     device: torch.device | None = None,
     reverse: bool = False,
+    record_dim: int | None = None,
 ) -> tuple[StateT, OutputT]:
     """Repeat a PyTree state update and collect its outputs.
 
@@ -247,6 +276,7 @@ def run_scan_without_inputs[StateT, OutputT](
             Tensor values and metadata are unused.
         device: Optional placement of the unused iteration indices; omission
             uses the default device.
+        record_dim: Added hidden-record axis; `None` places it first.
         reverse: Reverse output positions; the state recurrence is unchanged.
 
     Returns:
@@ -258,11 +288,12 @@ def run_scan_without_inputs[StateT, OutputT](
         return body_fn(state)
 
     steps = torch.arange(length, device=device)
-    return torch_scan(
-        scan_body,
-        init_state,
-        steps,
+    return run_scan(
+        body_fn=scan_body,
+        init_state=init_state,
+        xs=steps,
         reverse=reverse,
+        record_dim=record_dim,
         output_template=output_template,
     )
 
@@ -275,6 +306,7 @@ def run_scan_without_carry[InputT, OutputT](
     device: torch.device | None = None,
     dim: int = 0,
     reverse: bool = False,
+    record_dim: int | None = None,
 ) -> OutputT:
     """Apply a callback independently to PyTree input slices and stack its outputs.
 
@@ -301,6 +333,8 @@ def run_scan_without_carry[InputT, OutputT](
             first input leaf.
         reverse: Visit inputs in reverse order while returning outputs in
             input order.
+        record_dim: Position of the added hidden-record axis; `None` follows
+            the scan output axis.
 
     Returns:
         Stacked outputs. Each leaf gains an iteration axis at the resolved
@@ -311,12 +345,13 @@ def run_scan_without_carry[InputT, OutputT](
     def scan_body(_state: Tensor, input: InputT) -> tuple[Tensor, OutputT]:
         return torch.empty(0, device=device), body_fn(input)
 
-    _, output = torch_scan(
-        scan_body,
-        torch.empty(0, device=device),
-        xs,
+    _, output = run_scan(
+        body_fn=scan_body,
+        init_state=torch.empty(0, device=device),
+        xs=xs,
         dim=dim,
         reverse=reverse,
+        record_dim=record_dim,
         output_template=output_template,
     )
     return output
@@ -352,4 +387,14 @@ def run_map[InputT, OutputT](
         Outputs in input order, with a new leading axis for the mapped slices.
         Registered dataclasses and their optional fields are preserved.
     """
-    return torch_map(body_fn, xs, output_template=output_template)
+    # A standalone recorded map owns the same compilation boundary as scan.
+    if recording_active() and not torch.compiler.is_compiling():
+        return _compiled_map(xs=xs, body_fn=body_fn, output_template=output_template)
+    token = begin_record_scope("map")
+    result = torch_map(body_fn, xs, output_template=output_template)
+    end_record_scope(token)
+    return result
+
+
+_compiled_scan = compile_recording(run_scan, fullgraph=True, dynamic=False)
+_compiled_map = compile_recording(run_map, fullgraph=True, dynamic=False)

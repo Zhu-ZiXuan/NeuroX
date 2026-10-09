@@ -8,7 +8,7 @@ from functools import wraps
 from inspect import Parameter, signature
 from itertools import count
 from types import TracebackType
-from typing import Any, ClassVar, Concatenate, Self, cast, final
+from typing import Any, ClassVar, Concatenate, Protocol, Self, cast, final, overload
 from weakref import WeakValueDictionary
 
 import torch
@@ -16,10 +16,15 @@ from torch import Tensor
 from torch._library.effects import EffectType
 
 from .base_only_mixin import BaseOnlyMixin
+from .recording import Submission, enter_recording, exit_recording, register_submission
 
 _identities = count()
 _submissions = count()
 _recorders: WeakValueDictionary[int, RecorderBase[Any, Any, Any]] = WeakValueDictionary()
+
+
+class _SubmissionDecorator(Protocol):
+    def __call__[**P](self, method: Callable[P, None]) -> Callable[P, None]: ...
 
 
 class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=True):
@@ -102,9 +107,36 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
     # === Public API ===
 
     @staticmethod
+    @overload
+    def submission[**P](
+        method: Callable[P, None],
+        *,
+        payloads: tuple[str, ...] = (),
+        leading_rank: str | None = None,
+        additive: bool = False,
+        allow_loop: bool = True,
+    ) -> Callable[P, None]: ...
+
+    @staticmethod
+    @overload
+    def submission(
+        method: None = None,
+        *,
+        payloads: tuple[str, ...] = (),
+        leading_rank: str | None = None,
+        additive: bool = False,
+        allow_loop: bool = True,
+    ) -> _SubmissionDecorator: ...
+
+    @staticmethod
     def submission[OwnerT: RecorderBase[Any, Any, Any], **P](
-        method: Callable[Concatenate[OwnerT, P], None],
-    ) -> Callable[Concatenate[OwnerT, P], None]:
+        method: Callable[Concatenate[OwnerT, P], None] | None = None,
+        *,
+        payloads: tuple[str, ...] = (),
+        leading_rank: str | None = None,
+        additive: bool = False,
+        allow_loop: bool = True,
+    ) -> Callable[..., Any]:
         """Run a submission method eagerly through an ordered graph operation.
 
         Decorated methods return `None`, leave argument tensors unchanged, and
@@ -114,7 +146,23 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         specialize compiled callers. The method body runs
         once per invocation, including under `fullgraph=True`, and is skipped
         during fake execution. It may read recorder state and construct records.
+
+        Payload names identify tensor trees collected by NeuroX scan/map.
+        Without an explicit selection, required Tensor parameters are payloads.
+        Other arguments must be loop-invariant. `leading_rank` names an optional
+        observation-prefix parameter normalized after positional reconstruction.
+        Only additive submissions participate in physical phase reductions;
+        `allow_loop=False` keeps terminal-only records outside collection loops.
         """
+        if method is None:
+
+            def decorate(function: Callable[Concatenate[OwnerT, P], None]) -> Callable[Concatenate[OwnerT, P], None]:
+                return RecorderBase.submission(
+                    function, payloads=payloads, leading_rank=leading_rank, additive=additive, allow_loop=allow_loop
+                )
+
+            return decorate
+
         method_signature = signature(method, eval_str=True)
         parameters = list(method_signature.parameters.values())[1:]
         submission_signature = method_signature.replace(parameters=parameters)
@@ -137,8 +185,9 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         # Infer the schema from the original method, replacing only its owner.
         identity_parameter = Parameter("identity", Parameter.POSITIONAL_OR_KEYWORD, annotation=Tensor)
         cast("Any", deliver).__signature__ = method_signature.replace(parameters=[identity_parameter, *parameters])
+        operation_name = f"record_{method.__name__}_{next(_submissions)}"
         operation = torch.library.custom_op(
-            f"neurox::record_{method.__name__}_{next(_submissions)}",
+            f"neurox::{operation_name}",
             deliver,
             mutates_args=(),
             tags=(torch.Tag.cudagraph_unsafe,),
@@ -149,6 +198,21 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
             pass
 
         operation.register_effect(EffectType.ORDERED)
+        parameter_names = tuple(parameter.name for parameter in parameters)
+        selected = payloads or tuple(parameter.name for parameter in parameters if parameter.annotation is Tensor)
+        if not selected or any(name not in parameter_names for name in selected):
+            raise ValueError("Submission payloads must name tensor arguments")
+        register_submission(
+            getattr(torch.ops.neurox, operation_name).default,
+            Submission(
+                signature=method_signature.replace(parameters=[identity_parameter, *parameters]),
+                deliver=deliver,
+                payloads=selected,
+                leading_rank=leading_rank,
+                additive=additive,
+                allow_loop=allow_loop,
+            ),
+        )
 
         @wraps(method)
         def submit(self: OwnerT, /, *args: P.args, **kwargs: P.kwargs) -> None:
@@ -167,6 +231,7 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
         if family_root.__active_recorder is not None:  # noqa: SLF001
             raise RuntimeError(f"only one {family_root.__name__} may be active at a time")
         family_root.__active_recorder = self  # noqa: SLF001
+        enter_recording()
         return self
 
     @final
@@ -178,6 +243,7 @@ class RecorderBase[RecordT, HistoryT, ResultT](BaseOnlyMixin, ABC, base_only=Tru
     ) -> None:
         family_root = self.__family_root
         family_root.__active_recorder = None  # noqa: SLF001
+        exit_recording()
         records = self._current_records
         self._current_records = []
         self._wait_for_exports()

@@ -18,8 +18,11 @@ from neurox.common.dataclass_mixin import (
     map_paired_tensor_fields,
     map_single_tensor_fields,
 )
+from neurox.common.recording import recording_active
 
+from .compilation import compile_recording
 from .loop import run_map
+from .recording import begin_record_scope, end_record_scope
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance as _Dataclass
@@ -88,6 +91,18 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
     Raises:
         ValueError: The chunk bound is negative or there are no positions.
     """
+    # Recording state is a Python control specialized by the compiler.
+    if recording_active() and not torch.compiler.is_compiling():
+        return _compiled_chunked(
+            expected_chunk_size=expected_chunk_size,
+            leading_shape=leading_shape,
+            device=device,
+            operands=operands,
+            output_template=output_template,
+            body_fn=body_fn,
+        )
+    token = begin_record_scope("chunk", shape=leading_shape)
+
     # --- 1: validate the schedule ---
 
     if expected_chunk_size < 0:
@@ -131,7 +146,9 @@ def run_chunked[InputsT: _Dataclass, OutputsT: _Dataclass](
 
     # --- 4: restore the caller's leading axes ---
 
-    return _restore_result(result, leading_shape=leading_shape)
+    result = _restore_result(result, leading_shape=leading_shape)
+    end_record_scope(token)
+    return result
 
 
 def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
@@ -162,10 +179,13 @@ def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
         )
         return body_fn(chunk_operands)
 
+    token = begin_record_scope("group", shape=(group_chunk_num, group_chunk_size))
     offsets = torch.arange(group_chunk_size, device=device)
 
     if group_chunk_num == 1:
-        return evaluate_chunk(offsets + start_offset)
+        result = evaluate_chunk(offsets + start_offset)
+        end_record_scope(token)
+        return result
 
     starts = start_offset + torch.arange(group_chunk_num, device=device) * group_chunk_size
 
@@ -174,7 +194,9 @@ def _run_uniform_group[InputsT: _Dataclass, OutputsT: _Dataclass](
 
     stacked = run_map(xs=starts, body_fn=map_body_fn, output_template=output_template)
     # Shape: [chunk, position, ...] -> [chunk*position, ...]
-    return map_single_tensor_fields(lambda tensor: tensor.flatten(0, 1), stacked)
+    result = map_single_tensor_fields(lambda tensor: tensor.flatten(0, 1), stacked)
+    end_record_scope(token)
+    return result
 
 
 def _restore_result[OutputsT: _Dataclass](
@@ -214,3 +236,6 @@ def _slice_operands[InputsT: _Dataclass](
         return sliced.expand(chunk_size, *trailing_shape)
 
     return map_single_tensor_fields(fn, operands)
+
+
+_compiled_chunked = compile_recording(run_chunked, fullgraph=True, dynamic=False)
